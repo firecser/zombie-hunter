@@ -1,0 +1,2963 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>僵尸猎人 - Zombie Hunter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+        }
+        
+        body {
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            font-family: 'Microsoft YaHei', sans-serif;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 11px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+            background: rgba(0,0,0,0.6);
+            padding: 6px 8px;
+            border-radius: 8px;
+        }
+        
+        #ui .stat-row {
+            display: flex;
+            align-items: center;
+            margin: 2px 0;
+            gap: 5px;
+        }
+        
+        #ui .exp-bar {
+            width: 60px;
+            height: 6px;
+            background: rgba(50,50,50,0.8);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        #ui .exp-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4488ff 0%, #44ccff 100%);
+            border-radius: 2px;
+            transition: width 0.2s;
+        }
+        
+        .health-bar {
+            width: 80px;
+            height: 8px;
+            background: rgba(50,50,50,0.8);
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid rgba(255,100,100,0.3);
+        }
+        
+        .health-fill {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff4444 0%, #ff6644 100%);
+            transition: width 0.2s;
+            border-radius: 3px;
+        }
+        
+        /* 血条（在小车下方，技能上方） */
+        #healthBar {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(0,0,0,0.65);
+            padding: 2px 6px;
+            border-radius: 8px;
+            z-index: 20;
+        }
+        
+        #healthBar .label {
+            font-size: 9px;
+        }
+        
+        #healthBar .health-bar {
+            width: 65px;
+            height: 4px;
+            background: rgba(80,80,80,0.8);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        #healthBar .health-fill {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff4444 0%, #ff6644 100%);
+            transition: width 0.2s;
+            border-radius: 2px;
+        }
+        
+        #healthBar #healthText {
+            color: #fff;
+            font-size: 9px;
+            font-weight: bold;
+            min-width: 22px;
+            text-align: center;
+        }
+        
+        /* 技能栏 */
+        #skills {
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 4px;
+            max-width: 180px;
+            z-index: 20;
+        }
+        
+        .skill-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(255, 215, 0, 0.8);
+            border-radius: 6px;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            font-size: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        
+        .skill-btn .icon {
+            font-size: 14px;
+        }
+        
+        .skill-btn .level {
+            font-size: 7px;
+            color: #ffd700;
+        }
+        
+        /* 炸弹按钮 */
+        #bombBtn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 55px;
+            height: 55px;
+            border: 2px solid #ff4444;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            cursor: pointer;
+            transition: all 0.2s;
+            overflow: hidden;
+        }
+        
+        #bombBtn:active {
+            transform: scale(0.95);
+        }
+        
+        #bombBtn.disabled {
+            cursor: not-allowed;
+            border-color: #666;
+        }
+        
+        /* 冷却遮罩 - 圆形时钟效果（顺时针） */
+        #bombBtn .cooldown-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(
+                transparent 0deg,
+                transparent var(--cooldown-deg, 0deg),
+                rgba(0, 0, 0, 0.8) var(--cooldown-deg, 0deg),
+                rgba(0, 0, 0, 0.8) 360deg
+            );
+            pointer-events: none;
+        }
+        
+        /* 可用时发光效果 */
+        #bombBtn:not(.disabled) {
+            box-shadow: 0 0 15px rgba(255, 68, 68, 0.5);
+        }
+        
+        #bombBtn:not(.disabled):hover {
+            box-shadow: 0 0 25px rgba(255, 68, 68, 0.8);
+        }
+        
+        /* 炸弹获得提醒 */
+        .bomb-reminder {
+            background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+            border: 2px solid #ff6666;
+            border-radius: 10px;
+            padding: 12px 15px;
+            margin-bottom: 12px;
+            text-align: center;
+            display: none;
+            animation: bombPulse 1s ease-in-out infinite;
+        }
+        
+        .bomb-reminder.show {
+            display: block;
+        }
+        
+        @keyframes bombPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .bomb-reminder .content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .bomb-reminder .icon {
+            font-size: 28px;
+        }
+        
+        .bomb-reminder .text {
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        #bombBtn .icon {
+            font-size: 22px;
+            z-index: 1;
+        }
+        
+        #bombBtn .count {
+            font-size: 11px;
+            color: #ff4444;
+            font-weight: bold;
+            z-index: 1;
+        }
+        
+        #bombBtn .cooldown-text {
+            position: absolute;
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 5px #000;
+            z-index: 2;
+        }
+        
+        /* 升级面板 */
+        }
+        
+        #bombBtn .cooldown {
+            font-size: 10px;
+            color: #aaa;
+        }
+        
+        /* 升级面板 */
+        #upgradePanel {
+            position: absolute;
+            top: 70%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            border: 3px solid #ffd700;
+            border-radius: 12px;
+            padding: 15px;
+            display: none;
+            z-index: 100;
+            width: 90%;
+            max-width: 400px;
+        }
+        
+        #upgradePanel h2 {
+            color: #ffd700;
+            text-align: center;
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+        
+        .upgrade-options {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: nowrap;
+        }
+        
+        .upgrade-card {
+            width: 80px;
+            padding: 10px 6px;
+            background: linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
+            border: 2px solid #4a4e69;
+            border-radius: 8px;
+            color: #fff;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .upgrade-card:active {
+            border-color: #ffd700;
+            transform: scale(0.95);
+            background: linear-gradient(135deg, #3d3d54 0%, #2a2a3e 100%);
+        }
+        
+        .upgrade-card .icon {
+            font-size: 22px;
+            margin-bottom: 4px;
+        }
+        
+        .upgrade-card .name {
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        
+        .upgrade-card .desc {
+            font-size: 9px;
+            color: #aaa;
+            line-height: 1.2;
+        }
+        
+        /* 弹框按钮容器 */
+        .modal-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 15px;
+        }
+        
+        .modal-buttons button {
+            flex: 1 1 0;
+            min-width: 70px;
+            padding: 10px 6px;
+            font-size: 12px;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .modal-buttons button:active {
+            transform: scale(0.95);
+        }
+        
+        /* 游戏结束 */
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            border: 3px solid #ff4444;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+            width: 85%;
+            max-width: 320px;
+        }
+        
+        #gameOver h2 {
+            color: #ff4444;
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+        
+        #gameOver p {
+            color: #fff;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        #restartBtn {
+            background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+        }
+        
+        #gameOverBackBtn {
+            background: linear-gradient(135deg, #4a4e69 0%, #2d2d44 100%);
+        }
+        
+        /* 通关结算 */
+        #victoryScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            border: 3px solid #ffd700;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+            width: 85%;
+            max-width: 320px;
+        }
+        
+        #victoryScreen h2 {
+            color: #ffd700;
+            font-size: 28px;
+            margin-bottom: 15px;
+        }
+        
+        #victoryScreen p {
+            color: #fff;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        #victoryRestartBtn {
+            background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+            color: #1a1a2e;
+        }
+        
+        #nextStageBtn {
+            background: linear-gradient(135deg, #44aa44 0%, #228822 100%);
+            color: #fff;
+        }
+        
+        #backToStageBtn {
+            background: linear-gradient(135deg, #4a4e69 0%, #2d2d44 100%);
+            color: #fff;
+        }
+        
+        /* 倒计时提示 */
+        #countdownWarning {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff4444;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 0 0 20px rgba(255,68,68,0.8);
+            display: none;
+            z-index: 50;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        
+        /* 开始界面 */
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+        }
+        
+        #startScreen h1 {
+            color: #ffd700;
+            font-size: 28px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(255,215,0,0.5);
+            text-align: center;
+        }
+        
+        #startScreen .instructions {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        #startScreen p {
+            color: #aaa;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        #startBtn {
+            padding: 15px 50px;
+            font-size: 18px;
+            background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+            border: none;
+            border-radius: 10px;
+            color: #1a1a2e;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        #startBtn:active {
+            transform: scale(0.95);
+        }
+        
+        /* 暂停按钮 */
+        #pauseBtn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 44px;
+            height: 44px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            cursor: pointer;
+        }
+        
+        #pauseBtn:active {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        /* 静音按钮 */
+        #muteBtn {
+            position: absolute;
+            top: 10px;
+            right: 60px;
+            width: 44px;
+            height: 44px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            cursor: pointer;
+        }
+        
+        #muteBtn:active {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        /* 关卡选择界面 */
+        #stageSelectScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 40px 20px 20px;
+            z-index: 200;
+            overflow-y: auto;
+        }
+        
+        #stageSelectScreen h1 {
+            color: #ffd700;
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px rgba(255,215,0,0.5);
+        }
+        
+        .stage-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            max-width: 360px;
+            width: 100%;
+        }
+        
+        .stage-card {
+            background: linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
+            border: 2px solid #4a4e69;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .stage-card:active {
+            transform: scale(0.95);
+        }
+        
+        .stage-card.locked {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: #333;
+        }
+        
+        .stage-card.locked .stage-icon {
+            filter: grayscale(100%);
+        }
+        
+        .stage-card.completed {
+            border-color: #44cc44;
+        }
+        
+        .stage-card.current {
+            border-color: #ffd700;
+            box-shadow: 0 0 15px rgba(255,215,0,0.3);
+        }
+        
+        .stage-icon {
+            font-size: 36px;
+            margin-bottom: 8px;
+        }
+        
+        .stage-name {
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .stage-desc {
+            color: #888;
+            font-size: 10px;
+        }
+        
+        .stage-stars {
+            margin-top: 6px;
+            font-size: 14px;
+        }
+        
+        .stage-btn {
+            margin-top: 20px;
+            padding: 12px 30px;
+            font-size: 16px;
+            background: linear-gradient(135deg, #4a4e69 0%, #2d2d44 100%);
+            border: 2px solid #6a6e89;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+        }
+        
+        /* 下一关按钮 */
+        #nextStageBtn {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 12px;
+            font-size: 16px;
+            background: linear-gradient(135deg, #44aa44 0%, #228822 100%);
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        #nextStageBtn:active {
+            transform: scale(0.95);
+        }
+        
+        /* 当前关卡显示 */
+        #currentStageDisplay {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 4px 12px;
+            border-radius: 15px;
+            color: #ffd700;
+            font-size: 12px;
+            z-index: 15;
+        }
+        
+        /* 暂停面板 */
+        #pausePanel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            border: 3px solid #ffd700;
+            border-radius: 12px;
+            padding: 30px 40px;
+            text-align: center;
+            display: none;
+            z-index: 150;
+        }
+        
+        #pausePanel h2 {
+            color: #ffd700;
+            margin-bottom: 25px;
+            font-size: 22px;
+        }
+        
+        #pausePanel button {
+            flex: 1;
+        }
+        
+        #resumeBtn {
+            background: linear-gradient(135deg, #44aa44 0%, #228822 100%);
+            color: #fff;
+        }
+        
+        #pauseBackBtn {
+            background: linear-gradient(135deg, #4a4e69 0%, #2d2d44 100%);
+            color: #fff;
+        }
+        
+        #pausePanel button:active {
+            transform: scale(0.95);
+        }
+        
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <!-- 当前关卡显示 -->
+        <div id="currentStageDisplay">第1关</div>
+        
+        <div id="ui">
+            <div class="stat-row">
+                🎯 Lv.<span id="level">1</span>
+                <div class="exp-bar"><div class="exp-fill" id="expFill"></div></div>
+                <span><span id="expText">0</span>/<span id="expMax">50</span></span>
+            </div>
+            <div class="stat-row">💀 <span id="kills">0</span> | 💰 <span id="gold">0</span> | ⏱️ <span id="time">5:00</span></div>
+        </div>
+        
+        <!-- 血条（在小车下方） -->
+        <div id="healthBar">
+            <span class="label">❤️</span>
+            <div class="health-bar"><div class="health-fill" id="healthFill"></div></div>
+            <span id="healthText">100</span>
+        </div>
+        
+        <div id="muteBtn">🔊</div>
+        <div id="pauseBtn">⏸️</div>
+        
+        <!-- 炸弹按钮 -->
+        <div id="bombBtn" class="disabled">
+            <div class="cooldown-overlay"></div>
+            <span class="icon">💣</span>
+            <span class="count">x0</span>
+        </div>
+        
+        <!-- 倒计时警告 -->
+        <div id="countdownWarning"></div>
+        
+        <!-- 技能显示（动态生成） -->
+        <div id="skills"></div>        </div>
+        
+        <!-- 升级面板 -->
+        <div id="upgradePanel">
+            <h2>⬆️ 选择升级</h2>
+            <div class="bomb-reminder" id="bombReminder"></div>
+            <div class="upgrade-options" id="upgradeOptions"></div>
+        </div>
+        
+        <!-- 游戏结束 -->
+        <div id="gameOver">
+            <h2>💀 游戏结束</h2>
+            <p>最终等级: <span id="finalLevel">1</span></p>
+            <p>击杀僵尸: <span id="finalKills">0</span></p>
+            <p>存活时间: <span id="finalTime">0:00</span></p>
+            <div class="modal-buttons">
+                <button id="restartBtn">🔄 重玩</button>
+                <button id="gameOverBackBtn">📋 关卡</button>
+            </div>
+        </div>
+        
+        <!-- 暂停面板 -->
+        <div id="pausePanel">
+            <h2>⏸️ 游戏暂停</h2>
+            <div class="modal-buttons">
+                <button id="resumeBtn">▶️ 继续</button>
+                <button id="pauseBackBtn">📋 关卡</button>
+            </div>
+        </div>
+        
+        <!-- 通关结算 -->
+        <div id="victoryScreen">
+            <h2>🎉 通关成功！</h2>
+            <p>🏆 第<span id="victoryStage">1</span>关 完成！</p>
+            <p>最终等级: <span id="victoryLevel">1</span></p>
+            <p>击杀僵尸: <span id="victoryKills">0</span></p>
+            <p>获得金币: <span id="victoryGold">0</span></p>
+            <div class="modal-buttons">
+                <button id="nextStageBtn">➡️ 下一关</button>
+                <button id="victoryRestartBtn">🔄 重玩</button>
+                <button id="backToStageBtn">📋 关卡</button>
+            </div>
+        </div>
+        
+        <!-- 开始界面 -->
+        <div id="startScreen">
+            <h1>🧟 僵尸猎人 🎯</h1>
+            <div class="instructions">
+                <p>🎮 角色固定在屏幕下方</p>
+                <p>🔫 自动射击最近的敌人</p>
+                <p>⬆️ 升级可选择技能强化</p>
+                <p>⏱️ 坚持5分钟即可通关！</p>
+            </div>
+            <button id="startBtn">开始游戏</button>
+        </div>
+        
+        <!-- 关卡选择界面 -->
+        <div id="stageSelectScreen">
+            <h1>🎮 选择关卡</h1>
+            <div class="stage-grid" id="stageGrid"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // ==================== 音频系统 ====================
+        const AudioSystem = {
+            ctx: null,
+            bgmGain: null,
+            sfxGain: null,
+            bgmOscillators: [],
+            isMuted: false,
+            
+            init() {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // 主音量控制
+                this.bgmGain = this.ctx.createGain();
+                this.bgmGain.gain.value = 0.15;
+                this.bgmGain.connect(this.ctx.destination);
+                
+                this.sfxGain = this.ctx.createGain();
+                this.sfxGain.gain.value = 0.3;
+                this.sfxGain.connect(this.ctx.destination);
+            },
+            
+            resume() {
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            },
+            
+            // 射击音效
+            playShoot() {
+                if (!this.ctx || this.isMuted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.1);
+                
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                
+                osc.connect(gain);
+                gain.connect(this.sfxGain);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.1);
+            },
+            
+            // 僵尸死亡音效
+            playZombieDeath() {
+                if (!this.ctx || this.isMuted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, this.ctx.currentTime + 0.2);
+                
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                
+                osc.connect(gain);
+                gain.connect(this.sfxGain);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.2);
+            },
+            
+            // 拾取经验音效
+            playPickup() {
+                if (!this.ctx || this.isMuted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.08);
+                
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                
+                osc.connect(gain);
+                gain.connect(this.sfxGain);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.08);
+            },
+            
+            // 升级音效
+            playLevelUp() {
+                if (!this.ctx || this.isMuted) return;
+                const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                
+                notes.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    
+                    const startTime = this.ctx.currentTime + i * 0.1;
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(0.2, startTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+                    
+                    osc.connect(gain);
+                    gain.connect(this.sfxGain);
+                    
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.3);
+                });
+            },
+            
+            // 受伤音效
+            playHurt() {
+                if (!this.ctx || this.isMuted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.15);
+                
+                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                
+                osc.connect(gain);
+                gain.connect(this.sfxGain);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            },
+            
+            // 游戏结束音效
+            playGameOver() {
+                if (!this.ctx || this.isMuted) return;
+                const notes = [392, 349.23, 329.63, 261.63]; // G4, F4, E4, C4
+                
+                notes.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    
+                    osc.type = 'triangle';
+                    osc.frequency.value = freq;
+                    
+                    const startTime = this.ctx.currentTime + i * 0.2;
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(0.2, startTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
+                    
+                    osc.connect(gain);
+                    gain.connect(this.sfxGain);
+                    
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.4);
+                });
+            },
+            
+            // 通关胜利音效
+            playVictory() {
+                if (!this.ctx || this.isMuted) return;
+                const notes = [523.25, 659.25, 783.99, 1046.50, 783.99, 1046.50]; // C5, E5, G5, C6, G5, C6
+                
+                notes.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    
+                    const startTime = this.ctx.currentTime + i * 0.12;
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(0.25, startTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.35);
+                    
+                    osc.connect(gain);
+                    gain.connect(this.sfxGain);
+                    
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.35);
+                });
+            },
+            
+            // 炸弹爆炸音效
+            playBombExplosion() {
+                if (!this.ctx || this.isMuted) return;
+                
+                // 低频爆炸声
+                const noise = this.ctx.createOscillator();
+                const noiseGain = this.ctx.createGain();
+                noise.type = 'sawtooth';
+                noise.frequency.setValueAtTime(100, this.ctx.currentTime);
+                noise.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.5);
+                noiseGain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+                noise.connect(noiseGain);
+                noiseGain.connect(this.sfxGain);
+                noise.start();
+                noise.stop(this.ctx.currentTime + 0.5);
+                
+                // 高频冲击波
+                for (let i = 0; i < 3; i++) {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = 200 + i * 100;
+                    const startTime = this.ctx.currentTime + i * 0.1;
+                    gain.gain.setValueAtTime(0.3, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.2);
+                    osc.connect(gain);
+                    gain.connect(this.sfxGain);
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.2);
+                }
+            },
+            
+            // 背景音乐
+            startBGM() {
+                if (!this.ctx || this.isMuted) return;
+                this.stopBGM();
+                
+                // 简单的低音循环
+                const bassNotes = [65.41, 82.41, 73.42, 87.31]; // C2, E2, D2, F2
+                let noteIndex = 0;
+                
+                const playBassNote = () => {
+                    if (this.isMuted || !gameRunning) return;
+                    
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    
+                    osc.type = 'triangle';
+                    osc.frequency.value = bassNotes[noteIndex];
+                    
+                    gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+                    
+                    osc.connect(gain);
+                    gain.connect(this.bgmGain);
+                    
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.4);
+                    
+                    noteIndex = (noteIndex + 1) % bassNotes.length;
+                };
+                
+                // 每秒播放一个低音
+                this.bgmInterval = setInterval(playBassNote, 500);
+                playBassNote();
+                
+                // 添加氛围音效
+                this.playAmbient();
+            },
+            
+            playAmbient() {
+                if (!this.ctx || this.isMuted) return;
+                
+                // 创建低频氛围音
+                const createDrone = (freq) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    const filter = this.ctx.createBiquadFilter();
+                    
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 200;
+                    
+                    gain.gain.value = 0.03;
+                    
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.bgmGain);
+                    
+                    osc.start();
+                    this.bgmOscillators.push(osc);
+                };
+                
+                createDrone(55);    // A1
+                createDrone(82.41); // E2
+            },
+            
+            stopBGM() {
+                if (this.bgmInterval) {
+                    clearInterval(this.bgmInterval);
+                    this.bgmInterval = null;
+                }
+                this.bgmOscillators.forEach(osc => {
+                    try { osc.stop(); } catch(e) {}
+                });
+                this.bgmOscillators = [];
+            },
+            
+            toggleMute() {
+                this.isMuted = !this.isMuted;
+                if (this.isMuted) {
+                    this.stopBGM();
+                    this.bgmGain.gain.value = 0;
+                    this.sfxGain.gain.value = 0;
+                } else {
+                    this.bgmGain.gain.value = 0.15;
+                    this.sfxGain.gain.value = 0.3;
+                    if (gameRunning) this.startBGM();
+                }
+                return this.isMuted;
+            }
+        };
+        
+        // ==================== 游戏代码 ====================
+        
+        // ==================== 关卡系统 ====================
+        
+        // 关卡配置（6个关卡，难度递增）
+        const STAGES = [
+            {
+                id: 1,
+                name: '霜冻平原',
+                icon: '❄️',
+                desc: '基础关卡',
+                difficulty: 1,
+                descColor: '#88cc88',
+                // 僵尸属性倍率
+                zombieSpeedMult: 1.0,
+                zombieHealthMult: 1.0,
+                zombieDamageMult: 1.0,
+                zombieSpawnMult: 1.0,
+                // 特殊效果
+                bossStartTime: 120, // 120秒后出Boss
+                tankChance: 0.18,
+                fastChance: 0.28
+            },
+            {
+                id: 2,
+                name: '暴风雪谷',
+                icon: '🌨️',
+                desc: '僵尸速度+30%',
+                difficulty: 2,
+                descColor: '#88aacc',
+                zombieSpeedMult: 1.3,
+                zombieHealthMult: 1.0,
+                zombieDamageMult: 1.1,
+                zombieSpawnMult: 1.1,
+                bossStartTime: 100,
+                tankChance: 0.22,
+                fastChance: 0.35
+            },
+            {
+                id: 3,
+                name: '冰川裂隙',
+                icon: '🧊',
+                desc: '僵尸血量+50%',
+                difficulty: 3,
+                descColor: '#66bbcc',
+                zombieSpeedMult: 1.1,
+                zombieHealthMult: 1.5,
+                zombieDamageMult: 1.2,
+                zombieSpawnMult: 1.2,
+                bossStartTime: 90,
+                tankChance: 0.25,
+                fastChance: 0.30
+            },
+            {
+                id: 4,
+                name: '冰霜要塞',
+                icon: '🏔️',
+                desc: 'Boss提前出现',
+                difficulty: 4,
+                descColor: '#aaaacc',
+                zombieSpeedMult: 1.2,
+                zombieHealthMult: 1.3,
+                zombieDamageMult: 1.3,
+                zombieSpawnMult: 1.3,
+                bossStartTime: 60,
+                tankChance: 0.30,
+                fastChance: 0.32
+            },
+            {
+                id: 5,
+                name: '永冻之巅',
+                icon: '👑',
+                desc: '全属性增强',
+                difficulty: 5,
+                descColor: '#cc88cc',
+                zombieSpeedMult: 1.4,
+                zombieHealthMult: 1.8,
+                zombieDamageMult: 1.5,
+                zombieSpawnMult: 1.5,
+                bossStartTime: 50,
+                tankChance: 0.35,
+                fastChance: 0.35
+            },
+            {
+                id: 6,
+                name: '极寒地狱',
+                icon: '💀',
+                desc: '究极挑战',
+                difficulty: 6,
+                descColor: '#ff6666',
+                zombieSpeedMult: 1.6,
+                zombieHealthMult: 2.2,
+                zombieDamageMult: 1.8,
+                zombieSpawnMult: 1.8,
+                bossStartTime: 40,
+                tankChance: 0.40,
+                fastChance: 0.40
+            }
+        ];
+        
+        // 当前关卡
+        let currentStage = 1;
+        // 关卡进度（存储已通过的关卡）
+        let stageProgress = JSON.parse(localStorage.getItem('zombieHunterProgress') || '[false,false,false,false,false,false]');
+        
+        // 获取当前关卡配置
+        function getCurrentStageConfig() {
+            return STAGES[currentStage - 1];
+        }
+        
+        // 显示关卡选择界面
+        function showStageSelect() {
+            const screen = document.getElementById('stageSelectScreen');
+            const grid = document.getElementById('stageGrid');
+            grid.innerHTML = '';
+            
+            STAGES.forEach((stage, index) => {
+                const card = document.createElement('div');
+                card.className = 'stage-card';
+                
+                const isUnlocked = index === 0 || stageProgress[index - 1];
+                const isCompleted = stageProgress[index];
+                const isCurrent = index + 1 === currentStage;
+                
+                if (!isUnlocked) card.classList.add('locked');
+                if (isCompleted) card.classList.add('completed');
+                if (isCurrent) card.classList.add('current');
+                
+                card.innerHTML = `
+                    <div class="stage-icon">${stage.icon}</div>
+                    <div class="stage-name">第${stage.id}关 ${stage.name}</div>
+                    <div class="stage-desc" style="color: ${stage.descColor}">${stage.desc}</div>
+                    ${isCompleted ? '<div class="stage-stars">⭐⭐⭐</div>' : ''}
+                    ${!isUnlocked ? '<div class="stage-desc">🔒 未解锁</div>' : ''}
+                `;
+                
+                if (isUnlocked) {
+                    card.addEventListener('click', () => {
+                        currentStage = stage.id;
+                        document.getElementById('currentStageDisplay').textContent = `第${currentStage}关`;
+                        screen.style.display = 'none';
+                        startGame();
+                    });
+                }
+                
+                grid.appendChild(card);
+            });
+            
+            screen.style.display = 'flex';
+        }
+        
+        // 通关后保存进度
+        function saveStageProgress() {
+            stageProgress[currentStage - 1] = true;
+            localStorage.setItem('zombieHunterProgress', JSON.stringify(stageProgress));
+        }
+        
+        // 重置所有进度
+        function resetAllProgress() {
+            stageProgress = [false, false, false, false, false, false];
+            localStorage.setItem('zombieHunterProgress', JSON.stringify(stageProgress));
+        }
+        
+        // 设置画布尺寸
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // 游戏状态
+        let gameRunning = false;
+        let gamePaused = false;
+        let gameTime = 0;
+        let animationFrameId = null;
+        let lastUpdateTime = 0;
+        
+        // 炸弹系统
+        let bombCount = 0;
+        let bombCooldown = 0;
+        const BOMB_MAX_COUNT = 3;
+        const BOMB_COOLDOWN_TIME = 30000; // 30秒冷却
+        let bombExplosionEffects = []; // 爆炸特效
+        
+        // 玩家
+        const player = {
+            x: 0,
+            y: 0,
+            radius: 22,
+            speed: 4,
+            maxHealth: 100,
+            health: 100,
+            exp: 0,
+            level: 1,
+            expToLevel: 50,
+            gold: 0,
+            kills: 0,
+            damage: 10,
+            fireRate: 500,
+            lastShot: 0,
+            bulletSpeed: 10,
+            bulletPiercing: 1,
+            bulletCount: 1,
+            gunAngle: -Math.PI / 2 // 机枪朝向角度
+        };
+        
+        // 技能（包含所有升级类型）
+        const skills = {
+            damage: { level: 1, name: '火力强化', icon: '🔫', desc: '伤害 +20%' },
+            fireRate: { level: 0, name: '急速射击', icon: '»', desc: '射速 +15%' },
+            bulletCount: { level: 0, name: '多重射击', icon: '🎯', desc: '子弹数 +1' },
+            bulletSpeed: { level: 0, name: '高速子弹', icon: '💨', desc: '弹速 +20%' },
+            piercing: { level: 0, name: '穿透弹', icon: '🗡️', desc: '穿透 +1' },
+            health: { level: 0, name: '生命强化', icon: '❤️', desc: '生命 +20' },
+            explosive: { level: 0, name: '爆炸弹', icon: '💥', desc: '范围伤害' },
+            lightning: { level: 0, name: '闪电链', icon: '⚡', desc: '弹射攻击' },
+            shield: { level: 0, name: '护盾', icon: '🛡️', desc: '减伤能力' }
+        };
+        
+        const MAX_SKILLS = 5; // 最多5种技能
+        let acquiredSkills = ['damage']; // 已获得的技能列表
+        
+        // 游戏对象
+        let bullets = [];
+        let zombies = [];
+        let particles = [];
+        let expOrbs = [];
+        let goldOrbs = [];
+        let damageNumbers = [];
+        
+        // 僵尸类型（冰雪主题）
+        const zombieTypes = {
+            normal: { health: 30, speed: 1.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 10, gold: 5, name: '霜冻僵尸' },
+            fast: { health: 20, speed: 3, damage: 8, radius: 18, color: '#8b7ca3', exp: 15, gold: 8, name: '暴风行者' },
+            tank: { health: 80, speed: 1, damage: 20, radius: 30, color: '#5a6a8a', exp: 25, gold: 15, name: '冰川巨人' },
+            boss: { health: 200, speed: 0.8, damage: 30, radius: 42, color: '#8b4a5a', exp: 100, gold: 50, name: '霜王' }
+        };
+        
+        // 升级选项
+        const upgradePool = [
+            { type: 'damage', name: '火力强化', icon: '🔫', desc: '伤害 +20%' },
+            { type: 'fireRate', name: '急速射击', icon: '»', desc: '射速 +15%' },
+            { type: 'bulletCount', name: '多重射击', icon: '🎯', desc: '子弹数 +1' },
+            { type: 'bulletSpeed', name: '高速子弹', icon: '💨', desc: '弹速 +20%' },
+            { type: 'piercing', name: '穿透弹', icon: '🗡️', desc: '穿透 +1' },
+            { type: 'health', name: '生命强化', icon: '❤️', desc: '最大生命 +20' },
+            { type: 'explosive', name: '爆炸弹', icon: '💥', desc: '范围伤害 Lv.+1' },
+            { type: 'lightning', name: '闪电链', icon: '⚡', desc: '弹射攻击 Lv.+1' },
+            { type: 'shield', name: '护盾', icon: '🛡️', desc: '减伤能力 Lv.+1' }
+        ];
+        
+        // 炸弹按钮
+        document.getElementById('bombBtn').addEventListener('click', useBomb);
+        
+        // 静音按钮
+        document.getElementById('muteBtn').addEventListener('click', () => {
+            const isMuted = AudioSystem.toggleMute();
+            document.getElementById('muteBtn').textContent = isMuted ? '🔇' : '🔊';
+        });
+        
+        // 暂停按钮
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            if (gameRunning && !document.getElementById('upgradePanel').style.display.includes('block')) {
+                gamePaused = true;
+                document.getElementById('pauseBtn').textContent = '▶️';
+                document.getElementById('pausePanel').style.display = 'block';
+            }
+        });
+        
+        // 继续游戏
+        document.getElementById('resumeBtn').addEventListener('click', () => {
+            gamePaused = false;
+            document.getElementById('pauseBtn').textContent = '⏸️';
+            document.getElementById('pausePanel').style.display = 'none';
+            lastUpdateTime = Date.now();
+            requestAnimationFrame(gameLoop);
+        });
+        
+        // 暂停面板返回关卡选择
+        document.getElementById('pauseBackBtn').addEventListener('click', () => {
+            gamePaused = false;
+            gameRunning = false;
+            document.getElementById('pausePanel').style.display = 'none';
+            document.getElementById('pauseBtn').textContent = '⏸️';
+            showStageSelect();
+        });
+        
+        // 开始游戏 - 显示关卡选择
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none';
+            showStageSelect();
+        });
+        
+        // 重新开始（游戏结束）- 重玩当前关卡
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            document.getElementById('gameOver').style.display = 'none';
+            startGame();
+        });
+        
+        // 游戏结束返回关卡选择
+        document.getElementById('gameOverBackBtn').addEventListener('click', () => {
+            document.getElementById('gameOver').style.display = 'none';
+            showStageSelect();
+        });
+        
+        // 胜利界面重玩本关
+        document.getElementById('victoryRestartBtn').addEventListener('click', () => {
+            document.getElementById('victoryScreen').style.display = 'none';
+            startGame();
+        });
+        
+        // 返回关卡选择
+        document.getElementById('backToStageBtn').addEventListener('click', () => {
+            document.getElementById('victoryScreen').style.display = 'none';
+            showStageSelect();
+        });
+        
+        function startGame() {
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('victoryScreen').style.display = 'none';
+            document.getElementById('countdownWarning').style.display = 'none';
+            document.getElementById('currentStageDisplay').textContent = `第${currentStage}关`;
+            
+            // 初始化并启动音频
+            if (!AudioSystem.ctx) {
+                AudioSystem.init();
+            }
+            AudioSystem.resume();
+            AudioSystem.startBGM();
+            
+            // 重置玩家
+            player.x = canvas.width / 2;
+            player.y = canvas.height / 2;
+            player.health = 100;
+            player.maxHealth = 100;
+            player.exp = 0;
+            player.level = 1;
+            player.expToLevel = 50;
+            player.gold = 0;
+            player.kills = 0;
+            player.damage = 10;
+            player.fireRate = 500;
+            player.lastShot = 0;
+            player.bulletSpeed = 10;
+            player.bulletPiercing = 1;
+            player.bulletCount = 1;
+            player.speed = 4;
+            
+            // 重置所有技能
+            for (const key of Object.keys(skills)) {
+                skills[key].level = 0;
+            }
+            skills.damage.level = 1; // 初始自带火力强化
+            acquiredSkills = ['damage']; // 重置已获得技能列表
+            justGotBomb = false; // 重置炸弹获得标志
+            bombFull = false; // 重置炸弹已满标志
+            updateSkillUI();
+            
+            // 清空对象
+            bullets = [];
+            zombies = [];
+            particles = [];
+            expOrbs = [];
+            goldOrbs = [];
+            damageNumbers = [];
+            lightningEffects = [];
+            bombExplosionEffects = [];
+            
+            // 重置炸弹
+            bombCount = 0;
+            bombCooldown = 0;
+            updateBombUI();
+            
+            gameTime = 0;
+            lastUpdateTime = Date.now();
+            spawnTimer = 0;
+            spawnInterval = 1500;
+            gamePaused = false;
+            gameRunning = true;
+
+            document.getElementById('pauseBtn').textContent = '⏸️';
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+        
+        function gameLoop() {
+            if (!gameRunning || gamePaused) {
+                return;
+            }
+            
+            const now = Date.now();
+            const deltaTime = Math.min(now - lastUpdateTime, 50);
+            lastUpdateTime = now;
+            gameTime += deltaTime;
+            
+            update(deltaTime);
+            render();
+            updateUI();
+            
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+        
+        function update(deltaTime) {
+            // 检查通关（5分钟）
+            if (gameTime >= GAME_TIME_LIMIT) {
+                victory();
+                return;
+            }
+            
+            // 最后30秒警告
+            const remainingTime = GAME_TIME_LIMIT - gameTime;
+            const warningElement = document.getElementById('countdownWarning');
+            if (remainingTime <= 30000 && remainingTime > 0) {
+                const seconds = Math.ceil(remainingTime / 1000);
+                warningElement.textContent = `⚠️ 最后 ${seconds} 秒！`;
+                warningElement.style.display = 'block';
+                // 每5秒闪烁
+                warningElement.style.opacity = Math.sin(Date.now() / 200) > 0 ? '1' : '0.5';
+            } else {
+                warningElement.style.display = 'none';
+            }
+            
+            // 玩家固定在屏幕下方中间
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 80;
+            
+            // 机枪持续跟踪最近的僵尸
+            if (zombies.length > 0) {
+                let nearest = null;
+                let minDist = Infinity;
+                for (const z of zombies) {
+                    const d = Math.hypot(z.x - player.x, z.y - player.y);
+                    if (d < minDist) {
+                        minDist = d;
+                        nearest = z;
+                    }
+                }
+                if (nearest) {
+                    player.gunAngle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
+                }
+            }
+            
+            // 自动射击
+            const now = Date.now();
+            if (zombies.length > 0 && now - player.lastShot > player.fireRate) {
+                shoot();
+                player.lastShot = now;
+            }
+            
+            // 更新子弹
+            updateBullets();
+            
+            // 更新僵尸
+            updateZombies();
+            
+            // 更新粒子
+            updateParticles();
+            
+            // 更新掉落物
+            updateOrbs();
+            
+            // 更新伤害数字
+            updateDamageNumbers();
+            
+            // 生成僵尸
+            spawnZombies(deltaTime);
+            
+            // 更新炸弹冷却
+            if (bombCooldown > 0) {
+                bombCooldown -= deltaTime;
+                if (bombCooldown < 0) bombCooldown = 0;
+                updateBombUI();
+            }
+        }
+        
+        function shoot() {
+            if (zombies.length === 0) return;
+            
+            AudioSystem.playShoot(); // 射击音效
+            
+            // 直接使用已计算好的机枪角度
+            const angle = player.gunAngle;
+            const spread = 0.15;
+            
+            // 枪口位置（从机枪枪口发射）
+            const gunLength = 40;
+            
+            for (let i = 0; i < player.bulletCount; i++) {
+                let bulletAngle = angle;
+                if (player.bulletCount > 1) {
+                    bulletAngle += (i - (player.bulletCount - 1) / 2) * spread;
+                }
+                
+                // 从枪口位置发射
+                const startX = player.x + Math.cos(angle) * gunLength;
+                const startY = player.y + Math.sin(angle) * gunLength;
+                
+                bullets.push({
+                    x: startX,
+                    y: startY,
+                    vx: Math.cos(bulletAngle) * player.bulletSpeed,
+                    vy: Math.sin(bulletAngle) * player.bulletSpeed,
+                    radius: 6,
+                    damage: player.damage,
+                    piercing: player.bulletPiercing,
+                    hitZombies: []  // 记录已击中的僵尸
+                });
+            }
+        }
+        
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.x += bullet.vx;
+                bullet.y += bullet.vy;
+                
+                if (bullet.x < 0 || bullet.x > canvas.width || 
+                    bullet.y < 0 || bullet.y > canvas.height) {
+                    bullets.splice(i, 1);
+                    continue;
+                }
+                
+                for (let j = zombies.length - 1; j >= 0; j--) {
+                    const zombie = zombies[j];
+                    const dist = Math.hypot(bullet.x - zombie.x, bullet.y - zombie.y);
+                    
+                    // 检查是否已经击中过这个僵尸（用对象引用判断）
+                    if (bullet.hitZombies.includes(zombie)) continue;
+                    
+                    if (dist < bullet.radius + zombie.radius) {
+                        bullet.hitZombies.push(zombie);  // 记录击中的僵尸对象
+                        
+                        let damage = bullet.damage;
+                        
+                        // 爆炸伤害
+                        if (skills.explosive.level > 0) {
+                            const explosionRadius = 40 + skills.explosive.level * 20;
+                            createExplosion(bullet.x, bullet.y, explosionRadius);
+                            
+                            for (const z of zombies) {
+                                if (z !== zombie) {
+                                    const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
+                                    if (d < explosionRadius) {
+                                        const aoeDamage = damage * (0.3 + skills.explosive.level * 0.1);
+                                        damageZombie(z, aoeDamage, bullet.x, bullet.y);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 闪电链
+                        if (skills.lightning.level > 0) {
+                            const chainCount = skills.lightning.level + 1;
+                            const chainDamage = damage * 0.4;
+                            let lastTarget = zombie;
+                            let chainedTargets = [zombie];
+                            
+                            for (let c = 0; c < chainCount; c++) {
+                                let closestChain = null;
+                                let closestDist = 150;
+                                
+                                for (const z of zombies) {
+                                    if (!chainedTargets.includes(z)) {
+                                        const d = Math.hypot(lastTarget.x - z.x, lastTarget.y - z.y);
+                                        if (d < closestDist) {
+                                            closestDist = d;
+                                            closestChain = z;
+                                        }
+                                    }
+                                }
+                                
+                                if (closestChain) {
+                                    createLightning(lastTarget.x, lastTarget.y, closestChain.x, closestChain.y);
+                                    damageZombie(closestChain, chainDamage, bullet.x, bullet.y);
+                                    chainedTargets.push(closestChain);
+                                    lastTarget = closestChain;
+                                }
+                            }
+                        }
+                        
+                        damageZombie(zombie, damage, bullet.x, bullet.y);
+                        
+                        // 检查是否达到穿透上限
+                        if (bullet.hitZombies.length >= bullet.piercing) {
+                            bullets.splice(i, 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function damageZombie(zombie, damage, sourceX, sourceY) {
+            zombie.health -= damage;
+            
+            damageNumbers.push({
+                x: zombie.x,
+                y: zombie.y - zombie.radius,
+                text: Math.round(damage),
+                life: 800,
+                vy: -2.5,
+                color: damage > player.damage ? '#ffff00' : '#ffffff'
+            });
+            
+            for (let i = 0; i < 3; i++) {
+                particles.push({
+                    x: zombie.x,
+                    y: zombie.y,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: (Math.random() - 0.5) * 5,
+                    radius: Math.random() * 4 + 2,
+                    life: 400,
+                    color: zombie.color
+                });
+            }
+            
+            if (zombie.health <= 0) {
+                player.kills++;
+                AudioSystem.playZombieDeath(); // 僵尸死亡音效
+                
+                for (let i = 0; i < 3; i++) {
+                    expOrbs.push({
+                        x: zombie.x + (Math.random() - 0.5) * 25,
+                        y: zombie.y + (Math.random() - 0.5) * 25,
+                        radius: 8,
+                        exp: zombie.exp / 3
+                    });
+                }
+                
+                if (Math.random() < 0.3) {
+                    goldOrbs.push({
+                        x: zombie.x,
+                        y: zombie.y,
+                        radius: 10
+                    });
+                }
+                
+                for (let i = 0; i < 12; i++) {
+                    particles.push({
+                        x: zombie.x,
+                        y: zombie.y,
+                        vx: (Math.random() - 0.5) * 8,
+                        vy: (Math.random() - 0.5) * 8,
+                        radius: Math.random() * 6 + 3,
+                        life: 600,
+                        color: zombie.color
+                    });
+                }
+                
+                const idx = zombies.indexOf(zombie);
+                if (idx > -1) zombies.splice(idx, 1);
+            }
+        }
+        
+        function createExplosion(x, y, radius) {
+            for (let i = 0; i < 18; i++) {
+                const angle = (Math.PI * 2 / 18) * i;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * 4,
+                    vy: Math.sin(angle) * 4,
+                    radius: 5,
+                    life: 300,
+                    color: '#ff6600'
+                });
+            }
+        }
+        
+        // 闪电特效数组
+        let lightningEffects = [];
+        
+        // 创建多叉闪电效果（真正的线条闪电）
+        function createLightning(x1, y1, x2, y2) {
+            const lightning = {
+                x1: x1,
+                y1: y1,
+                x2: x2,
+                y2: y2,
+                life: 200,
+                maxLife: 200,
+                branches: []
+            };
+            
+            // 生成主闪电路径
+            lightning.points = generateLightningPath(x1, y1, x2, y2, 8);
+            
+            // 生成分支
+            const numBranches = 2 + Math.floor(Math.random() * 2);
+            for (let b = 0; b < numBranches; b++) {
+                const startIdx = 2 + Math.floor(Math.random() * 3);
+                if (startIdx < lightning.points.length - 1) {
+                    const startPoint = lightning.points[startIdx];
+                    const branchAngle = Math.random() * Math.PI * 2;
+                    const branchLength = 20 + Math.random() * 30;
+                    const endX = startPoint.x + Math.cos(branchAngle) * branchLength;
+                    const endY = startPoint.y + Math.sin(branchAngle) * branchLength;
+                    lightning.branches.push(generateLightningPath(startPoint.x, startPoint.y, endX, endY, 4));
+                }
+            }
+            
+            lightningEffects.push(lightning);
+        }
+        
+        // 生成闪电路径点
+        function generateLightningPath(x1, y1, x2, y2, segments) {
+            const points = [{x: x1, y: y1}];
+            for (let i = 1; i < segments; i++) {
+                const t = i / segments;
+                const jitter = (1 - t) * 20 + 5;
+                points.push({
+                    x: x1 + (x2 - x1) * t + (Math.random() - 0.5) * jitter,
+                    y: y1 + (y2 - y1) * t + (Math.random() - 0.5) * jitter
+                });
+            }
+            points.push({x: x2, y: y2});
+            return points;
+        }
+        
+        // 绘制闪电特效
+        function drawLightnings() {
+            for (let i = lightningEffects.length - 1; i >= 0; i--) {
+                const lightning = lightningEffects[i];
+                const alpha = lightning.life / lightning.maxLife;
+                
+                // 绘制主闪电
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(lightning.points[0].x, lightning.points[0].y);
+                for (let i = 1; i < lightning.points.length; i++) {
+                    ctx.lineTo(lightning.points[i].x, lightning.points[i].y);
+                }
+                
+                // 外发光
+                ctx.strokeStyle = `rgba(150, 220, 255, ${alpha * 0.5})`;
+                ctx.lineWidth = 8;
+                ctx.stroke();
+                
+                // 中层光晕
+                ctx.strokeStyle = `rgba(100, 200, 255, ${alpha * 0.7})`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                
+                // 明亮核心
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 绘制分支
+                for (const branch of lightning.branches) {
+                    ctx.beginPath();
+                    ctx.moveTo(branch[0].x, branch[0].y);
+                    for (let i = 1; i < branch.length; i++) {
+                        ctx.lineTo(branch[i].x, branch[i].y);
+                    }
+                    
+                    // 分支外发光
+                    ctx.strokeStyle = `rgba(100, 180, 255, ${alpha * 0.4})`;
+                    ctx.lineWidth = 5;
+                    ctx.stroke();
+                    
+                    // 分支核心
+                    ctx.strokeStyle = `rgba(200, 230, 255, ${alpha * 0.8})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+                
+                // 添加发光节点
+                for (const point of lightning.points) {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 4 * alpha, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+                
+                // 更新生命周期
+                lightning.life -= 16;
+                if (lightning.life <= 0) {
+                    lightningEffects.splice(i, 1);
+                }
+            }
+        }
+        
+        function updateZombies() {
+            for (const zombie of zombies) {
+                const angle = Math.atan2(player.y - zombie.y, player.x - zombie.x);
+                zombie.x += Math.cos(angle) * zombie.speed;
+                zombie.y += Math.sin(angle) * zombie.speed;
+                
+                const dist = Math.hypot(player.x - zombie.x, player.y - zombie.y);
+                if (dist < player.radius + zombie.radius) {
+                    let damage = zombie.damage;
+                    
+                    if (skills.shield.level > 0) {
+                        damage *= (1 - skills.shield.level * 0.1);
+                    }
+                    
+                    player.health -= damage * 0.03;
+                    
+                    // 受伤音效和闪烁效果
+                    if (!player.hurtTime || Date.now() - player.hurtTime > 200) {
+                        AudioSystem.playHurt();
+                    }
+                    player.hurtTime = Date.now();
+                    
+                    const pushAngle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
+                    zombie.x += Math.cos(pushAngle) * 8;
+                    zombie.y += Math.sin(pushAngle) * 8;
+                    
+                    if (player.health <= 0) {
+                        gameOver();
+                    }
+                }
+            }
+        }
+        
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 16;
+                p.radius *= 0.97;
+                
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        
+        function updateOrbs() {
+            for (let i = expOrbs.length - 1; i >= 0; i--) {
+                const orb = expOrbs[i];
+                
+                // 物品直接飞向角色
+                const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
+                if (dist > 5) {
+                    const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
+                    orb.x += Math.cos(angle) * 12;
+                    orb.y += Math.sin(angle) * 12;
+                }
+                
+                // 接触角色立即拾取
+                if (dist < player.radius + orb.radius) {
+                    player.exp += orb.exp;
+                    expOrbs.splice(i, 1);
+                    AudioSystem.playPickup(); // 拾取音效
+                    
+                    if (player.exp >= player.expToLevel) {
+                        levelUp();
+                    }
+                }
+            }
+            
+            for (let i = goldOrbs.length - 1; i >= 0; i--) {
+                const orb = goldOrbs[i];
+                
+                // 物品直接飞向角色
+                const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
+                if (dist > 5) {
+                    const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
+                    orb.x += Math.cos(angle) * 12;
+                    orb.y += Math.sin(angle) * 12;
+                }
+                
+                // 接触角色立即拾取
+                if (dist < player.radius + orb.radius) {
+                    player.gold += 5;
+                    goldOrbs.splice(i, 1);
+                    AudioSystem.playPickup(); // 拾取音效
+                }
+            }
+        }
+        
+        function updateDamageNumbers() {
+            for (let i = damageNumbers.length - 1; i >= 0; i--) {
+                const dn = damageNumbers[i];
+                dn.y += dn.vy;
+                dn.life -= 16;
+                
+                if (dn.life <= 0) {
+                    damageNumbers.splice(i, 1);
+                }
+            }
+        }
+        
+        let spawnTimer = 0;
+        let spawnInterval = 1500;
+        
+        function spawnZombies(deltaTime) {
+            const stageConfig = getCurrentStageConfig();
+            spawnTimer += deltaTime;
+            
+            // 最后30秒逐步增加压力
+            const remainingTime = GAME_TIME_LIMIT - gameTime;
+            let pressureMultiplier = stageConfig.zombieSpawnMult;
+            let spawnCount = 1;
+            
+            if (remainingTime <= 30000 && remainingTime > 0) {
+                // 压力从1倍逐步增加到2.5倍
+                const pressureProgress = 1 - (remainingTime / 30000); // 0到1
+                pressureMultiplier *= (1 + pressureProgress * 1.5); // 1到2.5
+                
+                // 生成数量逐步增加
+                if (pressureProgress > 0.6) {
+                    spawnCount = 2;
+                }
+                if (pressureProgress > 0.85) {
+                    spawnCount = 2 + Math.floor(Math.random() * 2); // 2-3个
+                }
+            }
+            
+            if (spawnTimer >= spawnInterval / pressureMultiplier) {
+                spawnTimer = 0;
+                spawnInterval = Math.max(400, spawnInterval - 8);
+                
+                for (let s = 0; s < spawnCount; s++) {
+                    let x, y;
+                    // 僵尸只从屏幕上方随机位置出现
+                    x = Math.random() * canvas.width;
+                    y = -50;
+                    
+                    let type = 'normal';
+                    const roll = Math.random();
+                    const gameTimeSec = gameTime / 1000;
+                    
+                    // 使用关卡配置的Boss出现时间和概率
+                    const bossChance = gameTimeSec > stageConfig.bossStartTime ? 0.08 : 0;
+                    const tankChance = gameTimeSec > 60 ? stageConfig.tankChance : stageConfig.tankChance * 0.5;
+                    const fastChance = stageConfig.fastChance;
+                    
+                    if (gameTimeSec > stageConfig.bossStartTime && roll < bossChance) {
+                        type = 'boss';
+                    } else if (gameTimeSec > 60 && roll < bossChance + tankChance) {
+                        type = 'tank';
+                    } else if (roll < bossChance + tankChance + fastChance) {
+                        type = 'fast';
+                    }
+                    
+                    const template = zombieTypes[type];
+                    const healthMultiplier = (1 + gameTimeSec / 50) * stageConfig.zombieHealthMult;
+                    
+                    zombies.push({
+                        x: x,
+                        y: y,
+                        radius: template.radius,
+                        speed: template.speed * stageConfig.zombieSpeedMult,
+                        health: template.health * healthMultiplier,
+                        maxHealth: template.health * healthMultiplier,
+                        damage: template.damage * stageConfig.zombieDamageMult,
+                        color: template.color,
+                        exp: template.exp * stageConfig.difficulty,
+                        type: type
+                    });
+                }
+            }
+        }
+        
+        const MAX_LEVEL = 20; // 最高等级
+        const GAME_TIME_LIMIT = 5 * 60 * 1000; // 5分钟（毫秒）
+        let justGotBomb = false; // 刚获得炸弹的标志
+        let bombFull = false; // 炸弹已满标志
+        
+        function levelUp() {
+            // 检查是否达到最高等级
+            if (player.level >= MAX_LEVEL) {
+                player.exp = 0; // 清空经验，不再升级
+                return;
+            }
+            
+            player.level++;
+            player.exp -= player.expToLevel;
+            player.expToLevel = Math.floor(player.expToLevel * 1.3);
+            
+            // 每5级获得一个炸弹（5级、10级、15级、20级）
+            justGotBomb = false;
+            bombFull = false;
+            if (player.level % 5 === 0) {
+                if (bombCount < BOMB_MAX_COUNT) {
+                    bombCount++;
+                    justGotBomb = true;
+                    updateBombUI();
+                } else {
+                    // 炸弹已满，仍然显示提示但告知已满
+                    bombFull = true;
+                    justGotBomb = true;
+                }
+            }
+            
+            AudioSystem.playLevelUp(); // 升级音效
+            showUpgradePanel();
+        }
+        
+        function showUpgradePanel() {
+            gameRunning = false;
+            
+            const panel = document.getElementById('upgradePanel');
+            const options = document.getElementById('upgradeOptions');
+            const bombReminder = document.getElementById('bombReminder');
+            options.innerHTML = '';
+            
+            // 显示炸弹获得提示（如果刚获得）
+            if (justGotBomb) {
+                if (bombFull) {
+                    bombReminder.innerHTML = `
+                        <div class="content">
+                            <span class="icon">💣</span>
+                            <span class="text">炸弹已满！(3/3)</span>
+                        </div>
+                    `;
+                } else {
+                    bombReminder.innerHTML = `
+                        <div class="content">
+                            <span class="icon">💣</span>
+                            <span class="text">获得炸弹 x1！</span>
+                        </div>
+                    `;
+                }
+                bombReminder.classList.add('show');
+                justGotBomb = false; // 重置标志
+                bombFull = false;
+            } else {
+                bombReminder.classList.remove('show');
+            }
+            
+            // 如果已满5种技能，只显示已获得的技能
+            let availableUpgrades;
+            if (acquiredSkills.length >= MAX_SKILLS) {
+                availableUpgrades = upgradePool.filter(u => acquiredSkills.includes(u.type));
+            } else {
+                availableUpgrades = [...upgradePool];
+            }
+            
+            const shuffled = availableUpgrades.sort(() => Math.random() - 0.5);
+            const selected = shuffled.slice(0, 3);
+            
+            for (const upgrade of selected) {
+                const card = document.createElement('div');
+                card.className = 'upgrade-card';
+                card.innerHTML = `
+                    <div class="icon">${upgrade.icon}</div>
+                    <div class="name">${upgrade.name}</div>
+                    <div class="desc">${upgrade.desc}</div>
+                `;
+                card.addEventListener('click', () => applyUpgrade(upgrade));
+                card.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    applyUpgrade(upgrade);
+                });
+                options.appendChild(card);
+            }
+            
+            panel.style.display = 'block';
+        }
+        
+        function applyUpgrade(upgrade) {
+            // 如果是新技能，添加到已获得列表
+            if (skills[upgrade.type].level === 0) {
+                acquiredSkills.push(upgrade.type);
+            }
+            
+            // 所有升级都增加对应技能等级
+            skills[upgrade.type].level++;
+            
+            switch (upgrade.type) {
+                case 'damage':
+                    player.damage *= 1.2;
+                    break;
+                case 'fireRate':
+                    player.fireRate *= 0.85;
+                    break;
+                case 'bulletCount':
+                    player.bulletCount++;
+                    break;
+                case 'bulletSpeed':
+                    player.bulletSpeed *= 1.2;
+                    break;
+                case 'piercing':
+                    player.bulletPiercing++;
+                    break;
+                case 'health':
+                    player.maxHealth += 20;
+                    player.health = Math.min(player.health + 20, player.maxHealth);
+                    break;
+                case 'explosive':
+                case 'lightning':
+                case 'shield':
+                    break;
+            }
+            
+            updateSkillUI();
+            document.getElementById('upgradePanel').style.display = 'none';
+            gameRunning = true;
+            lastTime = Date.now();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // ==================== 炸弹系统 ====================
+        
+        function useBomb() {
+            // 检查是否有炸弹且不在冷却中
+            if (bombCount <= 0 || bombCooldown > 0 || !gameRunning) return;
+            
+            bombCount--;
+            bombCooldown = BOMB_COOLDOWN_TIME;
+            
+            // 播放爆炸音效
+            AudioSystem.playBombExplosion();
+            
+            // 创建全屏爆炸特效
+            createScreenExplosion();
+            
+            // 清除所有僵尸，给予经验和金币
+            for (const zombie of zombies) {
+                // 给予经验和金币
+                player.exp += zombie.exp;
+                player.gold += zombie.gold || 5;
+                player.kills++;
+                
+                // 创建死亡粒子效果
+                for (let i = 0; i < 8; i++) {
+                    particles.push({
+                        x: zombie.x,
+                        y: zombie.y,
+                        vx: (Math.random() - 0.5) * 10,
+                        vy: (Math.random() - 0.5) * 10,
+                        radius: Math.random() * 5 + 2,
+                        life: 300,
+                        color: zombie.color
+                    });
+                }
+                
+                // 创建伤害数字
+                damageNumbers.push({
+                    x: zombie.x,
+                    y: zombie.y,
+                    text: 'K.O.',
+                    color: '#ff4444',
+                    life: 500
+                });
+            }
+            
+            // 清空僵尸
+            zombies = [];
+            
+            // 延迟检查升级（等爆炸特效播放完成）
+            setTimeout(() => {
+                if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
+                    levelUp();
+                }
+            }, 1000); // 1秒后检查
+            
+            updateBombUI();
+        }
+        
+        function createScreenExplosion() {
+            // 从中心向外扩散的爆炸特效
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // 添加多个爆炸波
+            for (let wave = 0; wave < 5; wave++) {
+                const delay = wave * 100;
+                setTimeout(() => {
+                    bombExplosionEffects.push({
+                        x: centerX,
+                        y: centerY,
+                        radius: 0,
+                        maxRadius: Math.max(canvas.width, canvas.height),
+                        life: 400,
+                        maxLife: 400,
+                        delay: delay
+                    });
+                }, delay);
+            }
+            
+            // 添加大量粒子
+            for (let i = 0; i < 100; i++) {
+                const angle = (Math.PI * 2 / 100) * i;
+                const speed = 5 + Math.random() * 10;
+                particles.push({
+                    x: centerX,
+                    y: centerY,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: 3 + Math.random() * 4,
+                    life: 500,
+                    color: ['#ff4444', '#ff8800', '#ffdd00', '#ffffff'][Math.floor(Math.random() * 4)]
+                });
+            }
+        }
+        
+        function updateBombUI() {
+            const btn = document.getElementById('bombBtn');
+            const countSpan = btn.querySelector('.count');
+            const iconSpan = btn.querySelector('.icon');
+            const overlay = btn.querySelector('.cooldown-overlay');
+            
+            // 计算冷却进度
+            const cooldownProgress = bombCooldown / BOMB_COOLDOWN_TIME;
+            const cooldownDeg = cooldownProgress * 360;
+            overlay.style.setProperty('--cooldown-deg', `${cooldownDeg}deg`);
+            
+            if (bombCooldown > 0) {
+                btn.classList.add('disabled');
+                // 显示大倒计时数字
+                const seconds = Math.ceil(bombCooldown / 1000);
+                countSpan.textContent = `${seconds}s`;
+                countSpan.style.fontSize = '18px';
+                countSpan.style.color = '#fff';
+                iconSpan.style.display = 'none';
+            } else {
+                if (bombCount > 0) {
+                    btn.classList.remove('disabled');
+                    iconSpan.style.display = 'block';
+                    countSpan.textContent = `x${bombCount}`;
+                    countSpan.style.fontSize = '11px';
+                    countSpan.style.color = '#ff4444';
+                } else {
+                    btn.classList.add('disabled');
+                    iconSpan.style.display = 'block';
+                    countSpan.textContent = 'x0';
+                    countSpan.style.fontSize = '11px';
+                    countSpan.style.color = '#ff4444';
+                }
+            }
+        }
+        
+        function drawBombExplosions() {
+            for (let i = bombExplosionEffects.length - 1; i >= 0; i--) {
+                const effect = bombExplosionEffects[i];
+                effect.life -= 16;
+                effect.radius += 20;
+                
+                const alpha = effect.life / effect.maxLife;
+                
+                // 绘制爆炸波
+                ctx.beginPath();
+                ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 100, 50, ${alpha * 0.8})`;
+                ctx.lineWidth = 10 * alpha;
+                ctx.stroke();
+                
+                // 内层发光
+                ctx.beginPath();
+                ctx.arc(effect.x, effect.y, effect.radius * 0.8, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 200, 100, ${alpha * 0.5})`;
+                ctx.lineWidth = 5 * alpha;
+                ctx.stroke();
+                
+                // 最外层淡光
+                ctx.beginPath();
+                ctx.arc(effect.x, effect.y, effect.radius * 1.2, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.3})`;
+                ctx.lineWidth = 3 * alpha;
+                ctx.stroke();
+                
+                if (effect.life <= 0) {
+                    bombExplosionEffects.splice(i, 1);
+                }
+            }
+        }
+        
+        function updateSkillUI() {
+            const skillsContainer = document.getElementById('skills');
+            skillsContainer.innerHTML = ''; // 清空现有技能
+            
+            // 只显示等级大于0的技能
+            for (const [skillKey, skill] of Object.entries(skills)) {
+                if (skill.level > 0) {
+                    const btn = document.createElement('div');
+                    btn.className = 'skill-btn';
+                    btn.innerHTML = `
+                        <span class="icon">${skill.icon}</span>
+                        <span class="level">Lv.${skill.level}</span>
+                    `;
+                    skillsContainer.appendChild(btn);
+                }
+            }
+        }
+        
+        function updateUI() {
+            document.getElementById('level').textContent = player.level;
+            document.getElementById('gold').textContent = player.gold;
+            document.getElementById('kills').textContent = player.kills;
+            
+            // 显示剩余时间
+            const remainingTime = Math.max(0, GAME_TIME_LIMIT - gameTime);
+            const minutes = Math.floor(remainingTime / 60000);
+            const seconds = Math.floor((remainingTime % 60000) / 1000);
+            const timeElement = document.getElementById('time');
+            timeElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            // 最后30秒时间变红
+            if (remainingTime <= 30000) {
+                timeElement.style.color = '#ff4444';
+                timeElement.style.fontWeight = 'bold';
+            } else {
+                timeElement.style.color = '';
+                timeElement.style.fontWeight = '';
+            }
+            
+            document.getElementById('healthText').textContent = Math.round(player.health);
+            document.getElementById('healthFill').style.width = `${(player.health / player.maxHealth) * 100}%`;
+            
+            // 满级时显示MAX
+            if (player.level >= MAX_LEVEL) {
+                document.getElementById('expText').textContent = 'MAX';
+                document.getElementById('expMax').textContent = '';
+                document.getElementById('expFill').style.width = '100%';
+            } else {
+                document.getElementById('expText').textContent = Math.round(player.exp);
+                document.getElementById('expMax').textContent = player.expToLevel;
+                document.getElementById('expFill').style.width = `${(player.exp / player.expToLevel) * 100}%`;
+            }
+        }
+        
+        function gameOver() {
+            gameRunning = false;
+            AudioSystem.stopBGM(); // 停止背景音乐
+            AudioSystem.playGameOver(); // 游戏结束音效
+            
+            document.getElementById('finalLevel').textContent = player.level;
+            document.getElementById('finalKills').textContent = player.kills;
+            
+            const minutes = Math.floor(gameTime / 60000);
+            const seconds = Math.floor((gameTime % 60000) / 1000);
+            document.getElementById('finalTime').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        // 通关胜利
+        function victory() {
+            gameRunning = false;
+            AudioSystem.stopBGM();
+            AudioSystem.playVictory();
+            
+            // 保存关卡进度
+            saveStageProgress();
+            
+            document.getElementById('victoryStage').textContent = currentStage;
+            document.getElementById('victoryLevel').textContent = player.level;
+            document.getElementById('victoryKills').textContent = player.kills;
+            document.getElementById('victoryGold').textContent = player.gold;
+            
+            // 最后一关显示"全部通关"，否则显示"下一关"
+            const nextBtn = document.getElementById('nextStageBtn');
+            if (currentStage >= STAGES.length) {
+                nextBtn.textContent = '🏆 全通';
+                nextBtn.onclick = () => {
+                    document.getElementById('victoryScreen').style.display = 'none';
+                    showStageSelect();
+                };
+            } else {
+                nextBtn.textContent = '➡️ 下一关';
+                nextBtn.onclick = () => {
+                    currentStage++;
+                    document.getElementById('victoryScreen').style.display = 'none';
+                    document.getElementById('currentStageDisplay').textContent = `第${currentStage}关`;
+                    startGame();
+                };
+            }
+            
+            document.getElementById('victoryScreen').style.display = 'block';
+        }
+        
+        // 绘制像素风格越野车（顶视图）
+        function drawPixelJeep(ctx, x, y, gunAngle, hurtFlash) {
+            const pixelSize = 4; // 像素块大小
+            
+            // 颜色定义
+            const bodyColor = hurtFlash ? '#ff4444' : '#4a7c4e';      // 军绿色车身
+            const bodyDark = hurtFlash ? '#cc2222' : '#2d5a2e';       // 深绿色
+            const bodyLight = hurtFlash ? '#ff6666' : '#5a9a5c';      // 浅绿色高光
+            const wheelColor = '#2a2a2a';                              // 轮子颜色
+            const wheelHighlight = '#4a4a4a';                          // 轮子高光
+            const gunColor = '#3a3a3a';                                // 机关枪颜色
+            const gunHighlight = '#5a5a5a';                            // 枪高光
+            const windowColor = '#1a3a4a';                             // 车窗颜色
+            const windowReflect = '#2a5a7a';                           // 车窗反光
+            
+            ctx.save();
+            ctx.translate(x, y);
+            
+            // 阴影
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(-20, -16, 40, 32);
+            
+            // 车身底座 (顶视图矩形)
+            // 主体
+            ctx.fillStyle = bodyColor;
+            ctx.fillRect(-18 * pixelSize / 4, -14 * pixelSize / 4, 36 * pixelSize / 4, 28 * pixelSize / 4);
+            
+            // 车身边缘（深色）
+            ctx.fillStyle = bodyDark;
+            // 左边
+            ctx.fillRect(-18 * pixelSize / 4, -14 * pixelSize / 4, 2 * pixelSize / 4, 28 * pixelSize / 4);
+            // 右边
+            ctx.fillRect(16 * pixelSize / 4, -14 * pixelSize / 4, 2 * pixelSize / 4, 28 * pixelSize / 4);
+            // 上边
+            ctx.fillRect(-16 * pixelSize / 4, -14 * pixelSize / 4, 32 * pixelSize / 4, 2 * pixelSize / 4);
+            // 下边
+            ctx.fillRect(-16 * pixelSize / 4, 12 * pixelSize / 4, 32 * pixelSize / 4, 2 * pixelSize / 4);
+            
+            // 车身高光（浅色）
+            ctx.fillStyle = bodyLight;
+            ctx.fillRect(-14 * pixelSize / 4, -12 * pixelSize / 4, 4 * pixelSize / 4, 20 * pixelSize / 4);
+            
+            // 车窗 (中间部分)
+            ctx.fillStyle = windowColor;
+            ctx.fillRect(-8 * pixelSize / 4, -8 * pixelSize / 4, 16 * pixelSize / 4, 12 * pixelSize / 4);
+            // 车窗反光
+            ctx.fillStyle = windowReflect;
+            ctx.fillRect(-6 * pixelSize / 4, -6 * pixelSize / 4, 4 * pixelSize / 4, 8 * pixelSize / 4);
+            
+            // 轮子 (四个角)
+            ctx.fillStyle = wheelColor;
+            // 左上轮
+            ctx.fillRect(-20 * pixelSize / 4, -16 * pixelSize / 4, 6 * pixelSize / 4, 6 * pixelSize / 4);
+            // 右上轮
+            ctx.fillRect(14 * pixelSize / 4, -16 * pixelSize / 4, 6 * pixelSize / 4, 6 * pixelSize / 4);
+            // 左下轮
+            ctx.fillRect(-20 * pixelSize / 4, 10 * pixelSize / 4, 6 * pixelSize / 4, 6 * pixelSize / 4);
+            // 右下轮
+            ctx.fillRect(14 * pixelSize / 4, 10 * pixelSize / 4, 6 * pixelSize / 4, 6 * pixelSize / 4);
+            
+            // 轮子高光
+            ctx.fillStyle = wheelHighlight;
+            ctx.fillRect(-18 * pixelSize / 4, -14 * pixelSize / 4, 2 * pixelSize / 4, 2 * pixelSize / 4);
+            ctx.fillRect(16 * pixelSize / 4, -14 * pixelSize / 4, 2 * pixelSize / 4, 2 * pixelSize / 4);
+            ctx.fillRect(-18 * pixelSize / 4, 12 * pixelSize / 4, 2 * pixelSize / 4, 2 * pixelSize / 4);
+            ctx.fillRect(16 * pixelSize / 4, 12 * pixelSize / 4, 2 * pixelSize / 4, 2 * pixelSize / 4);
+            
+            // 绘制机关枪（在车顶中央，可以旋转）
+            ctx.save();
+            ctx.rotate(gunAngle);
+            
+            // 机枪底座
+            ctx.fillStyle = gunColor;
+            ctx.fillRect(-4 * pixelSize / 4, -4 * pixelSize / 4, 8 * pixelSize / 4, 8 * pixelSize / 4);
+            ctx.fillStyle = gunHighlight;
+            ctx.fillRect(-2 * pixelSize / 4, -2 * pixelSize / 4, 4 * pixelSize / 4, 4 * pixelSize / 4);
+            
+            // 机枪枪管（延长一倍）
+            ctx.fillStyle = gunColor;
+            ctx.fillRect(-2 * pixelSize / 4, -36 * pixelSize / 4, 4 * pixelSize / 4, 32 * pixelSize / 4);
+            // 枪管高光
+            ctx.fillStyle = gunHighlight;
+            ctx.fillRect(0, -34 * pixelSize / 4, 2 * pixelSize / 4, 28 * pixelSize / 4);
+            
+            // 枪口
+            ctx.fillStyle = '#222';
+            ctx.fillRect(-1 * pixelSize / 4, -40 * pixelSize / 4, 2 * pixelSize / 4, 6 * pixelSize / 4);
+            
+            ctx.restore();
+            ctx.restore();
+        }
+        
+        // 绘制冰雪风格卡通僵尸（三头身，顶视图简化版）
+        function drawIceZombie(ctx, zombie) {
+            const x = zombie.x;
+            const y = zombie.y;
+            const r = zombie.radius;
+            
+            // 雪地阴影
+            ctx.beginPath();
+            ctx.ellipse(x, y + r * 0.7, r * 0.9, r * 0.25, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(100, 150, 180, 0.3)';
+            ctx.fill();
+            
+            // 身体颜色 - 更鲜明的冰蓝色调
+            const bodyColors = {
+                normal: { body: '#7a9ab0', coat: '#8aaac0', pants: '#4a6a80', outline: '#5a7a90' },
+                fast: { body: '#9a7ab0', coat: '#aa8ac0', pants: '#6a4a80', outline: '#7a5a90' },
+                tank: { body: '#7a7a9a', coat: '#8a8aaa', pants: '#4a4a6a', outline: '#5a5a7a' },
+                boss: { body: '#aa5a6a', coat: '#ba6a7a', pants: '#6a3a4a', outline: '#8a4a5a' }
+            };
+            
+            const colors = bodyColors[zombie.type] || bodyColors.normal;
+            
+            // 身体主体（圆形简化，带冬日外套轮廓）
+            ctx.beginPath();
+            ctx.arc(x, y, r * 0.95, 0, Math.PI * 2);
+            ctx.fillStyle = colors.coat;
+            ctx.fill();
+            // 轮廓线
+            ctx.strokeStyle = colors.outline;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // 外套毛领效果
+            ctx.beginPath();
+            ctx.arc(x, y, r * 0.8, 0, Math.PI * 2);
+            ctx.fillStyle = colors.body;
+            ctx.fill();
+            
+            // 头顶（露出部分，苍白皮肤）
+            ctx.beginPath();
+            ctx.arc(x, y - r * 0.15, r * 0.55, 0, Math.PI * 2);
+            ctx.fillStyle = '#8aaaba';
+            ctx.fill();
+            ctx.strokeStyle = colors.outline;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // 脸部（卡通风格，简化）
+            ctx.fillStyle = '#aacad8';
+            ctx.beginPath();
+            ctx.ellipse(x, y - r * 0.2, r * 0.4, r * 0.35, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 眼睛 - 发光的红色（符合参考图）
+            const eyeSize = r * 0.12;
+            const eyeGlow = ctx.createRadialGradient(x - r * 0.15, y - r * 0.3, 0, x - r * 0.15, y - r * 0.3, eyeSize * 2);
+            eyeGlow.addColorStop(0, '#ff3333');
+            eyeGlow.addColorStop(0.5, '#cc0000');
+            eyeGlow.addColorStop(1, 'rgba(200, 0, 0, 0)');
+            
+            // 左眼
+            ctx.fillStyle = eyeGlow;
+            ctx.beginPath();
+            ctx.arc(x - r * 0.15, y - r * 0.3, eyeSize * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(x - r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 右眼
+            ctx.fillStyle = eyeGlow;
+            ctx.beginPath();
+            ctx.arc(x + r * 0.15, y - r * 0.3, eyeSize * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(x + r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 嘴巴（简单的张嘴）
+            ctx.fillStyle = '#2a1a1a';
+            ctx.beginPath();
+            ctx.ellipse(x, y - r * 0.1, r * 0.15, r * 0.1, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 牙齿
+            ctx.fillStyle = '#ccc';
+            for (let i = -1; i <= 1; i++) {
+                ctx.fillRect(x + i * r * 0.08, y - r * 0.15, r * 0.04, r * 0.08);
+            }
+            
+            // 伸出的手臂（简化的爪子）
+            ctx.fillStyle = colors.coat;
+            // 左臂
+            ctx.beginPath();
+            ctx.ellipse(x - r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, Math.PI / 4, 0, Math.PI * 2);
+            ctx.fill();
+            // 右臂
+            ctx.beginPath();
+            ctx.ellipse(x + r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, -Math.PI / 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 爪子（绿色手指）
+            ctx.fillStyle = '#5a7a6a';
+            for (let i = 0; i < 3; i++) {
+                // 左爪
+                ctx.beginPath();
+                ctx.ellipse(x - r * (1.1 + i * 0.08), y + r * (0.1 + i * 0.05), r * 0.08, r * 0.04, Math.PI / 3, 0, Math.PI * 2);
+                ctx.fill();
+                // 右爪
+                ctx.beginPath();
+                ctx.ellipse(x + r * (1.1 + i * 0.08), y + r * (0.1 + i * 0.05), r * 0.08, r * 0.04, -Math.PI / 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 雪花覆盖效果
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.beginPath();
+            ctx.arc(x + r * 0.3, y - r * 0.4, r * 0.15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x - r * 0.4, y + r * 0.3, r * 0.1, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x + r * 0.2, y + r * 0.5, r * 0.12, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 血条
+            if (zombie.health < zombie.maxHealth) {
+                const barWidth = r * 2.2;
+                const barHeight = 5;
+                const barY = y - r - 15;
+                
+                ctx.fillStyle = '#1a2a3a';
+                ctx.fillRect(x - barWidth / 2, barY, barWidth, barHeight);
+                
+                ctx.fillStyle = '#ff4444';
+                ctx.fillRect(x - barWidth / 2, barY, barWidth * (zombie.health / zombie.maxHealth), barHeight);
+            }
+        }
+        
+        // 绘制雪花粒子
+        function drawSnowflakes(ctx) {
+            const time = Date.now() / 1000;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            
+            for (let i = 0; i < 50; i++) {
+                const x = ((i * 137.5 + time * 20) % canvas.width);
+                const y = ((i * 73.3 + time * 30) % canvas.height);
+                const size = 1 + (i % 3);
+                
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        function render() {
+            // 冰雪背景（深色对比）
+            // 天空渐变
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            skyGradient.addColorStop(0, '#2a3a4a');
+            skyGradient.addColorStop(0.6, '#4a5a6a');
+            skyGradient.addColorStop(1, '#6a7a8a');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 雪地地面（保持浅色但更有对比）
+            const groundY = canvas.height * 0.85;
+            const snowGradient = ctx.createLinearGradient(0, groundY, 0, canvas.height);
+            snowGradient.addColorStop(0, '#d0dce8');
+            snowGradient.addColorStop(1, '#a0b0c0');
+            ctx.fillStyle = snowGradient;
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+            
+            // 远处的冰山轮廓
+            ctx.fillStyle = 'rgba(100, 130, 160, 0.4)';
+            for (let i = 0; i < 5; i++) {
+                const x = (i / 5) * canvas.width + Math.sin(Date.now() / 5000 + i) * 20;
+                ctx.beginPath();
+                ctx.moveTo(x - 100, groundY);
+                ctx.lineTo(x, groundY - 80 - i * 20);
+                ctx.lineTo(x + 100, groundY);
+                ctx.fill();
+            }
+            
+            // 雪地网格（淡化但更明显）
+            ctx.strokeStyle = 'rgba(80, 100, 130, 0.2)';
+            ctx.lineWidth = 1;
+            const gridSize = 50;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, groundY);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = groundY; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // 经验球（更亮的颜色）
+            for (const orb of expOrbs) {
+                // 发光效果
+                const glow = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius * 2);
+                glow.addColorStop(0, 'rgba(100, 180, 255, 0.5)');
+                glow.addColorStop(1, 'rgba(100, 180, 255, 0)');
+                ctx.fillStyle = glow;
+                ctx.beginPath();
+                ctx.arc(orb.x, orb.y, orb.radius * 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#00bfff';
+                ctx.fill();
+                ctx.strokeStyle = '#87ceeb';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            
+            // 金币（保持金色，更亮）
+            for (const orb of goldOrbs) {
+                // 金色发光
+                const glow = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius * 2);
+                glow.addColorStop(0, 'rgba(255, 215, 0, 0.5)');
+                glow.addColorStop(1, 'rgba(255, 215, 0, 0)');
+                ctx.fillStyle = glow;
+                ctx.beginPath();
+                ctx.arc(orb.x, orb.y, orb.radius * 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffd700';
+                ctx.fill();
+                ctx.strokeStyle = '#ffec8b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            
+            // 冰雪风格僵尸
+            for (const zombie of zombies) {
+                drawIceZombie(ctx, zombie);
+            }
+            
+            // 子弹（更亮的橙色火焰弹）
+            for (const bullet of bullets) {
+                // 子弹发光效果
+                const gradient = ctx.createRadialGradient(bullet.x, bullet.y, 0, bullet.x, bullet.y, bullet.radius * 4);
+                gradient.addColorStop(0, 'rgba(255, 150, 50, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.4)');
+                gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, bullet.radius * 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 子弹核心
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffaa00';
+                ctx.fill();
+                ctx.strokeStyle = '#ffdd00';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            
+            // 粒子
+            for (const p of particles) {
+                ctx.globalAlpha = Math.min(1, p.life / 300);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            
+            // 玩家 - 像素风格越野车
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            
+            // 使用统一的机枪角度，并加90度偏移（因为枪管默认朝上）
+            const gunAngle = player.gunAngle + Math.PI / 2;
+            
+            // 受伤闪烁
+            const hurtFlash = player.hurtTime && (Date.now() - player.hurtTime < 100);
+            
+            // 绘制越野车顶视图（像素风格）
+            drawPixelJeep(ctx, 0, 0, gunAngle, hurtFlash);
+            
+            // 护盾效果
+            if (skills.shield.level > 0) {
+                ctx.beginPath();
+                ctx.arc(0, 0, 50, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(100, 200, 255, ${0.25 + skills.shield.level * 0.1})`;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+            
+            // 伤害数字
+            for (const dn of damageNumbers) {
+                ctx.globalAlpha = Math.min(1, dn.life / 500);
+                ctx.fillStyle = dn.color;
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(dn.text, dn.x, dn.y);
+            }
+            ctx.globalAlpha = 1;
+            
+            // 闪电特效（在子弹之后、雪花之前）
+            drawLightnings();
+            
+            // 炸弹爆炸特效
+            drawBombExplosions();
+            
+            // 雪花效果（在最上层）
+            drawSnowflakes(ctx);
+        }
+        
+        // 防止页面滚动
+        document.body.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+    </script>
+</body>
+</html>
