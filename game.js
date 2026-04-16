@@ -1,4 +1,4 @@
-// 僵尸猎人 - 微信小游戏完整版
+// 制霸新手村的骷髅怪 - 微信小游戏完整版
 // 基于 H5闯关版完整移植
 // 版本: 1.0.1
 
@@ -1277,7 +1277,7 @@ function drawStartScreen() {
     ctx.font = 'bold 32px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🧟 僵尸猎人 🎯', screenWidth / 2, screenHeight * 0.30);
+    ctx.fillText('💀 制霸新手村的骷髅怪 🎯', screenWidth / 2, screenHeight * 0.30);
     
     // 说明
     ctx.fillStyle = '#fff';
