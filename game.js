@@ -2671,13 +2671,7 @@ function gameLoop() {
     
     ctx.clearRect(0, 0, screenWidth, screenHeight);
     
-    // 首次进入自动开始第一关
-    if (gameState === 'mainMenu' && isFirstEntry) {
-        isFirstEntry = false;
-        currentStage = 1;
-        isAdDemoMode = true;
-        startGame();
-    } else if (gameState === 'mainMenu') {
+    if (gameState === 'mainMenu') {
         drawMainMenu();
     } else if (gameState === 'start') {
         drawStartScreen();
@@ -2749,10 +2743,9 @@ wx.onTouchStart((e) => {
         const btnX = screenWidth / 2 - btnW / 2;
         const btnY = screenHeight * 0.68;
 
-        // 开始游戏按钮 -> 进入关卡选择
+        // 开始游戏按钮 -> 进入主界面（关卡选择）
         if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
-            isAdDemoMode = false;
-            gameState = 'stageSelect';
+            gameState = 'mainMenu';
             return;
         }
     } else if (gameState === 'stageSelect') {
