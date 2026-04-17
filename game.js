@@ -45,8 +45,7 @@ function saveProgress() {
 }
 
 // ==================== 游戏状态 ====================
-let gameState = 'mainMenu'; // start, mainMenu, stageSelect, playing, paused, gameOver, victory, upgrade
-let isFirstEntry = true; // 是否为首次进入游戏
+let gameState = 'start'; // start, mainMenu, playing, paused, gameOver, victory, upgrade
 let gameRunning = false;
 let gamePaused = false;
 let gameTime = 0;
@@ -2743,9 +2742,11 @@ wx.onTouchStart((e) => {
         const btnX = screenWidth / 2 - btnW / 2;
         const btnY = screenHeight * 0.68;
 
-        // 开始游戏按钮 -> 进入主界面（关卡选择）
+        // 开始游戏按钮 -> 直接开始第一关
         if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
-            gameState = 'mainMenu';
+            currentStage = 1;
+            isAdDemoMode = true;
+            startGame();
             return;
         }
     } else if (gameState === 'stageSelect') {
