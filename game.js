@@ -2574,8 +2574,22 @@ function update(dt) {
     }
 }
 
-// ==================== 主界面（简化版-只有关卡Tab）====================
+// ==================== 主界面-关卡Tab（UE风格完全还原）====================
 let mainMenuExpandedChapter = 1; // 默认展开第1章
+
+// 10章数据（每章6关，共60关）
+const CHAPTERS = [
+    { id: 1, name: '冰雪初现', icon: '❄️', levels: [1,2,3,4,5,6], unlocked: true },
+    { id: 2, name: '暴风骤起', icon: '💨', levels: [7,8,9,10,11,12], unlocked: false },
+    { id: 3, name: '冰川裂缝', icon: '🧊', levels: [13,14,15,16,17,18], unlocked: false },
+    { id: 4, name: '寒霜要塞', icon: '🏔️', levels: [19,20,21,22,23,24], unlocked: false },
+    { id: 5, name: '永冻深渊', icon: '👑', levels: [25,26,27,28,29,30], unlocked: false },
+    { id: 6, name: '冰封王座', icon: '👑', levels: [31,32,33,34,35,36], unlocked: false },
+    { id: 7, name: '极寒之地', icon: '🌨️', levels: [37,38,39,40,41,42], unlocked: false },
+    { id: 8, name: '霜雪领域', icon: '❄️', levels: [43,44,45,46,47,48], unlocked: false },
+    { id: 9, name: '冰河世纪', icon: '🧊', levels: [49,50,51,52,53,54], unlocked: false },
+    { id: 10, name: '终结之战', icon: '🔥', levels: [55,56,57,58,59,60], unlocked: false }
+];
 
 function drawMainMenu() {
     // 渐变背景
@@ -2589,175 +2603,171 @@ function drawMainMenu() {
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('🎯 选择关卡', screenWidth / 2, 35);
+    ctx.fillText('关卡', screenWidth / 2, 35);
     
-    // 计算章节
-    const levelsPerChapter = 5; // 每章5关
-    const chapters = [];
-    for (let c = 0; c < Math.ceil(STAGES.length / levelsPerChapter); c++) {
-        const startIdx = c * levelsPerChapter;
-        const endIdx = Math.min(startIdx + levelsPerChapter, STAGES.length);
-        chapters.push({
-            num: c + 1,
-            startIdx: startIdx,
-            levels: STAGES.slice(startIdx, endIdx)
-        });
-    }
-    
-    // 绘制章节
+    // 绘制章节列表
     let currentY = 55;
     
-    chapters.forEach((chapter, ci) => {
-        const isExpanded = mainMenuExpandedChapter === chapter.num;
-        const chapterH = isExpanded ? 30 + (chapter.levels.length / 3 + 1) * 70 : 45;
+    CHAPTERS.forEach((chapter, ci) => {
+        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const chapterH = isExpanded ? 210 : 70; // 展开210px，折叠70px
         
         // 章节背景
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-        roundRect(ctx, 10, currentY, screenWidth - 20, chapterH, 12);
+        ctx.fillStyle = 'rgba(15, 52, 96, 0.6)';
+        roundRect(ctx, 15, currentY, screenWidth - 30, chapterH, 15);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-        ctx.lineWidth = 1;
-        roundRect(ctx, 10, currentY, screenWidth - 20, chapterH, 12);
-        ctx.stroke();
         
-        // 章节头部
-        ctx.fillStyle = 'rgba(15, 52, 96, 0.8)';
-        roundRect(ctx, 10, currentY, screenWidth - 20, 40, 12);
-        ctx.fill();
+        // 章节头部区域（可点击）
+        const headerY = currentY + 10;
         
         // 展开/折叠箭头
         ctx.fillStyle = '#fff';
-        ctx.font = '12px Arial';
+        ctx.font = '14px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(isExpanded ? '▼' : '▶', 20, currentY + 25);
+        ctx.fillText(isExpanded ? '▼' : '▶', 30, headerY + 25);
         
-        // 章节图标
-        ctx.font = '18px Arial';
-        ctx.fillText('❄️', 40, currentY + 26);
+        // 章节图标（圆形背景）
+        ctx.fillStyle = 'rgba(30, 58, 95, 0.8)';
+        ctx.beginPath();
+        ctx.arc(65, headerY + 20, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(chapter.icon, 65, headerY + 26);
         
         // 章节名称
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px Arial';
-        ctx.fillText(`第${chapter.num}章`, 65, currentY + 20);
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(`第${chapter.id}章 ${chapter.name}`, 95, headerY + 18);
         
-        // 章节进度
+        // 关卡范围
         ctx.fillStyle = '#888';
-        ctx.font = '11px Arial';
-        ctx.fillText(`${chapter.levels[0].id}-${chapter.levels[chapter.levels.length - 1].id}关`, 65, currentY + 35);
+        ctx.font = '12px Arial';
+        ctx.fillText(`关卡 ${chapter.levels[0]}-${chapter.levels[5]}`, 95, headerY + 38);
         
-        // 绘制关卡
-        if (isExpanded) {
-            const cardW = (screenWidth - 50) / 3;
-            const cardH = 60;
-            const gap = 5;
-            const startX = 20;
-            const startCardY = currentY + 48;
+        // 状态标签
+        const tagX = screenWidth - 80;
+        const tagY = headerY + 15;
+        if (chapter.unlocked) {
+            // 计算已通关数量
+            let cleared = 0;
+            chapter.levels.forEach(lv => {
+                if (stageProgress[lv - 1]) cleared++;
+            });
             
-            chapter.levels.forEach((stage, li) => {
+            ctx.fillStyle = '#2a5a8a';
+            roundRect(ctx, tagX - 20, tagY, 70, 26, 13);
+            ctx.fill();
+            ctx.fillStyle = '#7ac';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`已解锁 ${cleared}/6`, tagX + 15, tagY + 17);
+        } else {
+            ctx.fillStyle = '#444';
+            roundRect(ctx, tagX - 10, tagY, 60, 26, 13);
+            ctx.fill();
+            ctx.fillStyle = '#666';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('未解锁', tagX + 20, tagY + 17);
+        }
+        
+        // 绘制关卡网格（仅第1章且展开时）
+        if (isExpanded) {
+            const cardW = (screenWidth - 70) / 3;
+            const cardH = 75;
+            const gap = 8;
+            const startX = 25;
+            const startCardY = currentY + 75;
+            
+            chapter.levels.forEach((levelNum, li) => {
                 const col = li % 3;
                 const row = Math.floor(li / 3);
                 const cx = startX + col * (cardW + gap);
                 const cy = startCardY + row * (cardH + gap);
                 
-                const stageIdx = chapter.startIdx + li;
+                const stageIdx = levelNum - 1;
                 const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
                 const isCompleted = stageProgress[stageIdx];
                 
                 // 卡片背景
-                const cardGrad = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
-                if (isCompleted) {
-                    cardGrad.addColorStop(0, '#2a5a3a');
-                    cardGrad.addColorStop(1, '#1a4a2a');
-                } else if (isUnlocked) {
-                    cardGrad.addColorStop(0, '#2a4a7a');
-                    cardGrad.addColorStop(1, '#1a3a6a');
-                } else {
-                    cardGrad.addColorStop(0, '#3a3a4a');
-                    cardGrad.addColorStop(1, '#2a2a3a');
-                }
-                ctx.fillStyle = cardGrad;
-                roundRect(ctx, cx, cy, cardW, cardH, 8);
+                ctx.fillStyle = 'rgba(30, 58, 95, 0.8)';
+                roundRect(ctx, cx, cy, cardW, cardH, 12);
                 ctx.fill();
                 
                 // 边框
-                ctx.strokeStyle = isCompleted ? '#4a8a5a' : (isUnlocked ? '#4fc3f7' : '#5a5a6a');
+                ctx.strokeStyle = isCompleted ? '#4fc3f7' : (isUnlocked ? '#4fc3f7' : '#3a5a7a');
                 ctx.lineWidth = isCompleted ? 2 : 1;
-                roundRect(ctx, cx, cy, cardW, cardH, 8);
+                roundRect(ctx, cx, cy, cardW, cardH, 12);
                 ctx.stroke();
                 
-                // 关卡号
-                ctx.fillStyle = isUnlocked ? '#fff' : '#666';
-                ctx.font = 'bold 14px Arial';
+                // 关卡数字
+                ctx.fillStyle = isUnlocked ? '#fff' : '#555';
+                ctx.font = 'bold 16px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(`${stage.id}`, cx + cardW / 2, cy + 22);
+                ctx.fillText(`${levelNum}`, cx + cardW / 2, cy + 22);
                 
-                // 图标
-                ctx.font = '16px Arial';
-                ctx.fillText(isCompleted ? '⭐' : (isUnlocked ? '🎮' : '🔒'), cx + cardW / 2, cy + 42);
+                // 雪花图标
+                ctx.fillStyle = isUnlocked ? '#4fc3f7' : '#3a5a7a';
+                ctx.font = '22px Arial';
+                ctx.fillText('❄️', cx + cardW / 2, cy + 45);
+                
+                // 三颗星星
+                const starY = cy + 65;
+                const starColor = isCompleted ? '#ffd700' : '#3a4a5a';
+                ctx.fillStyle = starColor;
+                ctx.font = '10px Arial';
+                ctx.fillText('★★★', cx + cardW / 2, starY);
             });
         }
         
-        currentY += chapterH + 5;
+        currentY += chapterH + 10;
     });
-    
-    // 底部提示
-    ctx.fillStyle = '#666';
-    ctx.font = '11px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('点击章节头部展开/折叠 · 点击关卡开始游戏', screenWidth / 2, screenHeight - 20);
 }
 
 function handleMainMenuTouch(x, y) {
-    // 检查是否点击章节头部
     let currentY = 55;
-    const levelsPerChapter = 5;
-    const chapters = [];
-    for (let c = 0; c < Math.ceil(STAGES.length / levelsPerChapter); c++) {
-        const startIdx = c * levelsPerChapter;
-        const endIdx = Math.min(startIdx + levelsPerChapter, STAGES.length);
-        chapters.push({
-            num: c + 1,
-            startIdx: startIdx,
-            levels: STAGES.slice(startIdx, endIdx)
-        });
-    }
     
-    for (const chapter of chapters) {
-        const isExpanded = mainMenuExpandedChapter === chapter.num;
-        const chapterH = isExpanded ? 30 + (chapter.levels.length / 3 + 1) * 70 : 45;
+    for (const chapter of CHAPTERS) {
+        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const chapterH = isExpanded ? 210 : 70;
         
-        // 点击章节头部
-        if (y >= currentY && y <= currentY + 40 && x >= 10 && x <= screenWidth - 10) {
-            mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.num ? 0 : chapter.num;
+        // 点击章节头部（展开/折叠）
+        if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
+            if (chapter.unlocked) {
+                mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
+            }
             return;
         }
         
-        // 点击关卡
+        // 点击关卡卡片（仅展开时）
         if (isExpanded) {
-            const cardW = (screenWidth - 50) / 3;
-            const cardH = 60;
-            const gap = 5;
-            const startX = 20;
-            const startCardY = currentY + 48;
+            const cardW = (screenWidth - 70) / 3;
+            const cardH = 75;
+            const gap = 8;
+            const startX = 25;
+            const startCardY = currentY + 75;
             
-            chapter.levels.forEach((stage, li) => {
+            chapter.levels.forEach((levelNum, li) => {
                 const col = li % 3;
                 const row = Math.floor(li / 3);
                 const cx = startX + col * (cardW + gap);
                 const cy = startCardY + row * (cardH + gap);
                 
-                const stageIdx = chapter.startIdx + li;
+                const stageIdx = levelNum - 1;
                 const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
                 
                 if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
-                    currentStage = stage.id;
-                    isAdDemoMode = (stage.id === 1);
+                    currentStage = levelNum;
+                    isAdDemoMode = (levelNum === 1);
                     startGame();
                 }
             });
         }
         
-        currentY += chapterH + 5;
+        currentY += chapterH + 10;
     }
 }
 
