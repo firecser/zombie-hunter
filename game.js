@@ -1,6 +1,6 @@
 // 制霸新手村的骷髅怪 - 微信小游戏完整版
 // 基于 H5闯关版完整移植
-// 版本: 1.0.1
+// 版本: 1.0.3
 
 // ==================== 基础设置 ====================
 const canvas = wx.createCanvas();
@@ -2359,11 +2359,19 @@ function victory() {
 
 // 开始游戏
 function startGame() {
+    // 清除可能存在的关卡拖动状态
+    if (levelLongPressTimer) {
+        clearTimeout(levelLongPressTimer);
+        levelLongPressTimer = null;
+    }
+    isLevelDragging = false;
+    isLevelLongPressing = false;
+
     gameState = 'playing';
     gameRunning = true;
     gameTime = 0;
     lastTime = Date.now();
-    
+
     // 初始化音频系统
     if (!AudioSystem.isInitialized) {
         AudioSystem.init();
@@ -2601,6 +2609,52 @@ const CHAPTERS = [
 
 let mainMenuExpandedChapter = 1; // 默认展开第1章
 
+// 关卡滚动相关变量
+let levelScrollY = 0; // 当前滚动偏移
+let isLevelLongPressing = false; // 是否正在长按
+let levelLongPressTimer = null; // 长按计时器
+let levelDragStartY = 0; // 拖动开始的Y坐标
+let levelDragStartScrollY = 0; // 拖动开始时的滚动偏移
+let levelTouchStartX = 0; // 触摸开始X
+let levelTouchStartY = 0; // 触摸开始Y
+let isLevelDragging = false; // 是否正在拖动
+let levelReturnHandled = false; // 是否已处理"返回关卡/主界面"按钮点击（防止触摸结束时误触发）
+const LEVEL_LONG_PRESS_DURATION = 200; // 长按触发时间（毫秒）
+const LEVEL_SCROLL_SENSITIVITY = 1.5; // 滚动灵敏度
+
+// 主角数据
+let heroData = {
+    name: '冰雪猎人',
+    level: 12,
+    rank: 888,
+    power: 36666
+};
+
+// 天赋数据（按章节解锁）
+let talentData = {
+    'core': { name: '骷髅之心', icon: '💀', level: 5, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1 },
+    'damage': { name: '攻击力', icon: '⚔️', level: 5, max: 30, cost: 300, effect: '攻击力+3%', chapter: 2 },
+    'health': { name: '生命', icon: '❤️', level: 5, max: 30, cost: 300, effect: '生命+30', chapter: 2 },
+    'goldearn': { name: '金币获取', icon: '🪙', level: 3, max: 20, cost: 400, effect: '金币+8%', chapter: 2 },
+    'expearn': { name: '经验获取', icon: '⭐', level: 3, max: 20, cost: 400, effect: '经验+8%', chapter: 2 },
+    'attackspeed': { name: '攻击速度', icon: '⚡', level: 3, max: 20, cost: 500, effect: '攻速+2%', chapter: 4 },
+    'crit': { name: '暴击率', icon: '💥', level: 2, max: 25, cost: 500, effect: '暴击+1.5%', chapter: 4 },
+    'piercing': { name: '穿透', icon: '🗡️', level: 1, max: 10, cost: 800, effect: '穿透+1', chapter: 4 },
+    'shield': { name: '护盾', icon: '🛡️', level: 1, max: 20, cost: 500, effect: '护盾+20', chapter: 4 },
+    'explosive': { name: '爆炸', icon: '💣', level: 1, max: 10, cost: 1000, effect: '范围+10%', chapter: 6 },
+    'freeze': { name: '冰冻', icon: '❄️', level: 1, max: 15, cost: 800, effect: '冰冻+1.5%', chapter: 6 },
+    'slow': { name: '减速', icon: '🐌', level: 1, max: 15, cost: 800, effect: '减速+2%', chapter: 6 },
+    'bombcount': { name: '炸弹上限', icon: '💣', level: 1, max: 8, cost: 1200, effect: '上限+1', chapter: 6 },
+    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, effect: '弹射+1', chapter: 8 },
+    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, effect: '子弹+1', chapter: 8 },
+    'deathray': { name: '死亡射线', icon: '☠️', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10 },
+    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, effect: '复活1次', chapter: 10 },
+    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, effect: '吸收伤害', chapter: 10 }
+};
+
+// 当前解锁的最高章节（用于判断天赋解锁状态）
+let highestUnlockedChapter = 2;
+
 function drawMainMenu() {
     // 渐变背景
     const bgGrad = ctx.createLinearGradient(0, 0, 0, screenHeight);
@@ -2620,6 +2674,11 @@ function drawMainMenu() {
         drawMainMenuRank();
     } else if (mainMenuTab === 'world') {
         drawMainMenuWorld();
+    }
+    
+    // 天赋升级弹窗
+    if (talentModal.show) {
+        drawTalentModal();
     }
     
     // 底部导航栏
@@ -2667,14 +2726,144 @@ function drawMainMenuNav() {
 
 // 主角Tab
 function drawMainMenuHero() {
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 18px Arial';
+    // 标题
+    ctx.fillStyle = '#e8d5b7';
+    ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('主角', screenWidth / 2, 35);
+    ctx.fillText('主角', screenWidth / 2, 30);
     
-    ctx.fillStyle = '#888';
-    ctx.font = '14px Arial';
-    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+    const centerX = screenWidth / 2;
+    
+    // ===== 计算布局（垂直居中） =====
+    // 内容总高度：头像(80) + 间距(25) + 面板(115) ≈ 220
+    const contentTotalH = 220;
+    const contentTop = (screenHeight - MAIN_MENU_NAV_H - contentTotalH) / 2;
+    
+    // ===== 主角装备区域（左右布局） =====
+    const avatarY = contentTop + 40;
+    const avatarSize = 80;
+    const avatarR = avatarSize / 2;
+    
+    // 左侧3个装备槽
+    const slotSize = 48;
+    const slotGap = 8;
+    const slotToAvatarGap = 25; // 装备槽与头像的间距
+    const leftSlotsX = centerX - avatarSize / 2 - slotToAvatarGap - slotSize;
+    const rightSlotsX = centerX + avatarSize / 2 + slotToAvatarGap;
+    const slotsStartY = avatarY - (3 * slotSize + 2 * slotGap) / 2;
+    
+    const slotIcons = ['🔒', '🔒', '🔒', '🔒', '🔒', '🔒'];
+    
+    // 绘制6个装备槽
+    for (let i = 0; i < 6; i++) {
+        const col = i < 3 ? 0 : 1;
+        const row = i % 3;
+        const sx = col === 0 ? leftSlotsX : rightSlotsX;
+        const sy = slotsStartY + row * (slotSize + slotGap);
+        
+        // 槽位背景
+        ctx.fillStyle = 'rgba(50, 50, 60, 0.8)';
+        roundRect(ctx, sx, sy, slotSize, slotSize, 10);
+        ctx.fill();
+        
+        // 边框
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 2;
+        roundRect(ctx, sx, sy, slotSize, slotSize, 10);
+        ctx.stroke();
+        
+        // 图标
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(slotIcons[i], sx + slotSize / 2, sy + slotSize / 2);
+    }
+    
+    ctx.textBaseline = 'alphabetic';
+    
+    // ===== 中央头像 =====
+    // 光晕
+    const glowGrad = ctx.createRadialGradient(centerX, avatarY, avatarR * 0.5, centerX, avatarY, avatarR * 1.5);
+    glowGrad.addColorStop(0, 'rgba(79, 195, 247, 0.3)');
+    glowGrad.addColorStop(1, 'rgba(79, 195, 247, 0)');
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(centerX, avatarY, avatarR * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 头像边框
+    ctx.strokeStyle = '#4fc3f7';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, avatarY, avatarR, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // 头像内部（径向渐变）
+    const avatarGrad = ctx.createRadialGradient(centerX, avatarY - avatarR * 0.3, 0, centerX, avatarY, avatarR);
+    avatarGrad.addColorStop(0, '#2a4a6a');
+    avatarGrad.addColorStop(1, '#1a3a5a');
+    ctx.fillStyle = avatarGrad;
+    ctx.beginPath();
+    ctx.arc(centerX, avatarY, avatarR - 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 骷髅图标
+    ctx.fillStyle = '#fff';
+    ctx.font = '40px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💀', centerX, avatarY);
+    ctx.textBaseline = 'alphabetic';
+    
+    // ===== 底部信息面板 =====
+    const panelX = 15;
+    const panelY = avatarY + avatarR + 45;
+    const panelW = screenWidth - 30;
+    const panelH = 115;
+    
+    // 面板背景
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    roundRect(ctx, panelX, panelY, panelW, panelH, 15);
+    ctx.fill();
+    
+    // 4行信息
+    const rows = [
+        { label: '玩家名字', value: heroData.name },
+        { label: '天赋等级', value: 'Lv.' + heroData.level },
+        { label: '排行榜名次', value: '第 ' + heroData.rank + ' 名' },
+        { label: '总战力', value: heroData.power.toLocaleString() }
+    ];
+    
+    const rowH = 28;
+    const labelX = panelX + 15;
+    const valueX = panelX + panelW - 15;
+    
+    rows.forEach((row, i) => {
+        const rowY = panelY + 18 + i * rowH;
+        
+        // 分割线（除最后一行）
+        if (i < rows.length - 1) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(labelX, rowY + 8);
+            ctx.lineTo(valueX, rowY + 8);
+            ctx.stroke();
+        }
+        
+        // 标签
+        ctx.fillStyle = '#888';
+        ctx.font = '13px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(row.label, labelX, rowY);
+        
+        // 数值
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = 'bold 13px Arial';
+        ctx.textAlign = 'right';
+        ctx.fillText(row.value, valueX, rowY);
+    });
 }
 
 // 关卡Tab
@@ -2684,9 +2873,27 @@ function drawMainMenuLevel() {
     ctx.textAlign = 'center';
     ctx.fillText('关卡', screenWidth / 2, 35);
     
-    // 可滚动区域（排除导航栏）
+    // 计算内容总高度
+    let totalContentH = 0;
+    CHAPTERS.forEach((chapter) => {
+        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const chapterH = isExpanded ? 210 : 70;
+        totalContentH += chapterH + 10;
+    });
+    
     const contentH = screenHeight - MAIN_MENU_NAV_H - 50;
-    let currentY = 50;
+    const maxScroll = Math.max(0, totalContentH - contentH);
+    
+    // 限制滚动范围
+    levelScrollY = Math.max(-maxScroll, Math.min(0, levelScrollY));
+    
+    // 使用裁剪区域实现滚动
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 50, screenWidth, contentH);
+    ctx.clip();
+    
+    let currentY = 50 + levelScrollY;
     
     CHAPTERS.forEach((chapter, ci) => {
         const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
@@ -2799,18 +3006,417 @@ function drawMainMenuLevel() {
         
         currentY += chapterH + 10;
     });
+    
+    ctx.restore();
+    
+    // 绘制滚动指示器
+    if (maxScroll > 0) {
+        const scrollBarH = contentH * (contentH / totalContentH);
+        const scrollBarY = 50 + (contentH - scrollBarH) * (-levelScrollY / maxScroll);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        roundRect(ctx, screenWidth - 6, scrollBarY, 4, scrollBarH, 2);
+        ctx.fill();
+    }
 }
 
 // 天赋Tab
 function drawMainMenuTalent() {
+    // 清空节点位置
+    talentNodes = [];
+    
+    // 标题
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('天赋', screenWidth / 2, 35);
+    ctx.fillText('天赋', screenWidth / 2, 30);
     
+    const centerX = screenWidth / 2;
+    const contentTop = 45;
+    const contentWidth = screenWidth - 24;
+    const nodeGap = 8;
+    
+    // ===== 当前进度提示 =====
+    const currentChapterText = highestUnlockedChapter <= 2 ? '第1-2章 · 入门篇' :
+                               highestUnlockedChapter <= 4 ? '第3-4章 · 进阶篇' :
+                               highestUnlockedChapter <= 6 ? '第5-6章 · 强化篇' :
+                               highestUnlockedChapter <= 8 ? '第7-8章 · 高级篇' : '第9-10章 · 终极篇';
+    
+    ctx.fillStyle = '#4fc3f7';
+    ctx.font = '10px Arial';
+    ctx.fillText('📍 当前: ' + currentChapterText, centerX, contentTop + 10);
+    
+    // ===== 天赋树结构 =====
+    let currentY = contentTop + 30;
+    
+    // --- 核心天赋（骷髅之心）---
+    const coreNodeR = 35;
+    
+    // 判断是否解锁
+    const coreUnlocked = highestUnlockedChapter >= 1;
+    
+    // 光晕效果
+    if (coreUnlocked) {
+        const coreGlow = ctx.createRadialGradient(centerX, currentY, coreNodeR * 0.5, centerX, currentY, coreNodeR * 2);
+        coreGlow.addColorStop(0, 'rgba(255, 215, 0, 0.4)');
+        coreGlow.addColorStop(1, 'rgba(255, 215, 0, 0)');
+        ctx.fillStyle = coreGlow;
+        ctx.beginPath();
+        ctx.arc(centerX, currentY, coreNodeR * 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // 核心节点背景
+    const coreGrad = ctx.createRadialGradient(centerX, currentY - coreNodeR * 0.3, 0, centerX, currentY, coreNodeR);
+    coreGrad.addColorStop(0, coreUnlocked ? '#3a7aca' : '#333');
+    coreGrad.addColorStop(1, coreUnlocked ? '#1e5a9a' : '#222');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(centerX, currentY, coreNodeR, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 边框
+    ctx.strokeStyle = coreUnlocked ? '#ffd700' : '#444';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, currentY, coreNodeR, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // 图标和文字
+    ctx.fillStyle = coreUnlocked ? '#fff' : '#666';
+    ctx.font = '28px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💀', centerX, currentY - 8);
+    
+    ctx.font = '9px Arial';
+    ctx.fillText('骷髅之心', centerX, currentY + 16);
+    ctx.fillStyle = coreUnlocked ? '#ffd700' : '#666';
+    ctx.font = '8px Arial';
+    ctx.fillText('核心 Lv.' + talentData['core'].level, centerX, currentY + 26);
+    
+    ctx.textBaseline = 'alphabetic';
+    
+    currentY += coreNodeR + 15;
+    
+    // --- 连接线 ---
+    ctx.strokeStyle = coreUnlocked ? '#4fc3f7' : '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, currentY - 10);
+    ctx.lineTo(centerX, currentY);
+    ctx.stroke();
+    
+    // ===== 第二章·基础属性 =====
+    currentY += 5;
+    
+    // 分组标题
+    ctx.fillStyle = '#4fc3f7';
+    ctx.font = '10px Arial';
+    ctx.fillText('📖 第二章 · 基础属性', centerX, currentY);
+    
+    // 装饰线
+    ctx.strokeStyle = 'rgba(79, 195, 247, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(centerX - 60, currentY - 5);
+    ctx.lineTo(centerX + 60, currentY - 5);
+    ctx.stroke();
+    
+    currentY += 15;
+    
+    // 4个节点
+    const row2Talents = ['damage', 'health', 'goldearn', 'expearn'];
+    const nodeSize = 50;
+    const row2Width = nodeSize * 4 + nodeGap * 3;
+    const row2StartX = centerX - row2Width / 2;
+    
+    const chapter2Unlocked = highestUnlockedChapter >= 2;
+    
+    row2Talents.forEach((talentId, i) => {
+        const t = talentData[talentId];
+        const nx = row2StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
+        const ny = currentY + nodeSize / 2;
+        
+        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
+        drawTalentNode(nx, ny, nodeSize, t, chapter2Unlocked);
+    });
+    
+    currentY += nodeSize + 15;
+    
+    // 连接线
+    if (chapter2Unlocked) {
+        ctx.strokeStyle = '#4fc3f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, currentY - 10);
+        ctx.lineTo(centerX, currentY);
+        ctx.stroke();
+    }
+    
+    currentY += 5;
+    
+    // ===== 第四章·进阶战斗 =====
+    ctx.fillStyle = '#4fc3f7';
+    ctx.font = '10px Arial';
+    ctx.fillText('📖 第四章 · 进阶战斗', centerX, currentY);
+    
+    currentY += 15;
+    
+    const chapter4Unlocked = highestUnlockedChapter >= 4;
+    const row3Talents = ['attackspeed', 'crit', 'piercing', 'shield'];
+    
+    row3Talents.forEach((talentId, i) => {
+        const t = talentData[talentId];
+        const nx = row2StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
+        const ny = currentY + nodeSize / 2;
+        
+        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
+        drawTalentNode(nx, ny, nodeSize, t, chapter4Unlocked);
+    });
+    
+    currentY += nodeSize + 15;
+    
+    // 连接线
+    if (chapter4Unlocked) {
+        ctx.strokeStyle = '#4fc3f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, currentY - 10);
+        ctx.lineTo(centerX, currentY);
+        ctx.stroke();
+    }
+    
+    currentY += 5;
+    
+    // ===== 第六章·技能强化 =====
+    ctx.fillStyle = '#4fc3f7';
+    ctx.font = '10px Arial';
+    ctx.fillText('📖 第六章 · 技能强化', centerX, currentY);
+    
+    currentY += 15;
+    
+    const chapter6Unlocked = highestUnlockedChapter >= 6;
+    const row4Talents = ['explosive', 'freeze', 'slow', 'bombcount'];
+    
+    row4Talents.forEach((talentId, i) => {
+        const t = talentData[talentId];
+        const nx = row2StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
+        const ny = currentY + nodeSize / 2;
+        
+        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
+        drawTalentNode(nx, ny, nodeSize, t, chapter6Unlocked);
+    });
+    
+    currentY += nodeSize + 15;
+    
+    // 连接线
+    if (chapter6Unlocked) {
+        ctx.strokeStyle = '#4fc3f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, currentY - 10);
+        ctx.lineTo(centerX, currentY);
+        ctx.stroke();
+    }
+    
+    currentY += 5;
+    
+    // ===== 第八章·高级技能 =====
+    ctx.fillStyle = '#4fc3f7';
+    ctx.font = '10px Arial';
+    ctx.fillText('📖 第八章 · 高级技能', centerX, currentY);
+    
+    currentY += 15;
+    
+    const chapter8Unlocked = highestUnlockedChapter >= 8;
+    const row5Talents = ['lightning', 'multishot'];
+    
+    // 两个节点居中
+    const row5Width = nodeSize * 2 + nodeGap;
+    const row5StartX = centerX - row5Width / 2;
+    
+    row5Talents.forEach((talentId, i) => {
+        const t = talentData[talentId];
+        const nx = row5StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
+        const ny = currentY + nodeSize / 2;
+        
+        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
+        drawTalentNode(nx, ny, nodeSize, t, chapter8Unlocked);
+    });
+    
+    currentY += nodeSize + 15;
+    
+    // 连接线
+    if (chapter8Unlocked) {
+        ctx.strokeStyle = '#4fc3f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, currentY - 10);
+        ctx.lineTo(centerX, currentY);
+        ctx.stroke();
+    }
+    
+    currentY += 5;
+    
+    // ===== 终极天赋（章节10） =====
+    ctx.fillStyle = '#ffd700';
+    ctx.font = '10px Arial';
+    ctx.fillText('👑 终极天赋 (章节10)', centerX, currentY);
+    
+    currentY += 15;
+    
+    const chapter10Unlocked = highestUnlockedChapter >= 10;
+    const row6Talents = ['deathray', 'immortal', 'devour'];
+    
+    const row6Width = nodeSize * 3 + nodeGap * 2;
+    const row6StartX = centerX - row6Width / 2;
+    
+    row6Talents.forEach((talentId, i) => {
+        const t = talentData[talentId];
+        const nx = row6StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
+        const ny = currentY + nodeSize / 2;
+        
+        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
+        drawTalentNode(nx, ny, nodeSize, t, chapter10Unlocked);
+    });
+}
+
+// 绘制天赋节点
+function drawTalentNode(x, y, size, talent, unlocked) {
+    const halfSize = size / 2;
+    
+    // 背景
+    const bgGrad = ctx.createRadialGradient(x, y - halfSize * 0.3, 0, x, y, halfSize);
+    bgGrad.addColorStop(0, unlocked ? '#1e3a5f' : '#1a1a1a');
+    bgGrad.addColorStop(1, unlocked ? '#0f3460' : '#111');
+    ctx.fillStyle = bgGrad;
+    roundRect(ctx, x - halfSize, y - halfSize, size, size, 10);
+    ctx.fill();
+    
+    // 边框
+    const isMaxed = talent.level >= talent.max;
+    ctx.strokeStyle = isMaxed ? '#ffd700' : (unlocked ? '#4fc3f7' : '#444');
+    ctx.lineWidth = 2;
+    roundRect(ctx, x - halfSize, y - halfSize, size, size, 10);
+    ctx.stroke();
+    
+    // 图标
+    ctx.fillStyle = unlocked ? '#fff' : '#555';
+    ctx.font = '20px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(talent.icon, x, y - 10);
+
+    // 名称
+    ctx.font = '9px Arial';
+    ctx.fillStyle = unlocked ? '#fff' : '#555';
+    ctx.textAlign = 'center';
+    ctx.fillText(talent.name, x, y + 8);
+
+    // 等级
+    ctx.font = '8px Arial';
+    ctx.fillStyle = isMaxed ? '#ffd700' : (unlocked ? '#4fc3f7' : '#444');
+    ctx.textAlign = 'center';
+    ctx.fillText(unlocked ? (talent.level >= talent.max ? 'MAX' : 'Lv.' + talent.level) : '未解锁', x, y + 20);
+
+    ctx.textBaseline = 'alphabetic';
+}
+
+// 绘制天赋升级弹窗
+function drawTalentModal() {
+    const talent = talentData[talentModal.talentId];
+    const isUnlocked = highestUnlockedChapter >= talent.chapter;
+    const isMaxed = talent.level >= talent.max;
+    
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+    
+    // 弹窗
+    const modalW = 280;
+    const modalH = 220;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+    
+    // 弹窗背景
+    const bgGrad = ctx.createLinearGradient(0, modalY, 0, modalY + modalH);
+    bgGrad.addColorStop(0, '#1e3a5f');
+    bgGrad.addColorStop(1, '#16213e');
+    ctx.fillStyle = bgGrad;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 15);
+    ctx.fill();
+    
+    // 边框
+    ctx.strokeStyle = '#4fc3f7';
+    ctx.lineWidth = 2;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 15);
+    ctx.stroke();
+    
+    // 图标
+    ctx.font = '50px Arial';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(talent.icon, screenWidth / 2, modalY + 50);
+    
+    // 名称
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(talent.name, screenWidth / 2, modalY + 95);
+    
+    // 当前等级
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#888';
+    ctx.fillText(isMaxed ? '已达最高等级' : '当前等级: Lv.' + talent.level, screenWidth / 2, modalY + 115);
+    
+    // 升级效果
+    ctx.font = '13px Arial';
+    ctx.fillStyle = '#4fc3f7';
+    ctx.fillText('效果: ' + talent.effect, screenWidth / 2, modalY + 140);
+    
+    // 按钮
+    const btnW = 100;
+    const btnH = 40;
+    const btnY = modalY + 165;
+    
+    // 取消按钮
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    roundRect(ctx, screenWidth / 2 - btnW - 10, btnY, btnW, btnH, 10);
+    ctx.fill();
     ctx.fillStyle = '#888';
     ctx.font = '14px Arial';
-    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+    ctx.fillText('关闭', screenWidth / 2 - btnW / 2 - 10, btnY + 25);
+    
+    // 升级按钮
+    if (!isMaxed && isUnlocked) {
+        ctx.fillStyle = '#4fc3f7';
+        roundRect(ctx, screenWidth / 2 + 10, btnY, btnW, btnH, 10);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px Arial';
+        ctx.fillText('升级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+        
+        // 消耗
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#ffd700';
+        ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + 38);
+    } else if (!isUnlocked) {
+        ctx.fillStyle = '#444';
+        roundRect(ctx, screenWidth / 2 + 10, btnY, btnW, btnH, 10);
+        ctx.fill();
+        ctx.fillStyle = '#888';
+        ctx.font = '12px Arial';
+        ctx.fillText('需第' + talent.chapter + '章', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+    } else {
+        ctx.fillStyle = '#ffd700';
+        roundRect(ctx, screenWidth / 2 + 10, btnY, btnW, btnH, 10);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px Arial';
+        ctx.fillText('已满级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+    }
+    
+    ctx.textBaseline = 'alphabetic';
 }
 
 // 排行Tab
@@ -2972,7 +3578,43 @@ wx.onTouchStart((e) => {
     const y = touch.clientY;
     
     if (gameState === 'mainMenu') {
-        handleMainMenuTouch(x, y);
+        const navY = screenHeight - MAIN_MENU_NAV_H;
+        
+        // 点击底部导航
+        if (y >= navY) {
+            const btnW = screenWidth / 5;
+            const tabIndex = Math.floor(x / btnW);
+            if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
+                mainMenuTab = MAIN_MENU_TABS[tabIndex].id;
+                if (mainMenuTab === 'level') {
+                    mainMenuExpandedChapter = 1;
+                    levelScrollY = 0; // 切换Tab时重置滚动
+                }
+            }
+            return;
+        }
+        
+        // 关卡Tab：启动长按检测
+        if (mainMenuTab === 'level') {
+            levelTouchStartX = x;
+            levelTouchStartY = y;
+            levelDragStartY = y;
+            levelDragStartScrollY = levelScrollY;
+            isLevelDragging = false;
+            
+            // 清除之前的长按定时器
+            if (levelLongPressTimer) {
+                clearTimeout(levelLongPressTimer);
+            }
+            
+            // 启动1秒长按定时器
+            isLevelLongPressing = true;
+            levelLongPressTimer = setTimeout(() => {
+                if (isLevelLongPressing) {
+                    isLevelDragging = true;
+                }
+            }, LEVEL_LONG_PRESS_DURATION);
+        }
     } else if (gameState === 'start') {
         const btnW = 140, btnH = 45;
         const btnX = screenWidth / 2 - btnW / 2;
@@ -3006,12 +3648,23 @@ wx.onTouchStart((e) => {
             }
         });
     } else if (gameState === 'playing') {
+        // 清除可能存在的关卡拖动状态（从主菜单进入战斗后，定时器可能还在运行）
+        if (levelLongPressTimer) {
+            clearTimeout(levelLongPressTimer);
+            levelLongPressTimer = null;
+        }
+        isLevelDragging = false;
+        isLevelLongPressing = false;
+        // 重置触摸坐标，防止残留的触摸位置在返回主菜单后误触发关卡点击
+        levelTouchStartX = 0;
+        levelTouchStartY = 0;
+
         // 检查右上角按钮（音效+暂停）
         if (x >= soundBtnX && x <= soundBtnX + buttonSize && y >= soundBtnY && y <= soundBtnY + buttonSize) {
             soundEnabled = !soundEnabled;
             return;
         }
-        
+
         if (x >= pauseBtnX && x <= pauseBtnX + buttonSize && y >= pauseBtnY && y <= pauseBtnY + buttonSize) {
             gamePaused = !gamePaused;
             if (!gamePaused) {
@@ -3019,7 +3672,7 @@ wx.onTouchStart((e) => {
             }
             return;
         }
-        
+
         // 检查暂停面板按钮（与drawPauseModal一致）
         if (gamePaused) {
             const modalW = 220;
@@ -3037,12 +3690,16 @@ wx.onTouchStart((e) => {
             if (x >= startX && x <= startX + btnSize && y >= btnY && y <= btnY + btnSize) {
                 gamePaused = false;
                 lastTime = Date.now();
+                return;
             }
 
             // 关卡按钮
             if (x >= startX + btnSize + gap && x <= startX + btnSize + gap + btnSize && y >= btnY && y <= btnY + btnSize) {
+                levelReturnHandled = true;  // 标记已处理，防止触摸结束时误触发
                 gameState = 'mainMenu';
+                mainMenuTab = 'level';  // 确保回到关卡Tab
                 gamePaused = false;
+                return;
             }
         } else {
             // 使用炸弹（圆形按钮检测，与drawBombButton一致）
@@ -3110,8 +3767,12 @@ wx.onTouchStart((e) => {
         if (y >= btnY && y <= btnY + btnH) {
             if (x >= startX && x <= startX + btnW) {
                 startGame();
+                return;
             } else if (x >= startX + btnW + gap && x <= startX + totalW) {
+                levelReturnHandled = true;  // 标记已处理
                 gameState = 'mainMenu';
+                mainMenuTab = 'level';  // 确保回到关卡Tab
+                return;
             }
         }
     } else if (gameState === 'victory') {
@@ -3138,26 +3799,174 @@ wx.onTouchStart((e) => {
                         currentStage++;
                     }
                     startGame();
+                    return;
                 } else if (x >= startX + btnW + gap && x <= startX + btnW * 2 + gap) {
                     startGame();
+                    return;
                 } else if (x >= startX + (btnW + gap) * 2 && x <= startX + totalW) {
+                    levelReturnHandled = true;  // 标记已处理
                     gameState = 'mainMenu';
+                    mainMenuTab = 'level';  // 确保回到关卡Tab
+                    return;
                 }
             }
         } else {
             const totalW = btnW * 2 + gap;
             const startX = screenWidth / 2 - totalW / 2;
-            
+
             if (y >= btnY && y <= btnY + btnH) {
                 if (x >= startX && x <= startX + btnW) {
                     startGame();
+                    return;
                 } else if (x >= startX + btnW + gap && x <= startX + totalW) {
+                    levelReturnHandled = true;  // 标记已处理
                     gameState = 'mainMenu';
+                    mainMenuTab = 'level';  // 确保回到关卡Tab
+                    return;
                 }
             }
         }
     }
 });
+
+// 触摸移动处理（拖动滚动）
+wx.onTouchMove((e) => {
+    if (gameState !== 'mainMenu' || mainMenuTab !== 'level') return;
+    
+    const touch = e.touches[0];
+    const x = touch.clientX;
+    const y = touch.clientY;
+    
+    // 如果正在拖动，更新滚动
+    if (isLevelDragging) {
+        const deltaY = y - levelDragStartY;
+        levelScrollY = levelDragStartScrollY + deltaY * LEVEL_SCROLL_SENSITIVITY;
+    }
+});
+
+// 触摸结束处理
+wx.onTouchEnd((e) => {
+    // 清除长按定时器
+    if (levelLongPressTimer) {
+        clearTimeout(levelLongPressTimer);
+        levelLongPressTimer = null;
+    }
+
+    // 如果点击了"返回关卡/主界面"按钮，不处理后续点击逻辑
+    if (levelReturnHandled) {
+        levelReturnHandled = false;  // 重置标记
+        isLevelLongPressing = false;
+        isLevelDragging = false;
+        return;
+    }
+
+    // 如果没有真正拖动，且在关卡Tab，执行点击处理
+    if (!isLevelDragging && gameState === 'mainMenu' && mainMenuTab === 'level' && !gamePaused) {
+        const navY = screenHeight - MAIN_MENU_NAV_H;
+        if (levelTouchStartY < navY && levelTouchStartY >= 50) {
+            // 在内容区域，执行点击处理（使用记录的起始位置）
+            handleLevelClick(levelTouchStartX, levelTouchStartY);
+        }
+    }
+
+    // 如果没有真正拖动，且在天赋Tab，执行点击处理
+    if (!isLevelDragging && gameState === 'mainMenu' && mainMenuTab === 'talent' && !gamePaused) {
+        if (!talentModal.show) {
+            handleTalentClick(levelTouchStartX, levelTouchStartY);
+        } else {
+            // 弹窗显示时，检测关闭按钮点击
+            closeTalentModal();
+        }
+    }
+
+    // 重置状态
+    isLevelLongPressing = false;
+    isLevelDragging = false;
+});
+
+// 关卡点击处理（从触摸事件中分离出来）
+function handleLevelClick(x, y) {
+    let currentY = 50 + levelScrollY;
+    const contentH = screenHeight - MAIN_MENU_NAV_H - 50;
+    
+    // 检查是否在可见区域内
+    if (y < 50 || y >= 50 + contentH) {
+        return;
+    }
+    
+    for (const chapter of CHAPTERS) {
+        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const chapterH = isExpanded ? 210 : 70;
+        
+        // 点击章节头部（展开/折叠）
+        if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
+            if (chapter.unlocked) {
+                mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
+            }
+            return;
+        }
+        
+        // 点击关卡卡片
+        if (isExpanded) {
+            const cardW = (screenWidth - 70) / 3;
+            const cardH = 70;
+            const gap = 8;
+            const startX = 25;
+            const startCardY = currentY + 75;
+            
+            chapter.levels.forEach((levelNum, li) => {
+                const col = li % 3;
+                const row = Math.floor(li / 3);
+                const cx = startX + col * (cardW + gap);
+                const cy = startCardY + row * (cardH + gap);
+                
+                const stageIdx = levelNum - 1;
+                const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
+                
+                if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
+                    currentStage = levelNum;
+                    isAdDemoMode = (levelNum === 1);
+                    startGame();
+                }
+            });
+        }
+        
+        currentY += chapterH + 10;
+    }
+}
+
+// 天赋节点位置存储（用于点击检测）
+let talentNodes = [];
+
+// 天赋点击处理
+function handleTalentClick(x, y) {
+    // 遍历所有天赋节点检测点击
+    for (const node of talentNodes) {
+        const halfSize = node.size / 2;
+        if (x >= node.x - halfSize && x <= node.x + halfSize &&
+            y >= node.y - halfSize && y <= node.y + halfSize) {
+            // 显示天赋信息弹窗
+            showTalentModal(node.talentId);
+            return;
+        }
+    }
+}
+
+// 天赋升级弹窗
+let talentModal = {
+    show: false,
+    talentId: null
+};
+
+function showTalentModal(talentId) {
+    talentModal.show = true;
+    talentModal.talentId = talentId;
+}
+
+function closeTalentModal() {
+    talentModal.show = false;
+    talentModal.talentId = null;
+}
 
 // ==================== 初始化 ====================
 gameLoop();
