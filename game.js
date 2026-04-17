@@ -2197,7 +2197,7 @@ function spawnZombies(dt) {
                 maxHealth: template.health * healthMult,
                 damage: template.damage * stage.damageMult,
                 color: template.color,
-                exp: template.exp * stage.difficulty,
+                exp: template.exp,
                 gold: template.gold || 5,
                 type: type
             });
@@ -2459,7 +2459,7 @@ function spawnInitialAdZombies() {
             maxHealth: template.health * healthMult,
             damage: template.damage * stage.damageMult,
             color: template.color,
-            exp: template.exp * stage.difficulty,
+            exp: template.exp,
             gold: template.gold || 5,
             type: type,
             isAdZombie: true  // 标记为素材演示僵尸（不掉经验）
