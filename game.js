@@ -2575,92 +2575,190 @@ function update(dt) {
 }
 
 // ==================== 主界面（简化版-只有关卡Tab）====================
+let mainMenuExpandedChapter = 1; // 默认展开第1章
+
 function drawMainMenu() {
-    drawBackground();
+    // 渐变背景
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, screenHeight);
+    bgGrad.addColorStop(0, '#0f3460');
+    bgGrad.addColorStop(1, '#16213e');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
     
     // 顶部标题
     ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 18px Arial';
+    ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('🎮 选择关卡', screenWidth / 2, 35);
+    ctx.fillText('🎯 选择关卡', screenWidth / 2, 35);
     
-    // 关卡网格
-    const cols = 2;
-    const cardW = (screenWidth - 50) / cols;
-    const cardH = 80;
-    const gap = 10;
-    const startY = 60;
+    // 计算章节
+    const levelsPerChapter = 5; // 每章5关
+    const chapters = [];
+    for (let c = 0; c < Math.ceil(STAGES.length / levelsPerChapter); c++) {
+        const startIdx = c * levelsPerChapter;
+        const endIdx = Math.min(startIdx + levelsPerChapter, STAGES.length);
+        chapters.push({
+            num: c + 1,
+            startIdx: startIdx,
+            levels: STAGES.slice(startIdx, endIdx)
+        });
+    }
     
-    STAGES.forEach((stage, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const cx = 20 + col * (cardW + gap);
-        const cy = startY + row * (cardH + gap);
+    // 绘制章节
+    let currentY = 55;
+    
+    chapters.forEach((chapter, ci) => {
+        const isExpanded = mainMenuExpandedChapter === chapter.num;
+        const chapterH = isExpanded ? 30 + (chapter.levels.length / 3 + 1) * 70 : 45;
         
-        const isUnlocked = i === 0 || stageProgress[i - 1];
-        
-        // 卡片背景
-        const gradient = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
-        if (isUnlocked) {
-            gradient.addColorStop(0, '#2a4a7a');
-            gradient.addColorStop(1, '#1a3a6a');
-        } else {
-            gradient.addColorStop(0, '#3a3a4a');
-            gradient.addColorStop(1, '#2a2a3a');
-        }
-        ctx.fillStyle = gradient;
-        roundRect(ctx, cx, cy, cardW, cardH, 8);
+        // 章节背景
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        roundRect(ctx, 10, currentY, screenWidth - 20, chapterH, 12);
         ctx.fill();
-        
-        // 边框
-        ctx.strokeStyle = isUnlocked ? '#4a6a9a' : '#5a5a6a';
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
         ctx.lineWidth = 1;
-        roundRect(ctx, cx, cy, cardW, cardH, 8);
+        roundRect(ctx, 10, currentY, screenWidth - 20, chapterH, 12);
         ctx.stroke();
         
-        // 关卡名
-        ctx.fillStyle = isUnlocked ? '#fff' : '#888';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(`第${stage.id}关`, cx + cardW / 2, cy + 30);
+        // 章节头部
+        ctx.fillStyle = 'rgba(15, 52, 96, 0.8)';
+        roundRect(ctx, 10, currentY, screenWidth - 20, 40, 12);
+        ctx.fill();
         
-        // 状态
+        // 展开/折叠箭头
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(isExpanded ? '▼' : '▶', 20, currentY + 25);
+        
+        // 章节图标
+        ctx.font = '18px Arial';
+        ctx.fillText('❄️', 40, currentY + 26);
+        
+        // 章节名称
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(`第${chapter.num}章`, 65, currentY + 20);
+        
+        // 章节进度
+        ctx.fillStyle = '#888';
         ctx.font = '11px Arial';
-        if (isUnlocked) {
-            ctx.fillStyle = '#7ac';
-            ctx.fillText(stageProgress[i] ? '✅ 已通关' : '🕹️ 可挑战', cx + cardW / 2, cy + 52);
-        } else {
-            ctx.fillText('🔒 未解锁', cx + cardW / 2, cy + 52);
+        ctx.fillText(`${chapter.levels[0].id}-${chapter.levels[chapter.levels.length - 1].id}关`, 65, currentY + 35);
+        
+        // 绘制关卡
+        if (isExpanded) {
+            const cardW = (screenWidth - 50) / 3;
+            const cardH = 60;
+            const gap = 5;
+            const startX = 20;
+            const startCardY = currentY + 48;
+            
+            chapter.levels.forEach((stage, li) => {
+                const col = li % 3;
+                const row = Math.floor(li / 3);
+                const cx = startX + col * (cardW + gap);
+                const cy = startCardY + row * (cardH + gap);
+                
+                const stageIdx = chapter.startIdx + li;
+                const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
+                const isCompleted = stageProgress[stageIdx];
+                
+                // 卡片背景
+                const cardGrad = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
+                if (isCompleted) {
+                    cardGrad.addColorStop(0, '#2a5a3a');
+                    cardGrad.addColorStop(1, '#1a4a2a');
+                } else if (isUnlocked) {
+                    cardGrad.addColorStop(0, '#2a4a7a');
+                    cardGrad.addColorStop(1, '#1a3a6a');
+                } else {
+                    cardGrad.addColorStop(0, '#3a3a4a');
+                    cardGrad.addColorStop(1, '#2a2a3a');
+                }
+                ctx.fillStyle = cardGrad;
+                roundRect(ctx, cx, cy, cardW, cardH, 8);
+                ctx.fill();
+                
+                // 边框
+                ctx.strokeStyle = isCompleted ? '#4a8a5a' : (isUnlocked ? '#4fc3f7' : '#5a5a6a');
+                ctx.lineWidth = isCompleted ? 2 : 1;
+                roundRect(ctx, cx, cy, cardW, cardH, 8);
+                ctx.stroke();
+                
+                // 关卡号
+                ctx.fillStyle = isUnlocked ? '#fff' : '#666';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${stage.id}`, cx + cardW / 2, cy + 22);
+                
+                // 图标
+                ctx.font = '16px Arial';
+                ctx.fillText(isCompleted ? '⭐' : (isUnlocked ? '🎮' : '🔒'), cx + cardW / 2, cy + 42);
+            });
         }
+        
+        currentY += chapterH + 5;
     });
     
     // 底部提示
-    ctx.fillStyle = '#888';
-    ctx.font = '12px Arial';
-    ctx.fillText('点击关卡开始游戏', screenWidth / 2, screenHeight - 30);
+    ctx.fillStyle = '#666';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('点击章节头部展开/折叠 · 点击关卡开始游戏', screenWidth / 2, screenHeight - 20);
 }
 
 function handleMainMenuTouch(x, y) {
-    const cols = 2;
-    const cardW = (screenWidth - 50) / cols;
-    const cardH = 80;
-    const gap = 10;
-    const startY = 60;
+    // 检查是否点击章节头部
+    let currentY = 55;
+    const levelsPerChapter = 5;
+    const chapters = [];
+    for (let c = 0; c < Math.ceil(STAGES.length / levelsPerChapter); c++) {
+        const startIdx = c * levelsPerChapter;
+        const endIdx = Math.min(startIdx + levelsPerChapter, STAGES.length);
+        chapters.push({
+            num: c + 1,
+            startIdx: startIdx,
+            levels: STAGES.slice(startIdx, endIdx)
+        });
+    }
     
-    STAGES.forEach((stage, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const cx = 20 + col * (cardW + gap);
-        const cy = startY + row * (cardH + gap);
+    for (const chapter of chapters) {
+        const isExpanded = mainMenuExpandedChapter === chapter.num;
+        const chapterH = isExpanded ? 30 + (chapter.levels.length / 3 + 1) * 70 : 45;
         
-        const isUnlocked = i === 0 || stageProgress[i - 1];
-        
-        if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
-            currentStage = stage.id;
-            isAdDemoMode = (stage.id === 1);
-            startGame();
+        // 点击章节头部
+        if (y >= currentY && y <= currentY + 40 && x >= 10 && x <= screenWidth - 10) {
+            mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.num ? 0 : chapter.num;
+            return;
         }
-    });
+        
+        // 点击关卡
+        if (isExpanded) {
+            const cardW = (screenWidth - 50) / 3;
+            const cardH = 60;
+            const gap = 5;
+            const startX = 20;
+            const startCardY = currentY + 48;
+            
+            chapter.levels.forEach((stage, li) => {
+                const col = li % 3;
+                const row = Math.floor(li / 3);
+                const cx = startX + col * (cardW + gap);
+                const cy = startCardY + row * (cardH + gap);
+                
+                const stageIdx = chapter.startIdx + li;
+                const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
+                
+                if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
+                    currentStage = stage.id;
+                    isAdDemoMode = (stage.id === 1);
+                    startGame();
+                }
+            });
+        }
+        
+        currentY += chapterH + 5;
+    }
 }
 
 // ==================== 游戏循环 ====================
