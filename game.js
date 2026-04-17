@@ -2574,8 +2574,16 @@ function update(dt) {
     }
 }
 
-// ==================== 主界面-关卡Tab（UE风格完全还原）====================
-let mainMenuExpandedChapter = 1; // 默认展开第1章
+// ==================== 主界面-5Tab导航 ====================
+let mainMenuTab = 'level'; // hero, level, talent, rank, world
+const MAIN_MENU_TABS = [
+    { id: 'hero', icon: '🎮', name: '主角' },
+    { id: 'level', icon: '🎯', name: '关卡' },
+    { id: 'talent', icon: '⭐', name: '天赋' },
+    { id: 'rank', icon: '🏆', name: '排行' },
+    { id: 'world', icon: '🗺️', name: '世界' }
+];
+const MAIN_MENU_NAV_H = 65;
 
 // 10章数据（每章6关，共60关）
 const CHAPTERS = [
@@ -2591,6 +2599,8 @@ const CHAPTERS = [
     { id: 10, name: '终结之战', icon: '🔥', levels: [55,56,57,58,59,60], unlocked: false }
 ];
 
+let mainMenuExpandedChapter = 1; // 默认展开第1章
+
 function drawMainMenu() {
     // 渐变背景
     const bgGrad = ctx.createLinearGradient(0, 0, 0, screenHeight);
@@ -2599,25 +2609,95 @@ function drawMainMenu() {
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, screenWidth, screenHeight);
     
-    // 顶部标题
+    // 根据当前Tab绘制内容
+    if (mainMenuTab === 'hero') {
+        drawMainMenuHero();
+    } else if (mainMenuTab === 'level') {
+        drawMainMenuLevel();
+    } else if (mainMenuTab === 'talent') {
+        drawMainMenuTalent();
+    } else if (mainMenuTab === 'rank') {
+        drawMainMenuRank();
+    } else if (mainMenuTab === 'world') {
+        drawMainMenuWorld();
+    }
+    
+    // 底部导航栏
+    drawMainMenuNav();
+}
+
+function drawMainMenuNav() {
+    const navY = screenHeight - MAIN_MENU_NAV_H;
+    const btnW = screenWidth / 5;
+    
+    // 导航背景
+    ctx.fillStyle = 'rgba(22, 33, 62, 0.98)';
+    ctx.fillRect(0, navY, screenWidth, MAIN_MENU_NAV_H);
+    
+    // 顶部细线
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, navY);
+    ctx.lineTo(screenWidth, navY);
+    ctx.stroke();
+    
+    MAIN_MENU_TABS.forEach((tab, i) => {
+        const bx = i * btnW;
+        const isActive = mainMenuTab === tab.id;
+        
+        // 选中指示条
+        if (isActive) {
+            ctx.fillStyle = '#4fc3f7';
+            ctx.fillRect(bx + 10, navY + 2, btnW - 20, 3);
+        }
+        
+        // 图标
+        ctx.fillStyle = isActive ? '#4fc3f7' : '#666';
+        ctx.font = isActive ? 'bold 22px Arial' : '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(tab.icon, bx + btnW / 2, navY + 28);
+        
+        // 名称
+        ctx.fillStyle = isActive ? '#fff' : '#666';
+        ctx.font = '10px Arial';
+        ctx.fillText(tab.name, bx + btnW / 2, navY + 48);
+    });
+}
+
+// 主角Tab
+function drawMainMenuHero() {
     ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 20px Arial';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('主角', screenWidth / 2, 35);
+    
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+}
+
+// 关卡Tab
+function drawMainMenuLevel() {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('关卡', screenWidth / 2, 35);
     
-    // 绘制章节列表
-    let currentY = 55;
+    // 可滚动区域（排除导航栏）
+    const contentH = screenHeight - MAIN_MENU_NAV_H - 50;
+    let currentY = 50;
     
     CHAPTERS.forEach((chapter, ci) => {
         const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
-        const chapterH = isExpanded ? 210 : 70; // 展开210px，折叠70px
+        const chapterH = isExpanded ? 210 : 70;
         
         // 章节背景
         ctx.fillStyle = 'rgba(15, 52, 96, 0.6)';
         roundRect(ctx, 15, currentY, screenWidth - 30, chapterH, 15);
         ctx.fill();
         
-        // 章节头部区域（可点击）
+        // 章节头部区域
         const headerY = currentY + 10;
         
         // 展开/折叠箭头
@@ -2640,44 +2720,41 @@ function drawMainMenu() {
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(`第${chapter.id}章 ${chapter.name}`, 95, headerY + 18);
+        ctx.fillText(`第${chapter.id}章`, 95, headerY + 18);
         
-        // 关卡范围
         ctx.fillStyle = '#888';
         ctx.font = '12px Arial';
-        ctx.fillText(`关卡 ${chapter.levels[0]}-${chapter.levels[5]}`, 95, headerY + 38);
+        ctx.fillText(chapter.name, 95, headerY + 36);
         
         // 状态标签
-        const tagX = screenWidth - 80;
-        const tagY = headerY + 15;
+        const tagX = screenWidth - 90;
+        const tagY = headerY + 12;
         if (chapter.unlocked) {
-            // 计算已通关数量
             let cleared = 0;
             chapter.levels.forEach(lv => {
                 if (stageProgress[lv - 1]) cleared++;
             });
-            
             ctx.fillStyle = '#2a5a8a';
-            roundRect(ctx, tagX - 20, tagY, 70, 26, 13);
+            roundRect(ctx, tagX, tagY, 75, 26, 13);
             ctx.fill();
             ctx.fillStyle = '#7ac';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(`已解锁 ${cleared}/6`, tagX + 15, tagY + 17);
+            ctx.fillText(`${cleared}/6 已通关`, tagX + 37, tagY + 17);
         } else {
-            ctx.fillStyle = '#444';
-            roundRect(ctx, tagX - 10, tagY, 60, 26, 13);
+            ctx.fillStyle = '#333';
+            roundRect(ctx, tagX, tagY, 60, 26, 13);
             ctx.fill();
             ctx.fillStyle = '#666';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('未解锁', tagX + 20, tagY + 17);
+            ctx.fillText('未解锁', tagX + 30, tagY + 17);
         }
         
-        // 绘制关卡网格（仅第1章且展开时）
+        // 绘制关卡网格（仅展开时）
         if (isExpanded) {
             const cardW = (screenWidth - 70) / 3;
-            const cardH = 75;
+            const cardH = 70;
             const gap = 8;
             const startX = 25;
             const startCardY = currentY + 75;
@@ -2698,28 +2775,25 @@ function drawMainMenu() {
                 ctx.fill();
                 
                 // 边框
-                ctx.strokeStyle = isCompleted ? '#4fc3f7' : (isUnlocked ? '#4fc3f7' : '#3a5a7a');
+                ctx.strokeStyle = isCompleted ? '#ffd700' : (isUnlocked ? '#4fc3f7' : '#3a5a7a');
                 ctx.lineWidth = isCompleted ? 2 : 1;
                 roundRect(ctx, cx, cy, cardW, cardH, 12);
                 ctx.stroke();
                 
                 // 关卡数字
                 ctx.fillStyle = isUnlocked ? '#fff' : '#555';
-                ctx.font = 'bold 16px Arial';
+                ctx.font = 'bold 18px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(`${levelNum}`, cx + cardW / 2, cy + 22);
+                ctx.fillText(`${levelNum}`, cx + cardW / 2, cy + 25);
                 
                 // 雪花图标
-                ctx.fillStyle = isUnlocked ? '#4fc3f7' : '#3a5a7a';
-                ctx.font = '22px Arial';
-                ctx.fillText('❄️', cx + cardW / 2, cy + 45);
+                ctx.font = '20px Arial';
+                ctx.fillText('❄️', cx + cardW / 2, cy + 50);
                 
                 // 三颗星星
-                const starY = cy + 65;
-                const starColor = isCompleted ? '#ffd700' : '#3a4a5a';
-                ctx.fillStyle = starColor;
+                ctx.fillStyle = isCompleted ? '#ffd700' : '#3a4a5a';
                 ctx.font = '10px Arial';
-                ctx.fillText('★★★', cx + cardW / 2, starY);
+                ctx.fillText('★★★', cx + cardW / 2, cy + 65);
             });
         }
         
@@ -2727,47 +2801,101 @@ function drawMainMenu() {
     });
 }
 
-function handleMainMenuTouch(x, y) {
-    let currentY = 55;
+// 天赋Tab
+function drawMainMenuTalent() {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('天赋', screenWidth / 2, 35);
     
-    for (const chapter of CHAPTERS) {
-        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
-        const chapterH = isExpanded ? 210 : 70;
-        
-        // 点击章节头部（展开/折叠）
-        if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
-            if (chapter.unlocked) {
-                mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+}
+
+// 排行Tab
+function drawMainMenuRank() {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('排行', screenWidth / 2, 35);
+    
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+}
+
+// 世界Tab
+function drawMainMenuWorld() {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('世界', screenWidth / 2, 35);
+    
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+}
+
+function handleMainMenuTouch(x, y) {
+    const navY = screenHeight - MAIN_MENU_NAV_H;
+    
+    // 点击底部导航
+    if (y >= navY) {
+        const btnW = screenWidth / 5;
+        const tabIndex = Math.floor(x / btnW);
+        if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
+            mainMenuTab = MAIN_MENU_TABS[tabIndex].id;
+            if (mainMenuTab === 'level') {
+                mainMenuExpandedChapter = 1; // 切到关卡默认展开第1章
             }
-            return;
         }
+        return;
+    }
+    
+    // 关卡Tab的章节/关卡点击
+    if (mainMenuTab === 'level') {
+        let currentY = 50;
         
-        // 点击关卡卡片（仅展开时）
-        if (isExpanded) {
-            const cardW = (screenWidth - 70) / 3;
-            const cardH = 75;
-            const gap = 8;
-            const startX = 25;
-            const startCardY = currentY + 75;
+        for (const chapter of CHAPTERS) {
+            const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+            const chapterH = isExpanded ? 210 : 70;
             
-            chapter.levels.forEach((levelNum, li) => {
-                const col = li % 3;
-                const row = Math.floor(li / 3);
-                const cx = startX + col * (cardW + gap);
-                const cy = startCardY + row * (cardH + gap);
-                
-                const stageIdx = levelNum - 1;
-                const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
-                
-                if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
-                    currentStage = levelNum;
-                    isAdDemoMode = (levelNum === 1);
-                    startGame();
+            // 点击章节头部（展开/折叠）
+            if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
+                if (chapter.unlocked) {
+                    mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
                 }
-            });
+                return;
+            }
+            
+            // 点击关卡卡片
+            if (isExpanded) {
+                const cardW = (screenWidth - 70) / 3;
+                const cardH = 70;
+                const gap = 8;
+                const startX = 25;
+                const startCardY = currentY + 75;
+                
+                chapter.levels.forEach((levelNum, li) => {
+                    const col = li % 3;
+                    const row = Math.floor(li / 3);
+                    const cx = startX + col * (cardW + gap);
+                    const cy = startCardY + row * (cardH + gap);
+                    
+                    const stageIdx = levelNum - 1;
+                    const isUnlocked = stageIdx === 0 || stageProgress[stageIdx - 1];
+                    
+                    if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
+                        currentStage = levelNum;
+                        isAdDemoMode = (levelNum === 1);
+                        startGame();
+                    }
+                });
+            }
+            
+            currentY += chapterH + 10;
         }
-        
-        currentY += chapterH + 10;
     }
 }
 
