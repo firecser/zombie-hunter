@@ -45,8 +45,7 @@ function saveProgress() {
 }
 
 // ==================== 游戏状态 ====================
-let gameState = 'mainMenu'; // start, mainMenu, stageSelect, playing, paused, gameOver, victory, upgrade
-let isFirstEntry = true; // 是否为首次进入游戏
+let gameState = 'start'; // start, stageSelect, playing, paused, gameOver, victory, upgrade
 let gameRunning = false;
 let gamePaused = false;
 let gameTime = 0;
@@ -2575,241 +2574,6 @@ function update(dt) {
     }
 }
 
-// ==================== 主界面 ====================
-// 主界面状态
-let mainMenuTab = 'level'; // hero, level, talent, rank, world
-const mainMenuTabs = [
-    { id: 'hero', icon: '🎮', name: '主角' },
-    { id: 'level', icon: '🎯', name: '关卡' },
-    { id: 'talent', icon: '⭐', name: '天赋' },
-    { id: 'rank', icon: '🏆', name: '排行榜' },
-    { id: 'world', icon: '🗺️', name: '世界' }
-];
-
-// 绘制主界面
-function drawMainMenu() {
-    drawBackground();
-    
-    // 顶部标题栏
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(0, 0, screenWidth, 50);
-    
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('🎮 制霸新手村的骷髅怪 🎯', screenWidth / 2, 32);
-    
-    // 根据当前Tab绘制内容
-    if (mainMenuTab === 'hero') {
-        drawHeroTab();
-    } else if (mainMenuTab === 'level') {
-        drawLevelTab();
-    } else if (mainMenuTab === 'talent') {
-        drawTalentTab();
-    } else if (mainMenuTab === 'rank') {
-        drawRankTab();
-    } else if (mainMenuTab === 'world') {
-        drawWorldTab();
-    }
-    
-    // 底部导航栏
-    drawMainMenuNav();
-}
-
-// 绘制底部导航
-function drawMainMenuNav() {
-    const navH = 60;
-    const navY = screenHeight - navH;
-    const btnW = screenWidth / 5;
-    
-    // 导航背景
-    ctx.fillStyle = 'rgba(22, 33, 62, 0.95)';
-    ctx.fillRect(0, navY, screenWidth, navH);
-    
-    mainMenuTabs.forEach((tab, i) => {
-        const bx = i * btnW;
-        const isActive = mainMenuTab === tab.id;
-        
-        // 选中指示器
-        if (isActive) {
-            ctx.fillStyle = '#3a7aca';
-            ctx.fillRect(bx, navY, btnW, 3);
-        }
-        
-        // 图标
-        ctx.font = isActive ? 'bold 20px Arial' : '16px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(tab.icon, bx + btnW / 2, navY + 22);
-        
-        // 名称
-        ctx.fillStyle = isActive ? '#ffd700' : '#aaa';
-        ctx.font = '10px Arial';
-        ctx.fillText(tab.name, bx + btnW / 2, navY + 42);
-    });
-}
-
-// 主角Tab
-function drawHeroTab() {
-    const centerX = screenWidth / 2;
-    const centerY = screenHeight / 2 - 30;
-    
-    // 角色信息卡片
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    roundRect(ctx, 20, 70, screenWidth - 40, 200, 10);
-    ctx.fill();
-    
-    // 骷髅图标
-    ctx.font = '60px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('💀', centerX, centerY - 20);
-    
-    // 角色名
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 16px Arial';
-    ctx.fillText('骷髅猎手', centerX, centerY + 30);
-    
-    // 等级和金币
-    ctx.fillStyle = '#fff';
-    ctx.font = '12px Arial';
-    ctx.fillText(`等级: Lv.${player.level}  金币: ${player.gold}`, centerX, centerY + 55);
-    ctx.fillText(`击杀: ${player.kills}  经验: ${player.exp}/${player.expToLevel}`, centerX, centerY + 75);
-}
-
-// 关卡Tab (简化版)
-function drawLevelTab() {
-    // 标题
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('🎯 选择关卡', screenWidth / 2, 65);
-    
-    // 关卡网格
-    const cols = 2;
-    const cardW = (screenWidth - 50) / cols;
-    const cardH = 80;
-    const gap = 10;
-    const startY = 90;
-    
-    STAGES.forEach((stage, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const cx = 20 + col * (cardW + gap);
-        const cy = startY + row * (cardH + gap);
-        
-        const isUnlocked = i === 0 || stageProgress[i - 1];
-        
-        // 卡片背景
-        const gradient = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
-        if (isUnlocked) {
-            gradient.addColorStop(0, '#2a4a7a');
-            gradient.addColorStop(1, '#1a3a6a');
-        } else {
-            gradient.addColorStop(0, '#3a3a4a');
-            gradient.addColorStop(1, '#2a2a3a');
-        }
-        ctx.fillStyle = gradient;
-        roundRect(ctx, cx, cy, cardW, cardH, 8);
-        ctx.fill();
-        
-        // 边框
-        ctx.strokeStyle = isUnlocked ? '#4a6a9a' : '#5a5a6a';
-        ctx.lineWidth = 1;
-        roundRect(ctx, cx, cy, cardW, cardH, 8);
-        ctx.stroke();
-        
-        // 关卡名
-        ctx.fillStyle = isUnlocked ? '#fff' : '#888';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(`第${stage.id}关`, cx + cardW / 2, cy + 30);
-        
-        // 状态
-        ctx.font = '11px Arial';
-        if (isUnlocked) {
-            ctx.fillStyle = '#7ac';
-            ctx.fillText(stageProgress[i] ? '✅ 已通关' : '🕹️ 可挑战', cx + cardW / 2, cy + 52);
-        } else {
-            ctx.fillText('🔒 未解锁', cx + cardW / 2, cy + 52);
-        }
-    });
-}
-
-// 天赋Tab (简化版)
-function drawTalentTab() {
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('⭐ 天赋系统', screenWidth / 2, 65);
-    
-    ctx.fillStyle = '#aaa';
-    ctx.font = '12px Arial';
-    ctx.fillText('天赋功能开发中...', screenWidth / 2, screenHeight / 2);
-}
-
-// 排行榜Tab (简化版)
-function drawRankTab() {
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('🏆 排行榜', screenWidth / 2, 65);
-    
-    ctx.fillStyle = '#aaa';
-    ctx.font = '12px Arial';
-    ctx.fillText('排行榜功能开发中...', screenWidth / 2, screenHeight / 2);
-}
-
-// 世界Tab (简化版)
-function drawWorldTab() {
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('🗺️ 世界地图', screenWidth / 2, 65);
-    
-    ctx.fillStyle = '#aaa';
-    ctx.font = '12px Arial';
-    ctx.fillText('世界地图功能开发中...', screenWidth / 2, screenHeight / 2);
-}
-
-// 处理主界面触摸
-function handleMainMenuTouch(x, y) {
-    const navH = 60;
-    const navY = screenHeight - navH;
-    
-    // 点击导航栏
-    if (y >= navY) {
-        const btnW = screenWidth / 5;
-        const tabIndex = Math.floor(x / btnW);
-        if (tabIndex >= 0 && tabIndex < mainMenuTabs.length) {
-            mainMenuTab = mainMenuTabs[tabIndex].id;
-            return;
-        }
-    }
-    
-    // 点击关卡卡片
-    if (mainMenuTab === 'level') {
-        const cols = 2;
-        const cardW = (screenWidth - 50) / cols;
-        const cardH = 80;
-        const gap = 10;
-        const startY = 90;
-        
-        STAGES.forEach((stage, i) => {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const cx = 20 + col * (cardW + gap);
-            const cy = startY + row * (cardH + gap);
-            
-            const isUnlocked = i === 0 || stageProgress[i - 1];
-            
-            if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
-                currentStage = stage.id;
-                isAdDemoMode = (stage.id === 1);
-                startGame();
-            }
-        });
-    }
-}
-
 // ==================== 游戏循环 ====================
 function gameLoop() {
     const now = Date.now();
@@ -2817,18 +2581,7 @@ function gameLoop() {
     
     ctx.clearRect(0, 0, screenWidth, screenHeight);
     
-    // 首次进入自动开始第一关
-    if (gameState === 'mainMenu' && isFirstEntry) {
-        isFirstEntry = false;
-        currentStage = 1;
-        isAdDemoMode = true;
-        startGame();
-        return;
-    }
-    
-    if (gameState === 'mainMenu') {
-        drawMainMenu();
-    } else if (gameState === 'start') {
+    if (gameState === 'start') {
         drawStartScreen();
     } else if (gameState === 'stageSelect') {
         drawStageSelect();
@@ -2891,9 +2644,7 @@ wx.onTouchStart((e) => {
     const x = touch.clientX;
     const y = touch.clientY;
     
-    if (gameState === 'mainMenu') {
-        handleMainMenuTouch(x, y);
-    } else if (gameState === 'start') {
+    if (gameState === 'start') {
         const btnW = 140, btnH = 45;
         const btnX = screenWidth / 2 - btnW / 2;
         const btnY = screenHeight * 0.68;
@@ -2901,7 +2652,7 @@ wx.onTouchStart((e) => {
         // 开始游戏按钮 -> 进入关卡选择
         if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
             isAdDemoMode = false;
-            gameState = 'mainMenu';
+            gameState = 'stageSelect';
             return;
         }
     } else if (gameState === 'stageSelect') {
@@ -2960,7 +2711,7 @@ wx.onTouchStart((e) => {
 
             // 关卡按钮
             if (x >= startX + btnSize + gap && x <= startX + btnSize + gap + btnSize && y >= btnY && y <= btnY + btnSize) {
-                gameState = 'mainMenu';
+                gameState = 'stageSelect';
                 gamePaused = false;
             }
         } else {
@@ -3030,7 +2781,7 @@ wx.onTouchStart((e) => {
             if (x >= startX && x <= startX + btnW) {
                 startGame();
             } else if (x >= startX + btnW + gap && x <= startX + totalW) {
-                gameState = 'mainMenu';
+                gameState = 'stageSelect';
             }
         }
     } else if (gameState === 'victory') {
@@ -3060,7 +2811,7 @@ wx.onTouchStart((e) => {
                 } else if (x >= startX + btnW + gap && x <= startX + btnW * 2 + gap) {
                     startGame();
                 } else if (x >= startX + (btnW + gap) * 2 && x <= startX + totalW) {
-                    gameState = 'mainMenu';
+                    gameState = 'stageSelect';
                 }
             }
         } else {
@@ -3071,7 +2822,7 @@ wx.onTouchStart((e) => {
                 if (x >= startX && x <= startX + btnW) {
                     startGame();
                 } else if (x >= startX + btnW + gap && x <= startX + totalW) {
-                    gameState = 'mainMenu';
+                    gameState = 'stageSelect';
                 }
             }
         }
