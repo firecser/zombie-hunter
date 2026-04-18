@@ -8,6 +8,18 @@ const ctx = canvas.getContext('2d');
 const screenWidth = canvas.width;
 const screenHeight = canvas.height;
 
+// 获取微信状态栏高度（安全区域）
+let statusBarHeight = 20;
+try {
+    const systemInfo = wx.getSystemInfoSync();
+    statusBarHeight = systemInfo.statusBarHeight || 20;
+} catch (e) {
+    statusBarHeight = 20;
+}
+
+// 安全顶部偏移量（状态栏高度 + 10px间隙）
+const SAFE_TOP_OFFSET = statusBarHeight + 10;
+
 // ==================== 关卡系统 ====================
 const STAGES = [
     { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡', difficulty: 1, descColor: '#88cc88',
@@ -847,11 +859,11 @@ function drawBombExplosions() {
 // 绘制UI
 function drawUI() {
     const stage = getCurrentStage();
-    
-    // ========== 顶部信息栏（复刻H5版本） ==========
-    // 左上角信息面板（向上移动30px，避开刘海屏）
+
+    // ========== 顶部信息栏 ==========
+    // 左上角信息面板（使用安全顶部偏移）
     const panelX = 10;
-    const panelY = 30;
+    const panelY = SAFE_TOP_OFFSET + 20;
     const panelW = 145;
     const panelH = 58;
 
@@ -2622,6 +2634,53 @@ let levelReturnHandled = false; // 是否已处理"返回关卡/主界面"按钮
 const LEVEL_LONG_PRESS_DURATION = 200; // 长按触发时间（毫秒）
 const LEVEL_SCROLL_SENSITIVITY = 1.5; // 滚动灵敏度
 
+// ========== 排行榜相关 ==========
+let rankTab = 'global'; // 'global'=全服排行, 'friend'=好友排行
+let rankScrollY = 0; // 当前滚动偏移
+let rankTouchStartX = 0; // 触摸起始X
+let rankTouchStartY = 0; // 触摸起始Y
+let isRankDragging = false; // 是否正在拖动
+let rankDragStartY = 0; // 拖动开始Y
+let rankDragStartScrollY = 0; // 拖动开始时的滚动偏移
+
+// 模拟全服排行榜数据（本地前100名）
+const rankCityData = [
+    { rank: 1, name: '冰霜之王', location: '黑龙江 哈尔滨', level: 45, power: 128500 },
+    { rank: 2, name: '雪域狂魔', location: '吉林 长春', level: 43, power: 115200 },
+    { rank: 3, name: '寒冰射手', location: '辽宁 沈阳', level: 42, power: 108300 },
+    { rank: 4, name: '极地风暴', location: '内蒙古 呼和浩特', level: 40, power: 98500 },
+    { rank: 5, name: '冰晶凤凰', location: '新疆 乌鲁木齐', level: 39, power: 92400 },
+    { rank: 6, name: '冻土之心', location: '甘肃 兰州', level: 38, power: 87600 },
+    { rank: 7, name: '凛冬将至', location: '青海 西宁', level: 37, power: 82300 },
+    { rank: 8, name: '霜华漫天', location: '宁夏 银川', level: 36, power: 77800 },
+    { rank: 9, name: '寒潮来袭', location: '陕西 西安', level: 35, power: 73500 },
+    { rank: 10, name: '冰雪女王', location: '北京', level: 34, power: 69200 },
+    { rank: 11, name: '北境之王', location: '天津', level: 33, power: 65800 },
+    { rank: 12, name: '银装素裹', location: '河北 石家庄', level: 32, power: 62400 },
+    { rank: 13, name: '冰封千里', location: '山西 太原', level: 31, power: 59100 },
+    { rank: 14, name: '雪漫山河', location: '山东 济南', level: 30, power: 55800 },
+    { rank: 15, name: '寒光闪烁', location: '河南 郑州', level: 29, power: 52600 },
+    { rank: 16, name: '冰雨时节', location: '江苏 南京', level: 28, power: 49400 },
+    { rank: 17, name: '霜雪漫天', location: '安徽 合肥', level: 27, power: 46300 },
+    { rank: 18, name: '冻彻心扉', location: '上海', level: 26, power: 43200 },
+    { rank: 19, name: '极寒之巅', location: '浙江 杭州', level: 25, power: 40200 },
+    { rank: 20, name: '冰封王座', location: '福建 福州', level: 24, power: 37200 },
+    { rank: 21, name: '寒意逼人', location: '江西 南昌', level: 23, power: 34300 },
+    { rank: 22, name: '冰霜之魂', location: '湖北 武汉', level: 22, power: 31400 },
+    { rank: 23, name: '冰雪猎人', location: '湖南 长沙', level: 12, power: 12800 },
+    { rank: 24, name: '霜刃飞舞', location: '广东 广州', level: 21, power: 28600 },
+    { rank: 25, name: '寒冰冷酷', location: '广西 南宁', level: 20, power: 25800 },
+];
+
+// 模拟好友排行榜数据
+const rankFriendData = [
+    { rank: 1, name: '小明', location: '广东 深圳', level: 38, power: 89200, avatar: '🎮' },
+    { rank: 2, name: '老王', location: '北京', level: 35, power: 75600, avatar: '🎯' },
+    { rank: 3, name: '小李', location: '上海', level: 32, power: 62400, avatar: '⚔️' },
+    { rank: 4, name: '阿强', location: '浙江 杭州', level: 28, power: 48600, avatar: '🛡️' },
+    { rank: 5, name: '冰雪猎人', location: '湖南 长沙', level: 12, power: 12800, avatar: '❄️' },
+];
+
 // 主角数据
 let heroData = {
     name: '冰雪猎人',
@@ -2726,12 +2785,14 @@ function drawMainMenuNav() {
 
 // 主角Tab
 function drawMainMenuHero() {
+    const topOffset = SAFE_TOP_OFFSET;
+
     // 标题
     ctx.fillStyle = '#e8d5b7';
     ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('主角', screenWidth / 2, 30);
-    
+    ctx.fillText('主角', screenWidth / 2, topOffset + 20);
+
     const centerX = screenWidth / 2;
     
     // ===== 计算布局（垂直居中） =====
@@ -2868,11 +2929,13 @@ function drawMainMenuHero() {
 
 // 关卡Tab
 function drawMainMenuLevel() {
+    const topOffset = SAFE_TOP_OFFSET;
+
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('关卡', screenWidth / 2, 35);
-    
+    ctx.fillText('关卡', screenWidth / 2, topOffset + 20);
+
     // 计算内容总高度
     let totalContentH = 0;
     CHAPTERS.forEach((chapter) => {
@@ -2880,20 +2943,20 @@ function drawMainMenuLevel() {
         const chapterH = isExpanded ? 210 : 70;
         totalContentH += chapterH + 10;
     });
-    
-    const contentH = screenHeight - MAIN_MENU_NAV_H - 50;
+
+    const contentH = screenHeight - MAIN_MENU_NAV_H - topOffset;
     const maxScroll = Math.max(0, totalContentH - contentH);
-    
+
     // 限制滚动范围
     levelScrollY = Math.max(-maxScroll, Math.min(0, levelScrollY));
-    
+
     // 使用裁剪区域实现滚动
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, 50, screenWidth, contentH);
+    ctx.rect(0, topOffset, screenWidth, contentH);
     ctx.clip();
-    
-    let currentY = 50 + levelScrollY;
+
+    let currentY = topOffset + levelScrollY;
     
     CHAPTERS.forEach((chapter, ci) => {
         const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
@@ -3021,17 +3084,20 @@ function drawMainMenuLevel() {
 
 // 天赋Tab
 function drawMainMenuTalent() {
+    const topOffset = SAFE_TOP_OFFSET;
+
     // 清空节点位置
     talentNodes = [];
-    
+
     // 标题
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('天赋', screenWidth / 2, 30);
-    
+    ctx.fillText('天赋', screenWidth / 2, topOffset + 15);
+
     const centerX = screenWidth / 2;
-    const contentTop = 45;
+    // 增加顶部间距，给核心天赋光晕留出空间
+    const contentTop = topOffset + 45;
     const contentWidth = screenWidth - 24;
     const nodeGap = 8;
     
@@ -3046,7 +3112,8 @@ function drawMainMenuTalent() {
     ctx.fillText('📍 当前: ' + currentChapterText, centerX, contentTop + 10);
     
     // ===== 天赋树结构 =====
-    let currentY = contentTop + 30;
+    // 核心天赋位置下移，避免挡住顶部文字
+    let currentY = contentTop + 50;
     
     // --- 核心天赋（骷髅之心）---
     const coreNodeR = 35;
@@ -3419,28 +3486,392 @@ function drawTalentModal() {
     ctx.textBaseline = 'alphabetic';
 }
 
-// 排行Tab
+// ========== 排行Tab ==========
 function drawMainMenuRank() {
+    const topOffset = SAFE_TOP_OFFSET;
+    const currentData = rankTab === 'global' ? rankCityData : rankFriendData;
+    const navH = MAIN_MENU_NAV_H;
+
+    // 绘制标题栏背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(0, 0, screenWidth, topOffset + 30);
+
+    // 绘制标题
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('排行', screenWidth / 2, 35);
-    
-    ctx.fillStyle = '#888';
-    ctx.font = '14px Arial';
-    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+    ctx.fillText('排行榜', screenWidth / 2, topOffset + 20);
+
+    // Tab参数
+    const tabY = topOffset + 40;
+    const tabH = 40;
+    const tabGap = 10;
+    const tabW = (screenWidth - 30) / 2;
+    const padding = 15;
+
+    // 绘制Tab背景
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.beginPath();
+    roundRect(ctx, padding, tabY, screenWidth - padding * 2, tabH, 10);
+    ctx.fill();
+
+    // 绘制Tab项
+    const tabs = [
+        { id: 'global', label: '全服排行' },
+        { id: 'friend', label: '好友排行' }
+    ];
+
+    tabs.forEach((tab, i) => {
+        const tx = padding + 5 + i * (tabW + tabGap);
+        const isActive = rankTab === tab.id;
+
+        // Tab背景
+        if (isActive) {
+            ctx.fillStyle = 'rgba(79, 195, 247, 0.15)';
+            ctx.beginPath();
+            roundRect(ctx, tx, tabY + 3, tabW, tabH - 6, 8);
+            ctx.fill();
+
+            // Tab选中边框
+            ctx.strokeStyle = '#4fc3f7';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            roundRect(ctx, tx, tabY + 3, tabW, tabH - 6, 8);
+            ctx.stroke();
+        }
+
+        // Tab文字
+        ctx.fillStyle = isActive ? '#4fc3f7' : '#666';
+        ctx.font = 'bold 13px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(tab.label, tx + tabW / 2, tabY + tabH / 2 + 5);
+    });
+
+    // 列表区域
+    const listY = tabY + tabH + 10;
+    const listH = screenHeight - listY - navH - 10;
+
+    // 列表背景
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.beginPath();
+    roundRect(ctx, padding, listY, screenWidth - padding * 2, listH, 12);
+    ctx.fill();
+
+    // 设置裁剪区域，防止列表内容超出
+    ctx.save();
+    ctx.beginPath();
+    roundRect(ctx, padding, listY, screenWidth - padding * 2, listH, 12);
+    ctx.clip();
+
+    // 列表内容（带滚动）
+    const itemH = 50;
+    const avatarSize = 36;
+    const startX = padding + 12;
+    const contentWidth = screenWidth - padding * 2 - 24;
+
+    // 计算可见范围
+    const startIdx = Math.floor(rankScrollY / itemH);
+    const endIdx = Math.min(currentData.length, startIdx + Math.ceil(listH / itemH) + 1);
+
+    for (let i = startIdx; i < endIdx; i++) {
+        const item = currentData[i];
+        const itemY = listY + 8 + (i * itemH) - rankScrollY;
+
+        // 检查是否是自己
+        const isMe = item.name === heroData.name && rankTab === 'global';
+
+        // 列表项背景
+        if (isMe) {
+            // 高亮自己
+            ctx.fillStyle = 'rgba(79, 195, 247, 0.15)';
+            ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            roundRect(ctx, padding + 6, itemY, screenWidth - padding * 2 - 12, itemH - 6, 8);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // 排名
+        const rankX = startX;
+        ctx.textAlign = 'center';
+        if (item.rank <= 3) {
+            // 前三名显示奖牌emoji
+            const medals = ['🥇', '🥈', '🥉'];
+            ctx.font = '18px Arial';
+            ctx.fillText(medals[item.rank - 1], rankX + 18, itemY + itemH / 2 + 6);
+        } else {
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText(item.rank, rankX + 18, itemY + itemH / 2 + 5);
+        }
+
+        // 头像
+        const avatarX = rankX + 45;
+        const avatarY = itemY + (itemH - avatarSize) / 2 - 3;
+        ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
+        ctx.beginPath();
+        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 头像内的图标
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#4fc3f7';
+        ctx.textAlign = 'center';
+        ctx.fillText('🎮', avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
+
+        // 玩家信息
+        const infoX = avatarX + avatarSize + 10;
+        ctx.textAlign = 'left';
+
+        // 玩家名称
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText(item.name, infoX, itemY + itemH / 2 - 3);
+
+        // 地区
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText(item.location, infoX, itemY + itemH / 2 + 12);
+
+        // 等级和战力
+        const rightX = screenWidth - padding - 12;
+        ctx.textAlign = 'right';
+
+        // 战力
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = 'bold 13px Arial';
+        const powerStr = item.power >= 10000 ? (item.power / 10000).toFixed(1) + '万' : item.power.toString();
+        ctx.fillText(powerStr, rightX, itemY + itemH / 2 - 3);
+
+        // 等级
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText('Lv.' + item.level, rightX, itemY + itemH / 2 + 12);
+    }
+
+    // 恢复上下文，结束裁剪
+    ctx.restore();
+
+    // 底部提示
+    const tipY = screenHeight - navH - 5;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#555';
+    ctx.font = '10px Arial';
+    if (rankTab === 'global') {
+        ctx.fillText('本地前100名排行榜', screenWidth / 2, tipY);
+    } else {
+        ctx.fillText('微信好友排行榜', screenWidth / 2, tipY);
+    }
 }
 
-// 世界Tab
+// ========== 世界Tab ==========
+// 省份数据（按UE SVG布局顺序）
+const PROVINCES = [
+    // 第1行: 5块 y:0-48
+    { name: '黑龙江', x: 0, y: 0, w: 68, h: 48 },
+    { name: '吉林', x: 68, y: 0, w: 62, h: 48 },
+    { name: '辽宁', x: 130, y: 0, w: 70, h: 48 },
+    { name: '内蒙古', x: 200, y: 0, w: 80, h: 48 },
+    { name: '河北', x: 280, y: 0, w: 60, h: 48 },
+    // 第2行: 6块 y:48-96
+    { name: '北京', x: 0, y: 48, w: 55, h: 48 },
+    { name: '天津', x: 55, y: 48, w: 45, h: 48 },
+    { name: '山东', x: 100, y: 48, w: 70, h: 48 },
+    { name: '山西', x: 170, y: 48, w: 60, h: 48 },
+    { name: '陕西', x: 230, y: 48, w: 60, h: 48 },
+    { name: '宁夏', x: 290, y: 48, w: 50, h: 48 },
+    // 第3行: 5块 y:96-144
+    { name: '江苏', x: 0, y: 96, w: 70, h: 48 },
+    { name: '安徽', x: 70, y: 96, w: 65, h: 48 },
+    { name: '河南', x: 135, y: 96, w: 75, h: 48 },
+    { name: '甘肃', x: 210, y: 96, w: 70, h: 48 },
+    { name: '青海', x: 280, y: 96, w: 60, h: 48 },
+    // 第4行: 5块 y:144-192
+    { name: '上海', x: 0, y: 144, w: 55, h: 48 },
+    { name: '浙江', x: 55, y: 144, w: 60, h: 48 },
+    { name: '江西', x: 115, y: 144, w: 65, h: 48 },
+    { name: '湖北', x: 180, y: 144, w: 70, h: 48 },
+    { name: '四川', x: 250, y: 144, w: 90, h: 48 },
+    // 第5行: 5块 y:192-240
+    { name: '福建', x: 0, y: 192, w: 75, h: 48 },
+    { name: '湖南', x: 75, y: 192, w: 75, h: 48 },
+    { name: '重庆', x: 150, y: 192, w: 65, h: 48 },
+    { name: '贵州', x: 215, y: 192, w: 70, h: 48 },
+    { name: '云南', x: 285, y: 192, w: 55, h: 48 },
+    // 第6行: 5块 y:240-288
+    { name: '广东', x: 0, y: 240, w: 110, h: 48 },
+    { name: '广西', x: 110, y: 240, w: 90, h: 48 },
+    { name: '海南', x: 200, y: 240, w: 60, h: 48 },
+    { name: '新疆', x: 260, y: 240, w: 50, h: 48 },
+    { name: '西藏', x: 310, y: 240, w: 30, h: 48 },
+    // 第7行: 4块 y:288-340
+    { name: '香港', x: 0, y: 288, w: 60, h: 52 },
+    { name: '澳门', x: 60, y: 288, w: 40, h: 52 },
+    { name: '台湾', x: 100, y: 288, w: 75, h: 52 },
+    { name: '其他', x: 175, y: 288, w: 165, h: 52 },
+];
+
+let selectedProvince = null; // 当前选中的省份
+
 function drawMainMenuWorld() {
+    const topOffset = SAFE_TOP_OFFSET;
+    const navH = MAIN_MENU_NAV_H;
+    const padding = 15;
+
+    // 绘制标题栏背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(0, 0, screenWidth, topOffset + 30);
+
+    // 绘制标题
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('世界', screenWidth / 2, 35);
-    
-    ctx.fillStyle = '#888';
-    ctx.font = '14px Arial';
-    ctx.fillText('功能开发中...', screenWidth / 2, screenHeight / 2);
+    ctx.fillText('世界', screenWidth / 2, topOffset + 20);
+
+    // 地图区域（按UE: 340x340 viewBox映射到屏幕宽度）
+    const mapY = topOffset + 40;
+    const mapW = screenWidth - padding * 2;
+    const mapH = mapW; // 保持正方形
+    const mapX = padding;
+
+    // 缩放比例（基于UE的340宽度）
+    const scale = mapW / 340;
+
+    // 地图发光背景
+    ctx.fillStyle = 'rgba(79, 195, 247, 0.08)';
+    ctx.beginPath();
+    roundRect(ctx, mapX, mapY, mapW, mapH, 12);
+    ctx.fill();
+
+    // 绘制省份（使用裁剪确保不超出边界）
+    ctx.save();
+    ctx.beginPath();
+    roundRect(ctx, mapX, mapY, mapW, mapH, 12);
+    ctx.clip();
+
+    // 渐变色定义（与UE一致）
+    const isGrad1 = (idx) => idx % 2 === 0;
+
+    for (let i = 0; i < PROVINCES.length; i++) {
+        const p = PROVINCES[i];
+        const px = mapX + p.x * scale;
+        const py = mapY + p.y * scale;
+        const pw = p.w * scale;
+        const ph = p.h * scale;
+
+        const isSelected = selectedProvince === p.name;
+
+        // 省份背景（使用渐变色）
+        if (isSelected) {
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
+        } else if (isGrad1(i)) {
+            ctx.fillStyle = '#2a5a8a';
+        } else {
+            ctx.fillStyle = '#3a7aca';
+        }
+        ctx.beginPath();
+        roundRect(ctx, px, py, pw, ph, 4);
+        ctx.fill();
+
+        // 省份边框
+        if (isSelected) {
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            roundRect(ctx, px, py, pw, ph, 4);
+            ctx.stroke();
+        }
+
+        // 省份名称
+        ctx.fillStyle = isSelected ? '#ffd700' : 'rgba(255, 255, 255, 0.9)';
+        ctx.font = `bold ${Math.max(7, 9 * scale)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(p.name, px + pw / 2, py + ph / 2 + 3);
+    }
+
+    ctx.restore();
+
+    // 统计卡片区域（在地图下方）
+    const statsY = mapY + mapH + 10;
+    const statsH = 60;
+    const statsGap = 8;
+    const statsCardW = (mapW - statsGap * 2) / 3;
+
+    // 统计卡片数据
+    const stats = [
+        { value: '34', label: '省市区' },
+        { value: '12.8k', label: '全国玩家' },
+        { value: '567', label: '广东人数' },
+    ];
+
+    for (let i = 0; i < stats.length; i++) {
+        const cardX = mapX + i * (statsCardW + statsGap);
+
+        // 卡片背景
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.beginPath();
+        roundRect(ctx, cardX, statsY, statsCardW, statsH, 10);
+        ctx.fill();
+
+        // 数值
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(stats[i].value, cardX + statsCardW / 2, statsY + 28);
+
+        // 标签
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText(stats[i].label, cardX + statsCardW / 2, statsY + 48);
+    }
+
+    // 底部提示按钮
+    const btnY = screenHeight - navH - 35;
+    const btnW = 180;
+    const btnH = 28;
+    const btnX = (screenWidth - btnW) / 2;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.beginPath();
+    roundRect(ctx, btnX, btnY, btnW, btnH, 14);
+    ctx.fill();
+
+    ctx.fillStyle = '#666';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('点击省份查看区域数据', screenWidth / 2, btnY + 18);
+}
+
+// 世界Tab点击处理
+function handleWorldClick(x, y) {
+    const navH = MAIN_MENU_NAV_H;
+    const padding = 15;
+    const headerH = 50;
+    const mapY = headerH + 10;
+    const mapW = screenWidth - padding * 2;
+    const mapX = padding;
+    const mapH = mapW;
+
+    // 检查是否点击了地图区域
+    if (x < mapX || x > mapX + mapW || y < mapY || y > mapY + mapH) {
+        selectedProvince = null;
+        return;
+    }
+
+    // 计算在地图内的相对坐标
+    const relX = (x - mapX) / mapW * 340;
+    const relY = (y - mapY) / mapH * 340;
+
+    // 查找点击的省份
+    for (const p of PROVINCES) {
+        if (relX >= p.x && relX < p.x + p.w && relY >= p.y && relY < p.y + p.h) {
+            selectedProvince = p.name;
+            return;
+        }
+    }
+
+    selectedProvince = null;
 }
 
 function handleMainMenuTouch(x, y) {
@@ -3614,6 +4045,15 @@ wx.onTouchStart((e) => {
                     isLevelDragging = true;
                 }
             }, LEVEL_LONG_PRESS_DURATION);
+        }
+
+        // 排行榜Tab：设置拖动参数
+        if (mainMenuTab === 'rank') {
+            rankTouchStartX = x;
+            rankTouchStartY = y;
+            rankDragStartY = y;
+            rankDragStartScrollY = rankScrollY;
+            isRankDragging = false;
         }
     } else if (gameState === 'start') {
         const btnW = 140, btnH = 45;
@@ -3831,16 +4271,39 @@ wx.onTouchStart((e) => {
 
 // 触摸移动处理（拖动滚动）
 wx.onTouchMove((e) => {
-    if (gameState !== 'mainMenu' || mainMenuTab !== 'level') return;
-    
+    if (gameState !== 'mainMenu') return;
+
     const touch = e.touches[0];
     const x = touch.clientX;
     const y = touch.clientY;
-    
-    // 如果正在拖动，更新滚动
-    if (isLevelDragging) {
+
+    // 关卡Tab滚动
+    if (mainMenuTab === 'level' && isLevelDragging) {
         const deltaY = y - levelDragStartY;
         levelScrollY = levelDragStartScrollY + deltaY * LEVEL_SCROLL_SENSITIVITY;
+    }
+
+    // 排行榜Tab滚动
+    if (mainMenuTab === 'rank') {
+        // 判断是否开始拖动（移动超过10px）
+        if (!isRankDragging && Math.abs(y - rankDragStartY) > 10) {
+            isRankDragging = true;
+        }
+
+        if (isRankDragging) {
+            const deltaY = y - rankDragStartY;
+            rankScrollY = rankDragStartScrollY - deltaY;
+
+            // 限制滚动范围
+            const currentData = rankTab === 'global' ? rankCityData : rankFriendData;
+            const totalItems = currentData.length;
+            const itemH = 50;
+            const listY = 105;
+            const listH = screenHeight - listY - MAIN_MENU_NAV_H - 10;
+            const contentH = totalItems * itemH;
+            const maxScroll = Math.max(0, contentH - listH);
+            rankScrollY = Math.max(0, Math.min(maxScroll, rankScrollY));
+        }
     }
 });
 
@@ -3879,9 +4342,33 @@ wx.onTouchEnd((e) => {
         }
     }
 
+    // 排行榜Tab的Tab切换点击检测
+    if (gameState === 'mainMenu' && mainMenuTab === 'rank' && !isRankDragging) {
+        const tabY = 55;
+        const tabH = 40;
+        const tabGap = 10;
+        const tabW = (screenWidth - 30) / 2;
+
+        if (rankTouchStartY >= tabY && rankTouchStartY <= tabY + tabH) {
+            if (rankTouchStartX >= 15 && rankTouchStartX <= 15 + tabW) {
+                rankTab = 'global';
+                rankScrollY = 0;
+            } else if (rankTouchStartX >= 15 + tabW + tabGap && rankTouchStartX <= screenWidth - 15) {
+                rankTab = 'friend';
+                rankScrollY = 0;
+            }
+        }
+    }
+
+    // 世界Tab点击检测
+    if (gameState === 'mainMenu' && mainMenuTab === 'world') {
+        handleWorldClick(levelTouchStartX, levelTouchStartY);
+    }
+
     // 重置状态
     isLevelLongPressing = false;
     isLevelDragging = false;
+    isRankDragging = false;
 });
 
 // 关卡点击处理（从触摸事件中分离出来）
