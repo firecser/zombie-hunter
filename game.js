@@ -77,8 +77,28 @@ let adGoldEarned = 0;           // 实际获得金币数
 // ==================== 音效和暂停设置 ====================
 let soundEnabled = true;
 let musicEnabled = true;
+let vibrationEnabled = true;  // 振动开关状态
 const buttonSize = 44;
 const buttonGap = 6;
+
+// ========== 设置系统 ==========
+// 设置弹窗状态
+let settingsModal = {
+    show: false
+};
+let settingsJustOpened = false;  // 防止打开弹窗时立即触发关闭逻辑
+
+// 当前设置页面（'main' | 'rules' | 'about'）
+let settingsPage = 'main';
+
+// 关于我们信息
+const GAME_INFO = {
+    name: '制霸新手村的骷髅怪',
+    version: '1.0.5',
+    developer: '郭晓宇',
+    email: 'firecser@163.com',
+    description: '本游戏为冰雪世界塔防类微信小游戏，玩家操控骷髅主角在冰雪世界中与各种僵尸怪物战斗，提升等级和天赋，体验紧张刺激的闯关乐趣。'
+};
 // 按钮位置（放在左下角）
 const soundBtnX = 10;
 const soundBtnY = screenHeight - buttonSize - 10;
@@ -448,6 +468,7 @@ const player = {
     level: 1,
     expToLevel: 50,
     gold: 0,
+    diamond: 0,  // 钻石
     kills: 0,
     damage: 10,
     fireRate: 500,
@@ -2595,13 +2616,14 @@ function update(dt) {
 }
 
 // ==================== 主界面-5Tab导航 ====================
-let mainMenuTab = 'level'; // hero, level, talent, rank, world
+let mainMenuTab = 'level'; // hero, level, talent, rank, world, shop
 const MAIN_MENU_TABS = [
     { id: 'hero', icon: '🎮', name: '主角' },
     { id: 'level', icon: '🎯', name: '关卡' },
     { id: 'talent', icon: '⭐', name: '天赋' },
     { id: 'rank', icon: '🏆', name: '排行' },
-    { id: 'world', icon: '🗺️', name: '世界' }
+    { id: 'world', icon: '🗺️', name: '世界' },
+    { id: 'shop', icon: '🛒', name: '商城' }
 ];
 const MAIN_MENU_NAV_H = 65;
 
@@ -2681,6 +2703,61 @@ const rankFriendData = [
     { rank: 5, name: '冰雪猎人', location: '湖南 长沙', level: 12, power: 12800, avatar: '❄️' },
 ];
 
+// ========== 商城相关 ==========
+// 商城分类
+const SHOP_CATEGORIES = [
+    { id: 'gold', name: '金币', icon: '🪙' },
+    { id: 'diamond', name: '钻石', icon: '💎' },
+    { id: 'bundle', name: '礼包', icon: '🎁' },
+    { id: 'item', name: '道具', icon: '💣' }
+];
+
+// 当前选中的商城分类
+let currentShopCategory = 'gold';
+
+// 商城商品数据
+const SHOP_ITEMS = {
+    gold: [
+        { id: 'gold_1', name: '金币小礼包', icon: '🪙', desc: '100金币', price: 6, amount: 100 },
+        { id: 'gold_2', name: '金币中礼包', icon: '🪙', desc: '500金币', price: 30, amount: 500 },
+        { id: 'gold_3', name: '金币大礼包', icon: '🪙', desc: '1200金币', price: 68, amount: 1200 },
+        { id: 'gold_4', name: '金币豪华包', icon: '💰', desc: '2500金币', price: 128, amount: 2500 },
+        { id: 'gold_5', name: '金币至尊包', icon: '👑', desc: '7000金币', price: 328, amount: 7000 },
+    ],
+    diamond: [
+        { id: 'diamond_1', name: '钻石小礼包', icon: '💎', desc: '60钻石', price: 6, amount: 60 },
+        { id: 'diamond_2', name: '钻石中礼包', icon: '💎', desc: '328钻石', price: 30, amount: 328 },
+        { id: 'diamond_3', name: '钻石大礼包', icon: '💎', desc: '680钻石', price: 68, amount: 680 },
+        { id: 'diamond_4', name: '钻石豪华包', icon: '💎', desc: '1400钻石', price: 128, amount: 1400 },
+        { id: 'diamond_5', name: '钻石至尊包', icon: '👑', desc: '3500钻石', price: 328, amount: 3500 },
+    ],
+    bundle: [
+        { id: 'bundle_1', name: '新手礼包', icon: '🎁', desc: '100金币+1体力', price: 6, amount: 101 },
+        { id: 'bundle_2', name: '月卡', icon: '📅', desc: '30天每日100金币', price: 30, amount: 3000 },
+        { id: 'bundle_3', name: '战令礼包', icon: '🎖️', desc: '专属皮肤+双倍经验', price: 68, amount: 1 },
+    ],
+    item: [
+        { id: 'energy_1', name: '体力药水(小)', icon: '🧪', desc: '恢复30点体力', price: 6, amount: 30 },
+        { id: 'energy_2', name: '体力药水(中)', icon: '🧪', desc: '恢复60点体力', price: 15, amount: 60 },
+        { id: 'energy_3', name: '体力药水(大)', icon: '🧪', desc: '恢复100点体力', price: 30, amount: 100 },
+    ]
+};
+
+// 商城弹窗状态
+let shopModal = {
+    show: false,
+    type: 'confirm', // 'confirm'确认购买, 'alert'提示
+    item: null,
+    buttonText: '确定'
+};
+
+// 商城滚动相关变量
+let shopScrollY = 0;
+let shopTouchStartY = 0;
+let shopDragStartY = 0;
+let shopDragStartScrollY = 0;
+let isShopDragging = false;
+
 // 主角数据
 let heroData = {
     name: '冰雪猎人',
@@ -2733,6 +2810,8 @@ function drawMainMenu() {
         drawMainMenuRank();
     } else if (mainMenuTab === 'world') {
         drawMainMenuWorld();
+    } else if (mainMenuTab === 'shop') {
+        drawMainMenuShop();
     }
     
     // 天赋升级弹窗
@@ -2740,13 +2819,23 @@ function drawMainMenu() {
         drawTalentModal();
     }
     
+    // 商城弹窗
+    if (shopModal.show) {
+        drawShopModal();
+    }
+
+    // 设置弹窗
+    if (settingsModal.show) {
+        drawSettingsModal();
+    }
+
     // 底部导航栏
     drawMainMenuNav();
 }
 
 function drawMainMenuNav() {
     const navY = screenHeight - MAIN_MENU_NAV_H;
-    const btnW = screenWidth / 5;
+    const btnW = screenWidth / MAIN_MENU_TABS.length;  // 适配6个Tab
     
     // 导航背景
     ctx.fillStyle = 'rgba(22, 33, 62, 0.98)';
@@ -2925,6 +3014,19 @@ function drawMainMenuHero() {
         ctx.textAlign = 'right';
         ctx.fillText(row.value, valueX, rowY);
     });
+
+    // ===== 设置按钮 =====
+    const settingsBtnY = panelY + panelH + 20;
+    const settingsBtnH = 45;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    roundRect(ctx, panelX, settingsBtnY, panelW, settingsBtnH, 10);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚙️  游戏设置', centerX, settingsBtnY + 28);
 }
 
 // 关卡Tab
@@ -3843,6 +3945,655 @@ function drawMainMenuWorld() {
     ctx.fillText('点击省份查看区域数据', screenWidth / 2, btnY + 18);
 }
 
+// ========== 商城Tab ==========
+function drawMainMenuShop() {
+    const topOffset = SAFE_TOP_OFFSET;
+    const navH = MAIN_MENU_NAV_H;
+    const padding = 15;
+
+    // 标题
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('商城', screenWidth / 2, topOffset + 20);
+
+    // 玩家货币显示
+    const currencyY = topOffset + 45;
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`💰 ${player.gold}`, screenWidth / 2 - 50, currencyY);
+    ctx.fillText(`💎 ${player.diamond || 0}`, screenWidth / 2 + 50, currencyY);
+
+    // ========== 分类标签 ==========
+    const tabY = topOffset + 65;
+    const tabH = 35;
+    const tabGap = 8;
+    const tabW = (screenWidth - padding * 2 - tabGap * (SHOP_CATEGORIES.length - 1)) / SHOP_CATEGORIES.length;
+
+    SHOP_CATEGORIES.forEach((cat, i) => {
+        const tx = padding + i * (tabW + tabGap);
+        const isActive = currentShopCategory === cat.id;
+
+        // 标签背景
+        ctx.fillStyle = isActive ? '#4fc3f7' : 'rgba(255, 255, 255, 0.1)';
+        ctx.beginPath();
+        roundRect(ctx, tx, tabY, tabW, tabH, 8);
+        ctx.fill();
+
+        // 标签文字
+        ctx.fillStyle = isActive ? '#fff' : '#888';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(cat.icon + ' ' + cat.name, tx + tabW / 2, tabY + 22);
+    });
+
+    // ========== 商品列表 ==========
+    const listY = tabY + tabH + 15;
+    const listH = screenHeight - listY - navH - 10;  // 修复：正确的列表高度
+    const cols = 2;
+    const cardGap = 10;
+    const cardW = (screenWidth - padding * 2 - cardGap) / cols;
+    const cardH = 120;
+    const cardPadding = 15;
+
+    const items = SHOP_ITEMS[currentShopCategory];
+    const cardRows = Math.ceil(items.length / cols);
+
+    // 裁剪区域
+    ctx.save();
+    ctx.beginPath();
+    roundRect(ctx, padding - 5, listY, screenWidth - padding * 2 + 10, listH - 20, 12);
+    ctx.clip();
+
+    // 计算总高度用于滚动
+    const totalH = cardRows * (cardH + cardGap);
+
+    for (let i = 0; i < items.length; i++) {
+        const row = Math.floor(i / cols);
+        const col = i % cols;
+        const cx = padding + col * (cardW + cardGap);
+        const cy = listY + row * (cardH + cardGap) + shopScrollY;
+
+        // 跳过不可见卡片
+        if (cy + cardH < listY - 10 || cy > listY + listH) continue;
+
+        const item = items[i];
+
+        // 卡片背景
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.beginPath();
+        roundRect(ctx, cx, cy, cardW, cardH, 12);
+        ctx.fill();
+
+        // 卡片边框
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // 商品图标（emoji）
+        ctx.fillStyle = '#fff';
+        ctx.font = '32px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.icon, cx + cardW / 2, cy + 40);
+
+        // 商品名称
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText(item.name, cx + cardW / 2, cy + 62);
+
+        // 商品描述
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText(item.desc, cx + cardW / 2, cy + 78);
+
+        // 价格背景
+        const priceY = cy + cardH - 35;
+        ctx.fillStyle = '#ff6b6b';
+        ctx.beginPath();
+        roundRect(ctx, cx + 15, priceY, cardW - 30, 25, 12);
+        ctx.fill();
+
+        // 价格文字
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText('¥' + item.price + '.00', cx + cardW / 2, priceY + 17);
+    }
+
+    ctx.restore();
+
+    // 滚动条
+    if (totalH > listH) {
+        const scrollBarH = Math.max(30, listH * (listH / totalH));
+        const scrollBarY = listY + (shopScrollY / (totalH - listH)) * (listH - scrollBarH);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        roundRect(ctx, screenWidth - padding - 4, scrollBarY, 4, scrollBarH, 2);
+        ctx.fill();
+    }
+}
+
+// 商城Tab点击处理
+function handleShopClick(x, y) {
+    const navH = MAIN_MENU_NAV_H;
+    const padding = 15;
+    const topOffset = SAFE_TOP_OFFSET;
+    const tabY = topOffset + 65;
+    const tabH = 35;
+    const tabGap = 8;
+    const tabW = (screenWidth - padding * 2 - tabGap * (SHOP_CATEGORIES.length - 1)) / SHOP_CATEGORIES.length;
+
+    // 检查分类标签点击
+    if (y >= tabY && y <= tabY + tabH) {
+        SHOP_CATEGORIES.forEach((cat, i) => {
+            const tx = padding + i * (tabW + tabGap);
+            if (x >= tx && x <= tx + tabW) {
+                currentShopCategory = cat.id;
+                shopScrollY = 0; // 切换分类时重置滚动
+            }
+        });
+        return;
+    }
+
+    // 检查商品卡片点击
+    const listY = tabY + tabH + 15;
+    const cardGap = 10;
+    const cardW = (screenWidth - padding * 2 - cardGap) / 2;
+    const cardH = 120;
+    const items = SHOP_ITEMS[currentShopCategory];
+
+    for (let i = 0; i < items.length; i++) {
+        const row = Math.floor(i / 2);
+        const col = i % 2;
+        const cx = padding + col * (cardW + cardGap);
+        const cy = listY + row * (cardH + cardGap) + shopScrollY;
+
+        if (x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
+            // 打开购买确认弹窗
+            shopModal.show = true;
+            shopModal.type = 'confirm';
+            shopModal.item = items[i];
+            return;
+        }
+    }
+}
+
+// 绘制商城弹窗
+function drawShopModal() {
+    const modalW = 280;
+    const modalH = shopModal.type === 'confirm' ? 220 : 160;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // 弹窗背景
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.fill();
+
+    // 弹窗边框
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (shopModal.type === 'confirm') {
+        // ========== 购买确认弹窗 ==========
+        const item = shopModal.item;
+
+        // 标题
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('💰 购买确认', modalX + modalW / 2, modalY + 30);
+
+        // 商品信息框
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.beginPath();
+        roundRect(ctx, modalX + 20, modalY + 50, modalW - 40, 60, 10);
+        ctx.fill();
+
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#fff';  // emoji需要白色
+        ctx.fillText(item.icon + ' ' + item.name + ' x1', modalX + modalW / 2, modalY + 75);
+        ctx.fillStyle = '#888';
+        ctx.font = '12px Arial';
+        ctx.fillText(item.desc, modalX + modalW / 2, modalY + 95);
+
+        // 价格
+        ctx.fillStyle = '#ff6b6b';
+        ctx.font = 'bold 18px Arial';
+        ctx.fillText('¥' + item.price + '.00', modalX + modalW / 2, modalY + 130);
+
+        // 按钮
+        const btnW = 100;
+        const btnH = 36;
+        const btnY = modalY + modalH - 50;
+        const cancelBtnX = modalX + modalW / 2 - btnW - 10;
+        const confirmBtnX = modalX + modalW / 2 + 10;
+
+        // 取消按钮
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.beginPath();
+        roundRect(ctx, cancelBtnX, btnY, btnW, btnH, 8);
+        ctx.fill();
+        ctx.fillStyle = '#888';
+        ctx.font = '14px Arial';
+        ctx.fillText('取消', cancelBtnX + btnW / 2, btnY + 23);
+
+        // 确认按钮
+        ctx.fillStyle = '#4fc3f7';
+        ctx.beginPath();
+        roundRect(ctx, confirmBtnX, btnY, btnW, btnH, 8);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText('确认', confirmBtnX + btnW / 2, btnY + 23);
+
+    } else {
+        // ========== 提示弹窗 ==========
+        // 标题
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠️ 提示', modalX + modalW / 2, modalY + 45);
+
+        // 内容
+        ctx.fillStyle = '#fff';
+        ctx.font = '13px Arial';
+        const lines = shopModal.item.split('\n');
+        lines.forEach((line, i) => {
+            ctx.fillText(line, modalX + modalW / 2, modalY + 80 + i * 22);
+        });
+
+        // 按钮
+        const btnW = 120;
+        const btnH = 36;
+        const btnX = modalX + (modalW - btnW) / 2;
+        const btnY = modalY + modalH - 50;
+
+        ctx.fillStyle = '#4fc3f7';
+        ctx.beginPath();
+        roundRect(ctx, btnX, btnY, btnW, btnH, 8);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px Arial';
+        ctx.fillText(shopModal.buttonText || '确定', btnX + btnW / 2, btnY + 23);
+    }
+}
+
+// 商城弹窗点击处理
+function handleShopModalClick(x, y) {
+    if (!shopModal.show) return;
+
+    const modalW = 280;
+    const modalH = shopModal.type === 'confirm' ? 220 : 160;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    // 检查是否点击弹窗外
+    if (x < modalX || x > modalX + modalW || y < modalY || y > modalY + modalH) {
+        shopModal.show = false;
+        return;
+    }
+
+    if (shopModal.type === 'confirm') {
+        // 按钮区域
+        const btnW = 100;
+        const btnH = 36;
+        const btnY = modalY + modalH - 50;
+        const cancelBtnX = modalX + modalW / 2 - btnW - 10;
+        const confirmBtnX = modalX + modalW / 2 + 10;
+
+        if (y >= btnY && y <= btnY + btnH) {
+            if (x >= cancelBtnX && x <= cancelBtnX + btnW) {
+                // 取消
+                shopModal.show = false;
+            } else if (x >= confirmBtnX && x <= confirmBtnX + btnW) {
+                // 确认购买 - 显示功能未开放
+                shopModal.type = 'alert';
+                shopModal.item = '支付功能正在申请中...\n请耐心等待';
+                shopModal.buttonText = '确定';
+            }
+        }
+    } else {
+        // 提示弹窗点击确定
+        const btnW = 120;
+        const btnH = 36;
+        const btnX = modalX + (modalW - btnW) / 2;
+        const btnY = modalY + modalH - 50;
+
+        if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
+            shopModal.show = false;
+            shopModal.type = 'confirm'; // 重置为确认类型
+        }
+    }
+}
+
+// ========== 设置系统 ==========
+// 绘制设置弹窗
+function drawSettingsModal() {
+    const modalW = 300;
+    const modalH = settingsPage === 'main' ? 360 : 420;  // 增加高度避免重叠
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // 弹窗背景
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.fill();
+
+    // 弹窗边框
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (settingsPage === 'main') {
+        // ===== 设置主页面 =====
+        // 标题
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚙️  游戏设置', modalX + modalW / 2, modalY + 35);
+
+        // 设置项
+        const settingsY = modalY + 60;
+        const itemH = 40;
+        const itemGap = 5;
+        const items = [
+            { icon: '🔊', name: '音效', type: 'toggle', key: 'sound' },
+            { icon: '🎵', name: '音乐', type: 'toggle', key: 'music' },
+            { icon: '📳', name: '振动', type: 'toggle', key: 'vibration' },
+            { icon: '📖', name: '游戏规则', type: 'link' },
+            { icon: 'ℹ️', name: '关于我们', type: 'link' }
+        ];
+
+        items.forEach((item, i) => {
+            const itemY = settingsY + i * (itemH + itemGap);
+
+            // 背景
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            roundRect(ctx, modalX + 15, itemY, modalW - 30, itemH, 8);
+            ctx.fill();
+
+            // 图标和名称
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(item.icon + '  ' + item.name, modalX + 25, itemY + 25);
+
+            if (item.type === 'toggle') {
+                // 开关按钮
+                let isOn = true;
+                if (item.key === 'sound') isOn = soundEnabled;
+                else if (item.key === 'music') isOn = musicEnabled;
+                else if (item.key === 'vibration') isOn = vibrationEnabled;
+                const toggleW = 50;
+                const toggleH = 26;
+                const toggleX = modalX + modalW - 25 - toggleW;
+                const toggleY = itemY + (itemH - toggleH) / 2;
+
+                // 开关背景
+                ctx.fillStyle = isOn ? '#4fc3f7' : '#555';
+                roundRect(ctx, toggleX, toggleY, toggleW, toggleH, 13);
+                ctx.fill();
+
+                // 开关圆点
+                const knobX = isOn ? toggleX + toggleW - 16 : toggleX + 6;
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(knobX + 7, toggleY + 13, 7, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // 箭头
+                ctx.fillStyle = '#666';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'right';
+                ctx.fillText('>', modalX + modalW - 25, itemY + 25);
+            }
+        });
+
+        // 关闭按钮
+        const closeBtnW = 120;
+        const closeBtnH = 36;
+        const closeBtnX = modalX + (modalW - closeBtnW) / 2;
+        const closeBtnY = modalY + modalH - 50;
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        roundRect(ctx, closeBtnX, closeBtnY, closeBtnW, closeBtnH, 8);
+        ctx.fill();
+
+        ctx.fillStyle = '#888';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('关闭', closeBtnX + closeBtnW / 2, closeBtnY + 23);
+
+    } else if (settingsPage === 'rules') {
+        // ===== 游戏规则页面 =====
+        // 返回按钮和标题
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('📖  游戏规则', modalX + modalW / 2, modalY + 35);
+
+        // 返回按钮
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('← 返回', modalX + 20, modalY + 35);
+
+        // 规则内容
+        const rules = [
+            { title: '【游戏目标】', content: '在5分钟内击杀尽可能多的僵尸，获取经验和金币，挑战更高关卡。' },
+            { title: '【操作方式】', content: '• 自动射击：角色自动攻击最近的敌人\n• 炸弹：点击屏幕右下角释放炸弹\n• 升级：战斗中获得的经验可升级，选择技能增强战斗能力' },
+            { title: '【货币系统】', content: '• 金币：用于升级天赋\n• 钻石：用于购买商城道具\n• 体力：每关卡需消耗体力' },
+            { title: '【关卡解锁】', content: '通关当前关卡后可解锁下一关卡，章节通关解锁对应天赋。' }
+        ];
+
+        let contentY = modalY + 55;
+        const textPadding = 20;
+        const maxTextWidth = modalW - textPadding * 2;
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'left';
+
+        // 文字自动换行函数
+        function wrapText(text, maxWidth) {
+            const lines = [];
+            let currentLine = '';
+            for (const char of text) {
+                const testLine = currentLine + char;
+                if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+                    lines.push(currentLine);
+                    currentLine = char;
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            if (currentLine) lines.push(currentLine);
+            return lines;
+        }
+
+        rules.forEach((rule, i) => {
+            // 标题
+            ctx.fillStyle = '#ffd700';
+            ctx.fillText(rule.title, modalX + textPadding, contentY);
+            contentY += 18;
+
+            // 内容（支持多行+自动换行）
+            ctx.fillStyle = '#ccc';
+            const lines = rule.content.split('\n');
+            lines.forEach(line => {
+                const wrappedLines = wrapText(line, maxTextWidth);
+                wrappedLines.forEach(wrappedLine => {
+                    ctx.fillText(wrappedLine, modalX + textPadding, contentY);
+                    contentY += 16;
+                });
+            });
+
+            contentY += 10;
+        });
+
+    } else if (settingsPage === 'about') {
+        // ===== 关于我们页面 =====
+        // 返回按钮和标题
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('ℹ️  关于', modalX + modalW / 2, modalY + 35);
+
+        // 返回按钮
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('← 返回', modalX + 20, modalY + 35);
+
+        // 游戏图标
+        ctx.font = '32px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('💀', modalX + modalW / 2, modalY + 85);
+
+        // 游戏名称
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText(GAME_INFO.name, modalX + modalW / 2, modalY + 115);
+
+        // 版本
+        ctx.fillStyle = '#888';
+        ctx.font = '12px Arial';
+        ctx.fillText('版本: ' + GAME_INFO.version, modalX + modalW / 2, modalY + 135);
+
+        // 分割线
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(modalX + 20, modalY + 150);
+        ctx.lineTo(modalX + modalW - 20, modalY + 150);
+        ctx.stroke();
+
+        // 开发者信息
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('开发者: ' + GAME_INFO.developer, modalX + 25, modalY + 175);
+        ctx.fillText('联系邮箱: ' + GAME_INFO.email, modalX + 25, modalY + 195);
+
+        // 分割线
+        ctx.beginPath();
+        ctx.moveTo(modalX + 20, modalY + 210);
+        ctx.lineTo(modalX + modalW - 20, modalY + 210);
+        ctx.stroke();
+
+        // 游戏描述
+        ctx.fillStyle = '#999';
+        ctx.font = '11px Arial';
+        // 手动换行
+        const descLines = [];
+        let currentLine = '';
+        const maxWidth = modalW - 40;
+        for (const char of GAME_INFO.description) {
+            currentLine += char;
+            if (ctx.measureText(currentLine).width > maxWidth) {
+                descLines.push(currentLine);
+                currentLine = '';
+            }
+        }
+        if (currentLine) descLines.push(currentLine);
+
+        let descY = modalY + 230;
+        descLines.forEach(line => {
+            ctx.fillText(line, modalX + 25, descY);
+            descY += 16;
+        });
+
+        // 版权
+        ctx.fillStyle = '#666';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('© 2026 All Rights Reserved', modalX + modalW / 2, modalY + modalH - 20);
+    }
+}
+
+// 设置弹窗点击处理
+function handleSettingsClick(x, y) {
+    if (!settingsModal.show) return;
+
+    const modalW = 300;
+    const modalH = settingsPage === 'main' ? 360 : 420;  // 与drawSettingsModal保持一致
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    // 检查是否点击弹窗外（关闭弹窗）
+    if (x < modalX || x > modalX + modalW || y < modalY || y > modalY + modalH) {
+        settingsModal.show = false;
+        settingsPage = 'main';
+        return;
+    }
+
+    if (settingsPage === 'main') {
+        // 主设置页面点击
+        const settingsY = modalY + 60;
+        const itemH = 40;
+        const itemGap = 5;
+        const items = [
+            { icon: '🔊', name: '音效', type: 'toggle', key: 'sound' },
+            { icon: '🎵', name: '音乐', type: 'toggle', key: 'music' },
+            { icon: '📳', name: '振动', type: 'toggle', key: 'vibration' },
+            { icon: '📖', name: '游戏规则', type: 'link' },
+            { icon: 'ℹ️', name: '关于我们', type: 'link' }
+        ];
+
+        items.forEach((item, i) => {
+            const itemY = settingsY + i * (itemH + itemGap);
+            if (y >= itemY && y <= itemY + itemH) {
+                if (item.type === 'toggle') {
+                    // 切换开关
+                    if (item.key === 'sound') {
+                        soundEnabled = !soundEnabled;
+                    } else if (item.key === 'music') {
+                        musicEnabled = !musicEnabled;
+                    } else if (item.key === 'vibration') {
+                        vibrationEnabled = !vibrationEnabled;
+                        // 如果开启振动，触发一次振动反馈
+                        if (vibrationEnabled && wx.vibrateShort) {
+                            wx.vibrateShort({ type: 'medium' });
+                        }
+                    }
+                } else if (item.type === 'link') {
+                    // 切换页面
+                    if (item.name === '游戏规则') {
+                        settingsPage = 'rules';
+                    } else if (item.name === '关于我们') {
+                        settingsPage = 'about';
+                    }
+                }
+            }
+        });
+
+        // 关闭按钮
+        const closeBtnW = 120;
+        const closeBtnH = 36;
+        const closeBtnX = modalX + (modalW - closeBtnW) / 2;
+        const closeBtnY = modalY + modalH - 50;
+
+        if (x >= closeBtnX && x <= closeBtnX + closeBtnW && y >= closeBtnY && y <= closeBtnY + closeBtnH) {
+            settingsModal.show = false;
+            settingsPage = 'main';
+        }
+
+    } else {
+        // 规则/关于页面：点击任意处返回
+        settingsPage = 'main';
+        settingsModal.show = false;
+    }
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -3879,7 +4630,7 @@ function handleMainMenuTouch(x, y) {
     
     // 点击底部导航
     if (y >= navY) {
-        const btnW = screenWidth / 5;
+        const btnW = screenWidth / MAIN_MENU_TABS.length;
         const tabIndex = Math.floor(x / btnW);
         if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
             mainMenuTab = MAIN_MENU_TABS[tabIndex].id;
@@ -3932,6 +4683,27 @@ function handleMainMenuTouch(x, y) {
             }
             
             currentY += chapterH + 10;
+        }
+    }
+
+    // 主角Tab的设置按钮点击
+    if (mainMenuTab === 'hero') {
+        // 使用与drawMainMenuHero相同的计算逻辑
+        const contentTotalH = 220;
+        const contentTop = (screenHeight - MAIN_MENU_NAV_H - contentTotalH) / 2;
+        const avatarY = contentTop + 40;
+        const avatarR = 40;
+        const panelY = avatarY + avatarR + 45;
+        const panelH = 115;
+        const panelW = screenWidth - 30;
+        const settingsBtnY = panelY + panelH + 20;
+        const settingsBtnH = 45;
+        const panelX = 15;
+
+        if (x >= panelX && x <= panelX + panelW && y >= settingsBtnY && y <= settingsBtnY + settingsBtnH) {
+            settingsModal.show = true;
+            settingsPage = 'main';
+            settingsJustOpened = true;  // 标记弹窗刚打开，防止本次touchend触发关闭
         }
     }
 }
@@ -4013,13 +4785,19 @@ wx.onTouchStart((e) => {
         
         // 点击底部导航
         if (y >= navY) {
-            const btnW = screenWidth / 5;
+            const btnW = screenWidth / MAIN_MENU_TABS.length;
             const tabIndex = Math.floor(x / btnW);
             if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
-                mainMenuTab = MAIN_MENU_TABS[tabIndex].id;
-                if (mainMenuTab === 'level') {
-                    mainMenuExpandedChapter = 1;
-                    levelScrollY = 0; // 切换Tab时重置滚动
+                const newTab = MAIN_MENU_TABS[tabIndex].id;
+                if (newTab !== mainMenuTab) {  // Tab有变化时才切换
+                    mainMenuTab = newTab;
+                    if (mainMenuTab === 'level') {
+                        mainMenuExpandedChapter = 1;
+                        levelScrollY = 0; // 切换Tab时重置滚动
+                    }
+                    // 切换Tab时重置触摸起点，避免残留坐标导致误触
+                    levelTouchStartX = x;
+                    levelTouchStartY = y;
                 }
             }
             return;
@@ -4054,6 +4832,28 @@ wx.onTouchStart((e) => {
             rankDragStartY = y;
             rankDragStartScrollY = rankScrollY;
             isRankDragging = false;
+        }
+
+        // 商城Tab：设置拖动参数
+        if (mainMenuTab === 'shop') {
+            levelTouchStartX = x;  // 复用levelTouchStart坐标
+            levelTouchStartY = y;
+            shopTouchStartY = y;
+            shopDragStartY = y;
+            shopDragStartScrollY = shopScrollY;
+            isShopDragging = false;
+        }
+
+        // 主角Tab：设置触摸起点
+        if (mainMenuTab === 'hero') {
+            levelTouchStartX = x;  // 复用levelTouchStart坐标
+            levelTouchStartY = y;
+        }
+
+        // 天赋Tab：设置触摸起点
+        if (mainMenuTab === 'talent') {
+            levelTouchStartX = x;  // 复用levelTouchStart坐标
+            levelTouchStartY = y;
         }
     } else if (gameState === 'start') {
         const btnW = 140, btnH = 45;
@@ -4305,10 +5105,33 @@ wx.onTouchMove((e) => {
             rankScrollY = Math.max(0, Math.min(maxScroll, rankScrollY));
         }
     }
+
+    // 商城Tab滚动
+    if (mainMenuTab === 'shop' && isShopDragging) {
+        const deltaY = y - shopDragStartY;
+        shopScrollY = shopDragStartScrollY + deltaY * 1.5;
+
+        // 限制滚动范围
+        const items = SHOP_ITEMS[currentShopCategory];
+        const cardRows = Math.ceil(items.length / 2);
+        const cardH = 120;
+        const cardGap = 10;
+        const padding = 15;
+        const tabY = SAFE_TOP_OFFSET + 65 + 35 + 15;
+        const listH = screenHeight - tabY - MAIN_MENU_NAV_H - 20;
+        const totalH = cardRows * (cardH + cardGap);
+        const maxScroll = Math.max(0, totalH - listH);
+        shopScrollY = Math.max(0, Math.min(maxScroll, shopScrollY));
+    }
 });
 
 // 触摸结束处理
 wx.onTouchEnd((e) => {
+    // 获取触摸终点的实际坐标
+    const touchEnd = e.changedTouches[0];
+    const endX = touchEnd.clientX;
+    const endY = touchEnd.clientY;
+
     // 清除长按定时器
     if (levelLongPressTimer) {
         clearTimeout(levelLongPressTimer);
@@ -4365,10 +5188,37 @@ wx.onTouchEnd((e) => {
         handleWorldClick(levelTouchStartX, levelTouchStartY);
     }
 
+    // 主角Tab点击检测（设置按钮等）- 但设置弹窗显示时跳过，避免干扰
+    if (gameState === 'mainMenu' && mainMenuTab === 'hero' && !settingsModal.show) {
+        // 处理主角Tab的设置按钮点击
+        handleMainMenuTouch(levelTouchStartX, levelTouchStartY);
+    }
+
+    // 商城Tab点击检测
+    if (gameState === 'mainMenu' && mainMenuTab === 'shop') {
+        if (!isShopDragging) {
+            // 如果弹窗显示，处理弹窗点击
+            if (shopModal.show) {
+                handleShopModalClick(levelTouchStartX, levelTouchStartY);
+            } else {
+                // 处理商城内容点击（分类切换/商品购买）
+                handleShopClick(levelTouchStartX, levelTouchStartY);
+            }
+        }
+    }
+
+    // 设置弹窗点击检测（优先处理，避免被其他Tab的点击处理干扰）
+    // 只有当设置弹窗显示时才执行，并跳过本次刚打开的情况
+    if (gameState === 'mainMenu' && settingsModal.show && !settingsJustOpened) {
+        handleSettingsClick(endX, endY);  // 使用触摸终点坐标
+    }
+    settingsJustOpened = false;  // 重置标志位
+
     // 重置状态
     isLevelLongPressing = false;
     isLevelDragging = false;
     isRankDragging = false;
+    isShopDragging = false;
 });
 
 // 关卡点击处理（从触摸事件中分离出来）
