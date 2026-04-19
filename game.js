@@ -51,9 +51,124 @@ function getCurrentStage() {
     return STAGES[currentStage - 1];
 }
 
+// ==================== 统一数据持久化 ====================
+// 统一的玩家数据对象（用于持久化）
+let playerData = {
+    gold: 0,
+    diamond: 0,
+    level: 1,
+    exp: 0,
+    kills: 0,
+    skills: {},        // 技能等级
+    acquiredSkills: ['damage']  // 已获得的技能
+};
+
+// 保存玩家数据到Storage
+function savePlayerData() {
+    // 从当前player对象同步数据
+    playerData.gold = player.gold;
+    playerData.diamond = player.diamond;
+    playerData.level = player.level;
+    playerData.exp = player.exp;
+    playerData.kills = player.kills;
+    playerData.skills = { ...skills };
+    playerData.acquiredSkills = [...acquiredSkills];
+    
+    wx.setStorageSync('zombieHunterPlayerData', JSON.stringify(playerData));
+}
+
+// 从Storage加载玩家数据
+function loadPlayerData() {
+    try {
+        const saved = wx.getStorageSync('zombieHunterPlayerData');
+        if (saved) {
+            const data = JSON.parse(saved);
+            playerData = {
+                gold: data.gold || 0,
+                diamond: data.diamond || 0,
+                level: data.level || 1,
+                exp: data.exp || 0,
+                kills: data.kills || 0,
+                skills: data.skills || {},
+                acquiredSkills: data.acquiredSkills || ['damage']
+            };
+            
+            // 同步到player对象
+            player.gold = playerData.gold;
+            player.diamond = playerData.diamond;
+            player.level = playerData.level;
+            player.exp = playerData.exp;
+            player.kills = playerData.kills;
+            
+            // 同步技能
+            Object.keys(playerData.skills).forEach(key => {
+                if (skills[key]) {
+                    skills[key].level = playerData.skills[key].level;
+                }
+            });
+            acquiredSkills = [...playerData.acquiredSkills];
+        }
+    } catch (e) {
+        console.log('加载玩家数据失败', e);
+    }
+}
+
 function saveProgress() {
     stageProgress[currentStage - 1] = true;
+    
+    // 保存完整游戏数据（统一格式）
+    const gameData = {
+        stageProgress: stageProgress,
+        playerEnergy: playerEnergy,
+        lastEnergyUpdate: lastEnergyUpdate,
+        energyItems: energyItemCount,
+        // 新增：统一player数据
+        playerGold: player.gold,
+        playerDiamond: player.diamond,
+        playerLevel: player.level,
+        playerExp: player.exp,
+        playerKills: player.kills,
+        playerSkills: { ...skills },
+        playerAcquiredSkills: [...acquiredSkills]
+    };
     wx.setStorageSync('zombieHunterProgress', JSON.stringify(stageProgress));
+    wx.setStorageSync('zombieHunterGameData', JSON.stringify(gameData));
+    
+    // 保存离线时间
+    wx.setStorageSync('zombieHunterLastTime', Date.now());
+}
+
+function loadGameData() {
+    try {
+        const savedData = wx.getStorageSync('zombieHunterGameData');
+        if (savedData) {
+            const data = JSON.parse(savedData);
+            playerEnergy = data.playerEnergy || ENERGY_CONFIG.initEnergy;
+            lastEnergyUpdate = data.lastEnergyUpdate || Date.now();
+            energyItemCount = data.energyItems || { 'energy_1': 0, 'energy_2': 0, 'energy_3': 0 };
+            
+            // 加载统一player数据
+            if (data.playerGold !== undefined) player.gold = data.playerGold;
+            if (data.playerDiamond !== undefined) player.diamond = data.playerDiamond;
+            if (data.playerLevel !== undefined) player.level = data.playerLevel;
+            if (data.playerExp !== undefined) player.exp = data.playerExp;
+            if (data.playerKills !== undefined) player.kills = data.playerKills;
+            
+            // 加载技能数据
+            if (data.playerSkills) {
+                Object.keys(data.playerSkills).forEach(key => {
+                    if (skills[key]) {
+                        skills[key].level = data.playerSkills[key].level;
+                    }
+                });
+            }
+            if (data.playerAcquiredSkills) {
+                acquiredSkills = [...data.playerAcquiredSkills];
+            }
+        }
+    } catch (e) {
+        console.log('加载游戏数据失败', e);
+    }
 }
 
 // ==================== 游戏状态 ====================
@@ -99,6 +214,58 @@ const GAME_INFO = {
     email: 'firecser@163.com',
     description: '本游戏为冰雪世界塔防类微信小游戏，玩家操控骷髅主角在冰雪世界中与各种僵尸怪物战斗，提升等级和天赋，体验紧张刺激的闯关乐趣。'
 };
+
+// ==================== 体力系统 ====================
+
+// 体力配置
+const ENERGY_CONFIG = {
+    maxEnergy: 100,              // 体力上限
+    initEnergy: 100,            // 初始体力
+    recoverTime: 5 * 60 * 1000, // 恢复时间（5分钟/点，毫秒）
+    recoverAmount: 1            // 每次恢复量
+};
+
+// 玩家体力状态
+let playerEnergy = ENERGY_CONFIG.initEnergy;  // 当前体力
+let lastEnergyUpdate = Date.now();             // 上次体力更新时间
+
+// 关卡体力消耗表（按关卡区间）
+const ENERGY_COST = {
+    1: 20,   // 1-10关 (测试用20点)
+    11: 20,  // 11-20关
+    21: 20,  // 21-30关
+    31: 20,  // 31-40关
+    41: 20,  // 41-50关
+    51: 20   // 51-60关
+};
+
+// 体力道具
+const ENERGY_ITEMS = [
+    { id: 'energy_1', name: '体力药水(小)', icon: '🧪', amount: 30, price: 6 },
+    { id: 'energy_2', name: '体力药水(中)', icon: '🧪', amount: 60, price: 15 },
+    { id: 'energy_3', name: '体力药水(大)', icon: '🧪', amount: 100, price: 30 }
+];
+
+// 背包中的体力道具数量
+let energyItemCount = {
+    'energy_1': 0,
+    'energy_2': 0,
+    'energy_3': 0
+};
+
+// 体力不足弹窗
+let energyModal = {
+    show: false,
+    targetStage: 1
+};
+let energyModalJustOpened = false;  // 弹窗刚打开的标志，用于避免本次触摸结束时误关闭
+
+// 广告恢复体力
+let adEnergyCount = 0;                      // 今日已观看广告次数
+const MAX_AD_ENERGY_PER_DAY = 5;             // 每日最多观看5次
+const AD_ENERGY_RECOVER = 30;                // 观看广告恢复30点体力
+let lastAdEnergyDate = '';                   // 上次重置日期
+
 // 按钮位置（放在左下角）
 const soundBtnX = 10;
 const soundBtnY = screenHeight - buttonSize - 10;
@@ -2377,6 +2544,7 @@ function useBomb() {
 function gameOver() {
     gameState = 'gameOver';
     gameRunning = false;
+    savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
     AudioSystem.playGameOver();
 }
@@ -2386,6 +2554,7 @@ function victory() {
     gameState = 'victory';
     gameRunning = false;
     saveProgress();
+    savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
     AudioSystem.playVictory();
 }
@@ -2824,6 +2993,11 @@ function drawMainMenu() {
         drawShopModal();
     }
 
+    // 体力不足弹窗
+    if (energyModal.show) {
+        drawEnergyModal();
+    }
+
     // 设置弹窗
     if (settingsModal.show) {
         drawSettingsModal();
@@ -2882,11 +3056,66 @@ function drawMainMenuHero() {
     ctx.textAlign = 'center';
     ctx.fillText('主角', screenWidth / 2, topOffset + 20);
 
+    // ===== 体力条区域 =====
+    const energyBarY = topOffset + 35;
+    const energyBarX = 20;
+    const energyBarW = screenWidth - 40;
+    const energyBarH = 24;
+    const energyBarRadius = 12;
+
+    // 更新体力实时恢复
+    updateEnergyRealtime();
+
+    // 体力条背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    roundRect(ctx, energyBarX, energyBarY, energyBarW, energyBarH, energyBarRadius);
+    ctx.fill();
+
+    // 体力条填充
+    const energyPercent = playerEnergy / ENERGY_CONFIG.maxEnergy;
+    const energyFillW = (energyBarW - 4) * energyPercent;
+    if (energyFillW > 0) {
+        const energyGrad = ctx.createLinearGradient(energyBarX, 0, energyBarX + energyBarW, 0);
+        energyGrad.addColorStop(0, '#4fc3f7');
+        energyGrad.addColorStop(1, '#81d4fa');
+        ctx.fillStyle = energyGrad;
+        roundRect(ctx, energyBarX + 2, energyBarY + 2, energyFillW, energyBarH - 4, energyBarRadius - 2);
+        ctx.fill();
+    }
+
+    // 体力文字：左侧图标+数值
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚡', energyBarX + 10, energyBarY + energyBarH / 2);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillText(playerEnergy + '/' + ENERGY_CONFIG.maxEnergy, energyBarX + 26, energyBarY + energyBarH / 2);
+
+    // 右侧：恢复进度文字
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = 'bold 10px Arial';
+    if (playerEnergy >= ENERGY_CONFIG.maxEnergy) {
+        ctx.fillText('已满', energyBarX + energyBarW - 10, energyBarY + energyBarH / 2);
+    } else {
+        const recoverMs = ENERGY_CONFIG.recoverTime;
+        const elapsed = Date.now() - lastEnergyUpdate;
+        const nextRecoverIn = Math.max(0, recoverMs - elapsed);
+        const minutes = Math.ceil(nextRecoverIn / 60000);
+        ctx.fillText(minutes + '分钟后+1', energyBarX + energyBarW - 10, energyBarY + energyBarH / 2);
+    }
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center';
+
     const centerX = screenWidth / 2;
     
     // ===== 计算布局（垂直居中） =====
-    // 内容总高度：头像(80) + 间距(25) + 面板(115) ≈ 220
-    const contentTotalH = 220;
+    // 内容总高度：头像(80) + 间距(25) + 面板(115) ≈ 220，但需要加上体力条高度
+    const contentTotalH = 220 + 40; // 额外40px给体力条
     const contentTop = (screenHeight - MAIN_MENU_NAV_H - contentTotalH) / 2;
     
     // ===== 主角装备区域（左右布局） =====
@@ -3166,6 +3395,13 @@ function drawMainMenuLevel() {
                 ctx.fillStyle = isCompleted ? '#ffd700' : '#3a4a5a';
                 ctx.font = '10px Arial';
                 ctx.fillText('★★★', cx + cardW / 2, cy + 65);
+                
+                // 体力消耗显示
+                const energyCost = getEnergyCost(levelNum);
+                const hasEnoughEnergy = playerEnergy >= energyCost;
+                ctx.fillStyle = hasEnoughEnergy ? '#ffd700' : '#ff6b6b';
+                ctx.font = '9px Arial';
+                ctx.fillText('⚡ ' + energyCost + '点', cx + cardW / 2, cy + cardH - 5);
             });
         }
         
@@ -4252,10 +4488,33 @@ function handleShopModalClick(x, y) {
                 // 取消
                 shopModal.show = false;
             } else if (x >= confirmBtnX && x <= confirmBtnX + btnW) {
-                // 确认购买 - 显示功能未开放
-                shopModal.type = 'alert';
-                shopModal.item = '支付功能正在申请中...\n请耐心等待';
-                shopModal.buttonText = '确定';
+                // 确认购买
+                const item = shopModal.item;
+                if (item) {
+                    // 检查是否是体力道具
+                    if (item.id === 'energy_1') {
+                        recoverEnergy(30);
+                        wx.showToast({ title: '体力恢复 +30', icon: 'none' });
+                        shopModal.show = false;
+                    } else if (item.id === 'energy_2') {
+                        recoverEnergy(60);
+                        wx.showToast({ title: '体力恢复 +60', icon: 'none' });
+                        shopModal.show = false;
+                    } else if (item.id === 'energy_3') {
+                        recoverEnergy(100);
+                        wx.showToast({ title: '体力恢复 +100', icon: 'none' });
+                        shopModal.show = false;
+                    } else {
+                        // 其他商品，显示功能未开放
+                        shopModal.type = 'alert';
+                        shopModal.item = '支付功能正在申请中...\n请耐心等待';
+                        shopModal.buttonText = '确定';
+                    }
+                } else {
+                    shopModal.type = 'alert';
+                    shopModal.item = '支付功能正在申请中...\n请耐心等待';
+                    shopModal.buttonText = '确定';
+                }
             }
         }
     } else {
@@ -4269,6 +4528,231 @@ function handleShopModalClick(x, y) {
             shopModal.show = false;
             shopModal.type = 'confirm'; // 重置为确认类型
         }
+    }
+}
+
+// ==================== 体力不足弹窗 ====================
+
+// 绘制体力不足弹窗
+function drawEnergyModal() {
+    const modalW = 280;
+    const modalH = 380;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // 弹窗背景
+    ctx.fillStyle = '#1a1a2e';
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.fill();
+
+    // 边框
+    ctx.strokeStyle = 'rgba(255, 107, 107, 0.5)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.stroke();
+
+    // 警告图标
+    ctx.font = '40px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠️', modalX + modalW / 2, modalY + 55);
+
+    // 标题
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText('体力不足', modalX + modalW / 2, modalY + 85);
+
+    // 当前体力
+    const energyCost = getEnergyCost(energyModal.targetStage);
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.fillText('当前体力: ' + playerEnergy + '/' + ENERGY_CONFIG.maxEnergy, modalX + modalW / 2, modalY + 120);
+
+    // 需要体力
+    ctx.fillStyle = '#ffd700';
+    ctx.font = '14px Arial';
+    ctx.fillText('通关需要: ' + energyCost + '点', modalX + modalW / 2, modalY + 145);
+
+    // 分割线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(modalX + 20, modalY + 160);
+    ctx.lineTo(modalX + modalW - 20, modalY + 160);
+    ctx.stroke();
+
+    // 按钮样式
+    const btnY = modalY + 175;
+    const btnH = 40;
+    const btnGap = 12;
+
+    // 取消按钮
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    roundRect(ctx, modalX + 20, btnY, (modalW - 50) / 2, btnH, 8);
+    ctx.fill();
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.fillText('取消', modalX + 20 + (modalW - 50) / 4, btnY + 26);
+
+    // 使用道具按钮
+    const hasItem = energyItemCount['energy_1'] > 0 || energyItemCount['energy_2'] > 0 || energyItemCount['energy_3'] > 0;
+    ctx.fillStyle = hasItem ? 'rgba(79, 195, 247, 0.8)' : 'rgba(100, 100, 100, 0.5)';
+    roundRect(ctx, modalX + 30 + (modalW - 50) / 2, btnY, (modalW - 50) / 2, btnH, 8);
+    ctx.fill();
+    ctx.fillStyle = hasItem ? '#fff' : '#666';
+    ctx.font = '14px Arial';
+    ctx.fillText('使用道具', modalX + 30 + (modalW - 50) * 3 / 4, btnY + 26);
+
+    // 观看广告恢复按钮
+    const canWatchAd = adEnergyCount < MAX_AD_ENERGY_PER_DAY;
+    ctx.fillStyle = canWatchAd ? 'rgba(76, 175, 80, 0.9)' : 'rgba(100, 100, 100, 0.5)';
+    roundRect(ctx, modalX + 20, btnY + btnH + btnGap, modalW - 40, btnH, 8);
+    ctx.fill();
+    ctx.fillStyle = canWatchAd ? '#fff' : '#666';
+    ctx.font = 'bold 14px Arial';
+    if (canWatchAd) {
+        ctx.fillText('📺 观看广告 +' + AD_ENERGY_RECOVER + '体力', modalX + modalW / 2, btnY + btnH + btnGap + 26);
+    } else {
+        ctx.fillText('📺 今日观看次数已用完', modalX + modalW / 2, btnY + btnH + btnGap + 26);
+    }
+
+    // 剩余次数提示
+    ctx.fillStyle = '#666';
+    ctx.font = '10px Arial';
+    ctx.fillText('剩余 ' + (MAX_AD_ENERGY_PER_DAY - adEnergyCount) + '/' + MAX_AD_ENERGY_PER_DAY + ' 次', modalX + modalW / 2, btnY + btnH + btnGap + btnH + 8);
+
+    // 立即购买按钮
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+    roundRect(ctx, modalX + 20, btnY + (btnH + btnGap) * 2 + 10, modalW - 40, btnH, 8);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a2e';
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText('💰 立即购买体力', modalX + modalW / 2, btnY + (btnH + btnGap) * 2 + 40);
+
+    // 提示文字
+    ctx.fillStyle = '#555';
+    ctx.font = '11px Arial';
+    ctx.fillText('体力每5分钟恢复1点', modalX + modalW / 2, modalY + modalH - 15);
+}
+
+// 处理体力弹窗点击
+function handleEnergyModalClick(x, y) {
+    if (!energyModal.show) return;
+    
+    // 如果弹窗刚打开，跳过本次关闭检测，避免误关闭
+    if (energyModalJustOpened) return;
+
+    const modalW = 280;
+    const modalH = 380;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    // 检查是否点击弹窗外（关闭弹窗）
+    if (x < modalX || x > modalX + modalW || y < modalY || y > modalY + modalH) {
+        energyModal.show = false;
+        return;
+    }
+
+    const btnY = modalY + 175;
+    const btnH = 40;
+    const btnGap = 12;
+
+    // 取消按钮
+    if (x >= modalX + 20 && x <= modalX + 20 + (modalW - 50) / 2 &&
+        y >= btnY && y <= btnY + btnH) {
+        energyModal.show = false;
+        return;
+    }
+
+    // 使用道具按钮
+    if (x >= modalX + 30 + (modalW - 50) / 2 && x <= modalX + modalW - 20 &&
+        y >= btnY && y <= btnY + btnH) {
+        // 尝试使用体力道具
+        useEnergyItem();
+        return;
+    }
+
+    // 观看广告按钮
+    if (x >= modalX + 20 && x <= modalX + modalW - 20 &&
+        y >= btnY + btnH + btnGap && y <= btnY + btnH + btnGap + btnH) {
+        // 观看广告恢复体力
+        watchAdRecoverEnergy();
+        return;
+    }
+
+    // 立即购买按钮
+    if (x >= modalX + 20 && x <= modalX + modalW - 20 &&
+        y >= btnY + (btnH + btnGap) * 2 + 10 && y <= btnY + (btnH + btnGap) * 2 + 10 + btnH) {
+        // 切换到商城Tab的道具页面
+        energyModal.show = false;
+        mainMenuTab = 'shop';
+        currentShopCategory = 'item';
+        return;
+    }
+}
+
+// 使用体力道具
+function useEnergyItem() {
+    // 优先使用大药水，其次是中，最后是小
+    if (energyItemCount['energy_3'] > 0) {
+        energyItemCount['energy_3']--;
+        recoverEnergy(100);
+        wx.showToast({ title: '体力恢复 +100', icon: 'none' });
+        energyModal.show = false;
+    } else if (energyItemCount['energy_2'] > 0) {
+        energyItemCount['energy_2']--;
+        recoverEnergy(60);
+        wx.showToast({ title: '体力恢复 +60', icon: 'none' });
+        energyModal.show = false;
+    } else if (energyItemCount['energy_1'] > 0) {
+        energyItemCount['energy_1']--;
+        recoverEnergy(30);
+        wx.showToast({ title: '体力恢复 +30', icon: 'none' });
+        energyModal.show = false;
+    } else {
+        wx.showToast({ title: '没有体力药水', icon: 'none' });
+    }
+}
+
+// 观看广告恢复体力
+function watchAdRecoverEnergy() {
+    // 检查次数限制
+    if (adEnergyCount >= MAX_AD_ENERGY_PER_DAY) {
+        wx.showToast({ title: '今日观看次数已用完', icon: 'none' });
+        return;
+    }
+
+    // 模拟微信激励视频广告（实际项目需要接入真实广告）
+    wx.showModal({
+        title: '观看广告',
+        content: '观看完整广告可获得 +' + AD_ENERGY_RECOVER + ' 体力，是否继续？',
+        success: (res) => {
+            if (res.confirm) {
+                // 模拟广告观看完成
+                adEnergyCount++;
+                recoverEnergy(AD_ENERGY_RECOVER);
+                wx.showToast({ title: '体力恢复 +' + AD_ENERGY_RECOVER, icon: 'none' });
+
+                // 检查体力是否足够开始关卡
+                const energyCost = getEnergyCost(energyModal.targetStage);
+                if (playerEnergy >= energyCost) {
+                    // 体力足够，关闭弹窗（玩家可以再次点击开始）
+                    energyModal.show = false;
+                }
+            }
+        }
+    });
+}
+
+// 检查并重置每日广告次数
+function checkAdEnergyDailyReset() {
+    const today = new Date().toDateString();
+    if (lastAdEnergyDate !== today) {
+        adEnergyCount = 0;
+        lastAdEnergyDate = today;
     }
 }
 
@@ -4520,6 +5004,95 @@ function drawSettingsModal() {
     }
 }
 
+// ==================== 体力系统函数 ====================
+
+// 获取关卡体力消耗
+function getEnergyCost(stageId) {
+    if (stageId >= 51) return ENERGY_COST[51];
+    if (stageId >= 41) return ENERGY_COST[41];
+    if (stageId >= 31) return ENERGY_COST[31];
+    if (stageId >= 21) return ENERGY_COST[21];
+    if (stageId >= 11) return ENERGY_COST[11];
+    return ENERGY_COST[1];
+}
+
+// 消耗体力（不重置恢复倒计时，保持原有恢复节奏）
+function consumeEnergy(amount) {
+    if (playerEnergy >= amount) {
+        playerEnergy -= amount;
+        // 注意：这里不重置 lastEnergyUpdate，保持体力恢复节奏不变
+        return true;
+    }
+    return false;
+}
+
+// 恢复体力
+function recoverEnergy(amount) {
+    const oldEnergy = playerEnergy;
+    playerEnergy = Math.min(playerEnergy + amount, ENERGY_CONFIG.maxEnergy);
+    lastEnergyUpdate = Date.now();
+    return playerEnergy - oldEnergy;  // 返回实际恢复量
+}
+
+// 检查能否开始关卡
+function canStartStage(stageId) {
+    const cost = getEnergyCost(stageId);
+    return playerEnergy >= cost;
+}
+
+// 实时更新体力（游戏中调用）
+function updateEnergyRealtime() {
+    if (playerEnergy >= ENERGY_CONFIG.maxEnergy) {
+        lastEnergyUpdate = Date.now();
+        return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastEnergyUpdate;
+    const recoverInterval = ENERGY_CONFIG.recoverTime; // 5分钟
+
+    if (elapsed >= recoverInterval) {
+        const pointsToRecover = Math.floor(elapsed / recoverInterval);
+        const actualRecover = Math.min(
+            pointsToRecover,
+            ENERGY_CONFIG.maxEnergy - playerEnergy
+        );
+        playerEnergy += actualRecover;
+        lastEnergyUpdate = now - (elapsed % recoverInterval);
+    }
+}
+
+// 计算离线恢复体力
+function calculateOfflineEnergy() {
+    try {
+        const lastTime = wx.getStorageSync('zombieHunterLastTime');
+        if (lastTime) {
+            const elapsed = Date.now() - lastTime;
+            const maxOfflineTime = 3 * 24 * 60 * 60 * 1000; // 最多离线3天
+            const effectiveElapsed = Math.min(elapsed, maxOfflineTime);
+
+            const pointsToRecover = Math.floor(effectiveElapsed / ENERGY_CONFIG.recoverTime);
+            playerEnergy = Math.min(
+                playerEnergy + pointsToRecover,
+                ENERGY_CONFIG.maxEnergy
+            );
+        }
+    } catch (e) {
+        console.log('离线体力计算失败', e);
+    }
+
+    lastEnergyUpdate = Date.now();
+}
+
+// 获取体力恢复倒计时（分钟）
+function getEnergyRecoverTime() {
+    if (playerEnergy >= ENERGY_CONFIG.maxEnergy) {
+        return 0;
+    }
+    const remaining = ENERGY_CONFIG.maxEnergy - playerEnergy;
+    return remaining * 5;  // 每点需要5分钟
+}
+
 // 设置弹窗点击处理
 function handleSettingsClick(x, y) {
     if (!settingsModal.show) return;
@@ -4716,6 +5289,8 @@ function gameLoop() {
     ctx.clearRect(0, 0, screenWidth, screenHeight);
     
     if (gameState === 'mainMenu') {
+        // 实时更新体力
+        updateEnergyRealtime();
         drawMainMenu();
     } else if (gameState === 'start') {
         drawStartScreen();
@@ -5149,7 +5724,7 @@ wx.onTouchEnd((e) => {
     // 如果没有真正拖动，且在关卡Tab，执行点击处理
     if (!isLevelDragging && gameState === 'mainMenu' && mainMenuTab === 'level' && !gamePaused) {
         const navY = screenHeight - MAIN_MENU_NAV_H;
-        if (levelTouchStartY < navY && levelTouchStartY >= 50) {
+        if (levelTouchStartY < navY && levelTouchStartY >= SAFE_TOP_OFFSET) {
             // 在内容区域，执行点击处理（使用记录的起始位置）
             handleLevelClick(levelTouchStartX, levelTouchStartY);
         }
@@ -5207,6 +5782,12 @@ wx.onTouchEnd((e) => {
         }
     }
 
+    // 体力不足弹窗点击检测
+    if (gameState === 'mainMenu' && energyModal.show) {
+        handleEnergyModalClick(endX, endY);
+    }
+    energyModalJustOpened = false;  // 重置标志位
+
     // 设置弹窗点击检测（优先处理，避免被其他Tab的点击处理干扰）
     // 只有当设置弹窗显示时才执行，并跳过本次刚打开的情况
     if (gameState === 'mainMenu' && settingsModal.show && !settingsJustOpened) {
@@ -5223,11 +5804,12 @@ wx.onTouchEnd((e) => {
 
 // 关卡点击处理（从触摸事件中分离出来）
 function handleLevelClick(x, y) {
-    let currentY = 50 + levelScrollY;
-    const contentH = screenHeight - MAIN_MENU_NAV_H - 50;
+    const topOffset = SAFE_TOP_OFFSET;
+    let currentY = topOffset + levelScrollY;
+    const contentH = screenHeight - MAIN_MENU_NAV_H - topOffset;
     
     // 检查是否在可见区域内
-    if (y < 50 || y >= 50 + contentH) {
+    if (y < topOffset || y >= topOffset + contentH) {
         return;
     }
     
@@ -5262,6 +5844,19 @@ function handleLevelClick(x, y) {
                 
                 if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
                     currentStage = levelNum;
+                    
+                    // 检查体力是否充足
+                    const energyCost = getEnergyCost(levelNum);
+                    if (playerEnergy < energyCost) {
+                        // 体力不足，打开体力不足弹窗
+                        energyModal.show = true;
+                        energyModal.targetStage = levelNum;
+                        energyModalJustOpened = true;  // 标记弹窗刚打开，避免本次触摸结束时被关闭
+                        return;
+                    }
+                    
+                    // 体力充足，消耗体力并开始游戏
+                    consumeEnergy(energyCost);
                     isAdDemoMode = (levelNum === 1);
                     startGame();
                 }
@@ -5306,4 +5901,15 @@ function closeTalentModal() {
 }
 
 // ==================== 初始化 ====================
+
+// 加载游戏数据
+loadGameData();
+loadPlayerData();  // 加载玩家数据（统一数据存储）
+
+// 检查并重置每日广告次数
+checkAdEnergyDailyReset();
+
+// 计算离线体力恢复
+calculateOfflineEnergy();
+
 gameLoop();
