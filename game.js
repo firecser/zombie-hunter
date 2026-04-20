@@ -32,7 +32,7 @@ const STAGES = [
       speedMult: 1.2, healthMult: 1.3, damageMult: 1.3, spawnMult: 1.3, bossTime: 60, tankChance: 0.30, fastChance: 0.32 },
     { id: 5, name: '永冻之巅', icon: '👑', desc: '全属性增强', difficulty: 5, descColor: '#cc88cc',
       speedMult: 1.4, healthMult: 1.8, damageMult: 1.5, spawnMult: 1.5, bossTime: 50, tankChance: 0.35, fastChance: 0.35 },
-    { id: 6, name: '极寒地狱', icon: '💀', desc: '究极挑战', difficulty: 6, descColor: '#ff6666',
+    { id: 6, name: '极寒地狱', icon: '👾', desc: '究极挑战', difficulty: 6, descColor: '#ff6666',
       speedMult: 1.6, healthMult: 2.2, damageMult: 1.8, spawnMult: 1.8, bossTime: 40, tankChance: 0.40, fastChance: 0.40 }
 ];
 
@@ -1104,7 +1104,7 @@ function drawUI() {
     ctx.fillStyle = '#fff';
     ctx.font = '10px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(`💀${player.kills} 💰${player.gold}`, panelX + 8, panelY + 48);
+    ctx.fillText(`👾${player.kills} 💰${player.gold}`, panelX + 8, panelY + 48);
     
     // 倒计时放右边
     ctx.fillStyle = remainingTime <= 30000 ? '#ff4444' : '#fff';
@@ -1477,7 +1477,7 @@ function drawStartScreen() {
     ctx.font = 'bold 32px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('💀 制霸新手村的骷髅怪 🎯', screenWidth / 2, screenHeight * 0.30);
+    ctx.fillText('👾 制霸新手村的怪物 🎯', screenWidth / 2, screenHeight * 0.30);
     
     // 说明
     ctx.fillStyle = '#fff';
@@ -1604,7 +1604,7 @@ function drawGameOver() {
     ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('💀 游戏结束', screenWidth / 2, modalY + 35);
+    ctx.fillText('👾 游戏结束', screenWidth / 2, modalY + 35);
     
     // 统计信息
     ctx.fillStyle = '#fff';
@@ -2937,7 +2937,7 @@ let heroData = {
 
 // 天赋数据（按章节解锁）
 let talentData = {
-    'core': { name: '骷髅之心', icon: '💀', level: 5, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1 },
+    'core': { name: '怪物之心', icon: '👾', level: 5, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1 },
     'damage': { name: '攻击力', icon: '⚔️', level: 5, max: 30, cost: 300, effect: '攻击力+3%', chapter: 2 },
     'health': { name: '生命', icon: '❤️', level: 5, max: 30, cost: 300, effect: '生命+30', chapter: 2 },
     'goldearn': { name: '金币获取', icon: '🪙', level: 3, max: 20, cost: 400, effect: '金币+8%', chapter: 2 },
@@ -3187,12 +3187,12 @@ function drawMainMenuHero() {
     ctx.arc(centerX, avatarY, avatarR - 2, 0, Math.PI * 2);
     ctx.fill();
     
-    // 骷髅图标
+    // 怪物图标
     ctx.fillStyle = '#fff';
     ctx.font = '40px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('💀', centerX, avatarY);
+    ctx.fillText('👾', centerX, avatarY);
     ctx.textBaseline = 'alphabetic';
     
     // ===== 底部信息面板 =====
@@ -3453,7 +3453,7 @@ function drawMainMenuTalent() {
     // 核心天赋位置下移，避免挡住顶部文字
     let currentY = contentTop + 50;
     
-    // --- 核心天赋（骷髅之心）---
+    // --- 核心天赋（怪物之心）---
     const coreNodeR = 35;
     
     // 判断是否解锁
@@ -3491,10 +3491,10 @@ function drawMainMenuTalent() {
     ctx.font = '28px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('💀', centerX, currentY - 8);
+    ctx.fillText('👾', centerX, currentY - 8);
     
     ctx.font = '9px Arial';
-    ctx.fillText('骷髅之心', centerX, currentY + 16);
+    ctx.fillText('怪物之心', centerX, currentY + 16);
     ctx.fillStyle = coreUnlocked ? '#ffd700' : '#666';
     ctx.font = '8px Arial';
     ctx.fillText('核心 Lv.' + talentData['core'].level, centerX, currentY + 26);
@@ -4941,7 +4941,7 @@ function drawSettingsModal() {
         // 游戏图标
         ctx.font = '32px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('💀', modalX + modalW / 2, modalY + 85);
+        ctx.fillText('👾', modalX + modalW / 2, modalY + 85);
 
         // 游戏名称
         ctx.fillStyle = '#fff';
