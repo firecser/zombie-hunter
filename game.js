@@ -1477,7 +1477,7 @@ function drawStartScreen() {
     ctx.font = 'bold 32px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('👾 制霸新手村的怪物 🎯', screenWidth / 2, screenHeight * 0.30);
+    ctx.fillText('👾 制霸新手村的骷髅怪 🎯', screenWidth / 2, screenHeight * 0.30);
     
     // 说明
     ctx.fillStyle = '#fff';
@@ -2791,8 +2791,9 @@ const MAIN_MENU_TABS = [
     { id: 'level', icon: '🎯', name: '关卡' },
     { id: 'talent', icon: '⭐', name: '天赋' },
     { id: 'rank', icon: '🏆', name: '排行' },
-    { id: 'world', icon: '🗺️', name: '世界' },
-    { id: 'shop', icon: '🛒', name: '商城' }
+    { id: 'world', icon: '🗺️', name: '世界' }
+    // 商城暂时屏蔽
+    // { id: 'shop', icon: '🛒', name: '商城' }
 ];
 const MAIN_MENU_NAV_H = 65;
 
@@ -2979,9 +2980,11 @@ function drawMainMenu() {
         drawMainMenuRank();
     } else if (mainMenuTab === 'world') {
         drawMainMenuWorld();
-    } else if (mainMenuTab === 'shop') {
-        drawMainMenuShop();
     }
+    // 商城暂时屏蔽
+    // else if (mainMenuTab === 'shop') {
+    //     drawMainMenuShop();
+    // }
     
     // 天赋升级弹窗
     if (talentModal.show) {
@@ -4624,13 +4627,13 @@ function drawEnergyModal() {
     ctx.font = '10px Arial';
     ctx.fillText('剩余 ' + (MAX_AD_ENERGY_PER_DAY - adEnergyCount) + '/' + MAX_AD_ENERGY_PER_DAY + ' 次', modalX + modalW / 2, btnY + btnH + btnGap + btnH + 8);
 
-    // 立即购买按钮
-    ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
-    roundRect(ctx, modalX + 20, btnY + (btnH + btnGap) * 2 + 10, modalW - 40, btnH, 8);
-    ctx.fill();
-    ctx.fillStyle = '#1a1a2e';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('💰 立即购买体力', modalX + modalW / 2, btnY + (btnH + btnGap) * 2 + 40);
+    // 立即购买按钮暂时屏蔽（商城暂不开放）
+    // ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+    // roundRect(ctx, modalX + 20, btnY + (btnH + btnGap) * 2 + 10, modalW - 40, btnH, 8);
+    // ctx.fill();
+    // ctx.fillStyle = '#1a1a2e';
+    // ctx.font = 'bold 14px Arial';
+    // ctx.fillText('💰 立即购买体力', modalX + modalW / 2, btnY + (btnH + btnGap) * 2 + 40);
 
     // 提示文字
     ctx.fillStyle = '#555';
@@ -4683,15 +4686,15 @@ function handleEnergyModalClick(x, y) {
         return;
     }
 
-    // 立即购买按钮
-    if (x >= modalX + 20 && x <= modalX + modalW - 20 &&
-        y >= btnY + (btnH + btnGap) * 2 + 10 && y <= btnY + (btnH + btnGap) * 2 + 10 + btnH) {
-        // 切换到商城Tab的道具页面
-        energyModal.show = false;
-        mainMenuTab = 'shop';
-        currentShopCategory = 'item';
-        return;
-    }
+    // 立即购买按钮暂时屏蔽（商城暂不开放）
+    // if (x >= modalX + 20 && x <= modalX + modalW - 20 &&
+    //     y >= btnY + (btnH + btnGap) * 2 + 10 && y <= btnY + (btnH + btnGap) * 2 + 10 + btnH) {
+    //     // 切换到商城Tab的道具页面
+    //     energyModal.show = false;
+    //     mainMenuTab = 'shop';
+    //     currentShopCategory = 'item';
+    //     return;
+    // }
 }
 
 // 使用体力道具
@@ -4877,7 +4880,9 @@ function drawSettingsModal() {
         const rules = [
             { title: '【游戏目标】', content: '在5分钟内击杀尽可能多的僵尸，获取经验和金币，挑战更高关卡。' },
             { title: '【操作方式】', content: '• 自动射击：角色自动攻击最近的敌人\n• 炸弹：点击屏幕右下角释放炸弹\n• 升级：战斗中获得的经验可升级，选择技能增强战斗能力' },
-            { title: '【货币系统】', content: '• 金币：用于升级天赋\n• 钻石：用于购买商城道具\n• 体力：每关卡需消耗体力' },
+            // 商城暂时屏蔽，钻石描述也屏蔽
+            // { title: '【货币系统】', content: '• 金币：用于升级天赋\n• 钻石：用于购买商城道具\n• 体力：每关卡需消耗体力' },
+            { title: '【货币系统】', content: '• 金币：用于升级天赋\n• 体力：每关卡需消耗体力' },
             { title: '【关卡解锁】', content: '通关当前关卡后可解锁下一关卡，章节通关解锁对应天赋。' }
         ];
 
@@ -5206,7 +5211,10 @@ function handleMainMenuTouch(x, y) {
         const btnW = screenWidth / MAIN_MENU_TABS.length;
         const tabIndex = Math.floor(x / btnW);
         if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
-            mainMenuTab = MAIN_MENU_TABS[tabIndex].id;
+            const newTab = MAIN_MENU_TABS[tabIndex].id;
+            // 屏蔽商城Tab点击
+            if (newTab === 'shop') return;
+            mainMenuTab = newTab;
             if (mainMenuTab === 'level') {
                 mainMenuExpandedChapter = 1; // 切到关卡默认展开第1章
             }
@@ -5409,15 +5417,15 @@ wx.onTouchStart((e) => {
             isRankDragging = false;
         }
 
-        // 商城Tab：设置拖动参数
-        if (mainMenuTab === 'shop') {
-            levelTouchStartX = x;  // 复用levelTouchStart坐标
-            levelTouchStartY = y;
-            shopTouchStartY = y;
-            shopDragStartY = y;
-            shopDragStartScrollY = shopScrollY;
-            isShopDragging = false;
-        }
+        // 商城暂时屏蔽
+        // if (mainMenuTab === 'shop') {
+        //     levelTouchStartX = x;
+        //     levelTouchStartY = y;
+        //     shopTouchStartY = y;
+        //     shopDragStartY = y;
+        //     shopDragStartScrollY = shopScrollY;
+        //     isShopDragging = false;
+        // }
 
         // 主角Tab：设置触摸起点
         if (mainMenuTab === 'hero') {
@@ -5681,23 +5689,23 @@ wx.onTouchMove((e) => {
         }
     }
 
-    // 商城Tab滚动
-    if (mainMenuTab === 'shop' && isShopDragging) {
-        const deltaY = y - shopDragStartY;
-        shopScrollY = shopDragStartScrollY + deltaY * 1.5;
-
-        // 限制滚动范围
-        const items = SHOP_ITEMS[currentShopCategory];
-        const cardRows = Math.ceil(items.length / 2);
-        const cardH = 120;
-        const cardGap = 10;
-        const padding = 15;
-        const tabY = SAFE_TOP_OFFSET + 65 + 35 + 15;
-        const listH = screenHeight - tabY - MAIN_MENU_NAV_H - 20;
-        const totalH = cardRows * (cardH + cardGap);
-        const maxScroll = Math.max(0, totalH - listH);
-        shopScrollY = Math.max(0, Math.min(maxScroll, shopScrollY));
-    }
+    // 商城Tab滚动暂时屏蔽
+    // if (mainMenuTab === 'shop' && isShopDragging) {
+    //     const deltaY = y - shopDragStartY;
+    //     shopScrollY = shopDragStartScrollY + deltaY * 1.5;
+    //
+    //     // 限制滚动范围
+    //     const items = SHOP_ITEMS[currentShopCategory];
+    //     const cardRows = Math.ceil(items.length / 2);
+    //     const cardH = 120;
+    //     const cardGap = 10;
+    //     const padding = 15;
+    //     const tabY = SAFE_TOP_OFFSET + 65 + 35 + 15;
+    //     const listH = screenHeight - tabY - MAIN_MENU_NAV_H - 20;
+    //     const totalH = cardRows * (cardH + cardGap);
+    //     const maxScroll = Math.max(0, totalH - listH);
+    //     shopScrollY = Math.max(0, Math.min(maxScroll, shopScrollY));
+    // }
 });
 
 // 触摸结束处理
@@ -5769,18 +5777,16 @@ wx.onTouchEnd((e) => {
         handleMainMenuTouch(levelTouchStartX, levelTouchStartY);
     }
 
-    // 商城Tab点击检测
-    if (gameState === 'mainMenu' && mainMenuTab === 'shop') {
-        if (!isShopDragging) {
-            // 如果弹窗显示，处理弹窗点击
-            if (shopModal.show) {
-                handleShopModalClick(levelTouchStartX, levelTouchStartY);
-            } else {
-                // 处理商城内容点击（分类切换/商品购买）
-                handleShopClick(levelTouchStartX, levelTouchStartY);
-            }
-        }
-    }
+    // 商城暂时屏蔽
+    // if (gameState === 'mainMenu' && mainMenuTab === 'shop') {
+    //     if (!isShopDragging) {
+    //         if (shopModal.show) {
+    //             handleShopModalClick(levelTouchStartX, levelTouchStartY);
+    //         } else {
+    //             handleShopClick(levelTouchStartX, levelTouchStartY);
+    //         }
+    //     }
+    // }
 
     // 体力不足弹窗点击检测
     if (gameState === 'mainMenu' && energyModal.show) {
