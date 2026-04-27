@@ -74,6 +74,12 @@ function savePlayerData() {
     playerData.skills = { ...skills };
     playerData.acquiredSkills = [...acquiredSkills];
     
+    // 保存天赋数据
+    playerData.talentLevels = {};
+    Object.keys(talentData).forEach(key => {
+        playerData.talentLevels[key] = talentData[key].level;
+    });
+    
     wx.setStorageSync('zombieHunterPlayerData', JSON.stringify(playerData));
 }
 
@@ -90,7 +96,8 @@ function loadPlayerData() {
                 exp: data.exp || 0,
                 kills: data.kills || 0,
                 skills: data.skills || {},
-                acquiredSkills: data.acquiredSkills || ['damage']
+                acquiredSkills: data.acquiredSkills || ['damage'],
+                talentLevels: data.talentLevels || {}
             };
             
             // 同步到player对象
@@ -107,6 +114,15 @@ function loadPlayerData() {
                 }
             });
             acquiredSkills = [...playerData.acquiredSkills];
+            
+            // 同步天赋数据
+            if (playerData.talentLevels) {
+                Object.keys(playerData.talentLevels).forEach(key => {
+                    if (talentData[key]) {
+                        talentData[key].level = playerData.talentLevels[key];
+                    }
+                });
+            }
         }
     } catch (e) {
         console.log('加载玩家数据失败', e);
@@ -188,6 +204,7 @@ let adDemoTimer = 0;
 let adBombExploded = false;     // 炸弹是否已爆炸
 let adZombieCount = 0;          // 统计击杀僵尸数
 let adGoldEarned = 0;           // 实际获得金币数
+let goldAtStageStart = 0;        // 进入关卡前的金币（用于胜利后累积）
 
 // ==================== 音效和暂停设置 ====================
 let soundEnabled = true;
@@ -2544,6 +2561,10 @@ function useBomb() {
 function gameOver() {
     gameState = 'gameOver';
     gameRunning = false;
+    
+    // 将本次关卡获得的金币累加到总金币（即使失败也不丢失之前的金币）
+    player.gold = goldAtStageStart + player.gold;
+    
     savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
     AudioSystem.playGameOver();
@@ -2553,6 +2574,10 @@ function gameOver() {
 function victory() {
     gameState = 'victory';
     gameRunning = false;
+    
+    // 将本次关卡获得的金币累加到总金币
+    player.gold = goldAtStageStart + player.gold;
+    
     saveProgress();
     savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
@@ -2584,6 +2609,9 @@ function startGame() {
         AudioSystem.startBGM();
     }
     
+    // 保存进入关卡前的金币（用于胜利后累积）
+    goldAtStageStart = player.gold;
+    
     // 重置玩家
     player.x = screenWidth / 2;
     player.y = screenHeight - 80;
@@ -2592,7 +2620,7 @@ function startGame() {
     player.exp = 0;
     player.level = 1;
     player.expToLevel = 50;
-    player.gold = 0;
+    player.gold = 0;  // 重置为0用于计算本次关卡获得金币
     player.kills = 0;
     player.damage = 10;
     player.fireRate = 500;
@@ -2937,26 +2965,48 @@ let heroData = {
 };
 
 // 天赋数据（按章节解锁）
+// prerequisite: { id: 'talent_id', level: N } - 前置天赋及其等级要求
 let talentData = {
-    'core': { name: '怪物之心', icon: '👾', level: 5, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1 },
-    'damage': { name: '攻击力', icon: '⚔️', level: 5, max: 30, cost: 300, effect: '攻击力+3%', chapter: 2 },
-    'health': { name: '生命', icon: '❤️', level: 5, max: 30, cost: 300, effect: '生命+30', chapter: 2 },
-    'goldearn': { name: '金币获取', icon: '🪙', level: 3, max: 20, cost: 400, effect: '金币+8%', chapter: 2 },
-    'expearn': { name: '经验获取', icon: '⭐', level: 3, max: 20, cost: 400, effect: '经验+8%', chapter: 2 },
-    'attackspeed': { name: '攻击速度', icon: '⚡', level: 3, max: 20, cost: 500, effect: '攻速+2%', chapter: 4 },
-    'crit': { name: '暴击率', icon: '💥', level: 2, max: 25, cost: 500, effect: '暴击+1.5%', chapter: 4 },
-    'piercing': { name: '穿透', icon: '🗡️', level: 1, max: 10, cost: 800, effect: '穿透+1', chapter: 4 },
-    'shield': { name: '护盾', icon: '🛡️', level: 1, max: 20, cost: 500, effect: '护盾+20', chapter: 4 },
-    'explosive': { name: '爆炸', icon: '💣', level: 1, max: 10, cost: 1000, effect: '范围+10%', chapter: 6 },
-    'freeze': { name: '冰冻', icon: '❄️', level: 1, max: 15, cost: 800, effect: '冰冻+1.5%', chapter: 6 },
-    'slow': { name: '减速', icon: '🐌', level: 1, max: 15, cost: 800, effect: '减速+2%', chapter: 6 },
-    'bombcount': { name: '炸弹上限', icon: '💣', level: 1, max: 8, cost: 1200, effect: '上限+1', chapter: 6 },
-    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, effect: '弹射+1', chapter: 8 },
-    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, effect: '子弹+1', chapter: 8 },
-    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10 },
-    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, effect: '复活1次', chapter: 10 },
-    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, effect: '吸收伤害', chapter: 10 }
+    'core': { name: '怪物之心', icon: '👾', level: 0, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1, prerequisite: null },
+    'damage': { name: '攻击力', icon: '⚔️', level: 0, max: 30, cost: 300, effect: '攻击力+3%', chapter: 2, prerequisite: { id: 'core', level: 5 } },
+    'health': { name: '生命', icon: '❤️', level: 0, max: 30, cost: 300, effect: '生命+30', chapter: 2, prerequisite: { id: 'core', level: 5 } },
+    'goldearn': { name: '金币获取', icon: '🪙', level: 0, max: 20, cost: 400, effect: '金币+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
+    'expearn': { name: '经验获取', icon: '⭐', level: 0, max: 20, cost: 400, effect: '经验+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
+    'attackspeed': { name: '攻击速度', icon: '⚡', level: 0, max: 20, cost: 500, effect: '攻速+2%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'crit': { name: '暴击率', icon: '💥', level: 0, max: 25, cost: 500, effect: '暴击+1.5%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, effect: '穿透+1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, effect: '护盾+20', chapter: 4, prerequisite: { id: 'health', level: 10 } },
+    'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, effect: '范围+10%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, effect: '冰冻+1.5%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, effect: '减速+2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, effect: '上限+1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
+    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, effect: '弹射+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
+    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, effect: '子弹+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
+    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, effect: '复活1次', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, effect: '吸收伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
 };
+
+// 检查天赋是否满足前置条件
+function isTalentUnlocked(talentId) {
+    const talent = talentData[talentId];
+    if (!talent.prerequisite) return true; // 无前置条件
+    const preTalent = talentData[talent.prerequisite.id];
+    return preTalent.level >= talent.prerequisite.level;
+}
+
+// 升级天赋
+function upgradeTalent(talentId) {
+    const talent = talentData[talentId];
+    if (talent.level >= talent.max) return false; // 已满级
+    if (!isTalentUnlocked(talentId)) return false; // 未解锁
+    if (player.gold < talent.cost) return false; // 金币不足
+    
+    player.gold -= talent.cost;
+    talent.level++;
+    savePlayerData();
+    return true;
+}
 
 // 当前解锁的最高章节（用于判断天赋解锁状态）
 let highestUnlockedChapter = 2;
@@ -3504,6 +3554,9 @@ function drawMainMenuTalent() {
     
     ctx.textBaseline = 'alphabetic';
     
+    // 将核心天赋添加到点击检测数组
+    talentNodes.push({ x: centerX, y: currentY, size: coreNodeR * 2, talentId: 'core' });
+    
     currentY += coreNodeR + 15;
     
     // --- 连接线 ---
@@ -3546,7 +3599,7 @@ function drawMainMenuTalent() {
         const ny = currentY + nodeSize / 2;
         
         talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, chapter2Unlocked);
+        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter2Unlocked);
     });
     
     currentY += nodeSize + 15;
@@ -3579,7 +3632,7 @@ function drawMainMenuTalent() {
         const ny = currentY + nodeSize / 2;
         
         talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, chapter4Unlocked);
+        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter4Unlocked);
     });
     
     currentY += nodeSize + 15;
@@ -3612,7 +3665,7 @@ function drawMainMenuTalent() {
         const ny = currentY + nodeSize / 2;
         
         talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, chapter6Unlocked);
+        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter6Unlocked);
     });
     
     currentY += nodeSize + 15;
@@ -3649,7 +3702,7 @@ function drawMainMenuTalent() {
         const ny = currentY + nodeSize / 2;
         
         talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, chapter8Unlocked);
+        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter8Unlocked);
     });
     
     currentY += nodeSize + 15;
@@ -3685,31 +3738,35 @@ function drawMainMenuTalent() {
         const ny = currentY + nodeSize / 2;
         
         talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, chapter10Unlocked);
+        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter10Unlocked);
     });
 }
 
 // 绘制天赋节点
-function drawTalentNode(x, y, size, talent, unlocked) {
+function drawTalentNode(x, y, size, talent, talentId, unlocked) {
     const halfSize = size / 2;
+    
+    // 检查前置条件解锁状态
+    const preUnlocked = isTalentUnlocked(talentId);
+    const isActive = unlocked && preUnlocked; // 需要章节解锁 + 前置天赋解锁
     
     // 背景
     const bgGrad = ctx.createRadialGradient(x, y - halfSize * 0.3, 0, x, y, halfSize);
-    bgGrad.addColorStop(0, unlocked ? '#1e3a5f' : '#1a1a1a');
-    bgGrad.addColorStop(1, unlocked ? '#0f3460' : '#111');
+    bgGrad.addColorStop(0, isActive ? '#1e3a5f' : '#1a1a1a');
+    bgGrad.addColorStop(1, isActive ? '#0f3460' : '#111');
     ctx.fillStyle = bgGrad;
     roundRect(ctx, x - halfSize, y - halfSize, size, size, 10);
     ctx.fill();
     
     // 边框
     const isMaxed = talent.level >= talent.max;
-    ctx.strokeStyle = isMaxed ? '#ffd700' : (unlocked ? '#4fc3f7' : '#444');
+    ctx.strokeStyle = isMaxed ? '#ffd700' : (isActive ? '#4fc3f7' : '#444');
     ctx.lineWidth = 2;
     roundRect(ctx, x - halfSize, y - halfSize, size, size, 10);
     ctx.stroke();
     
     // 图标
-    ctx.fillStyle = unlocked ? '#fff' : '#555';
+    ctx.fillStyle = isActive ? '#fff' : '#555';
     ctx.font = '20px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -3717,15 +3774,21 @@ function drawTalentNode(x, y, size, talent, unlocked) {
 
     // 名称
     ctx.font = '9px Arial';
-    ctx.fillStyle = unlocked ? '#fff' : '#555';
+    ctx.fillStyle = isActive ? '#fff' : '#555';
     ctx.textAlign = 'center';
     ctx.fillText(talent.name, x, y + 8);
 
     // 等级
     ctx.font = '8px Arial';
-    ctx.fillStyle = isMaxed ? '#ffd700' : (unlocked ? '#4fc3f7' : '#444');
+    ctx.fillStyle = isMaxed ? '#ffd700' : (isActive ? '#4fc3f7' : '#444');
     ctx.textAlign = 'center';
-    ctx.fillText(unlocked ? (talent.level >= talent.max ? 'MAX' : 'Lv.' + talent.level) : '未解锁', x, y + 20);
+    if (!unlocked) {
+        ctx.fillText('章节' + talent.chapter, x, y + 20);
+    } else if (!preUnlocked) {
+        ctx.fillText('前置未满', x, y + 20);
+    } else {
+        ctx.fillText(talent.level >= talent.max ? 'MAX' : 'Lv.' + talent.level, x, y + 20);
+    }
 
     ctx.textBaseline = 'alphabetic';
 }
@@ -3734,7 +3797,9 @@ function drawTalentNode(x, y, size, talent, unlocked) {
 function drawTalentModal() {
     const talent = talentData[talentModal.talentId];
     const isUnlocked = highestUnlockedChapter >= talent.chapter;
+    const preUnlocked = isTalentUnlocked(talentModal.talentId);
     const isMaxed = talent.level >= talent.max;
+    const canUpgrade = isUnlocked && preUnlocked && !isMaxed;
     
     // 半透明遮罩
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -3742,7 +3807,7 @@ function drawTalentModal() {
     
     // 弹窗
     const modalW = 280;
-    const modalH = 220;
+    const modalH = 260;
     const modalX = (screenWidth - modalW) / 2;
     const modalY = (screenHeight - modalH) / 2;
     
@@ -3777,15 +3842,29 @@ function drawTalentModal() {
     ctx.fillStyle = '#888';
     ctx.fillText(isMaxed ? '已达最高等级' : '当前等级: Lv.' + talent.level, screenWidth / 2, modalY + 115);
     
+    // 玩家当前金币
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText('已有 🪙 ' + player.gold, screenWidth / 2, modalY + 130);
+    
     // 升级效果
     ctx.font = '13px Arial';
     ctx.fillStyle = '#4fc3f7';
-    ctx.fillText('效果: ' + talent.effect, screenWidth / 2, modalY + 140);
+    ctx.fillText('效果: ' + talent.effect, screenWidth / 2, modalY + 155);
+    
+    // 前置条件提示
+    ctx.font = '11px Arial';
+    ctx.fillStyle = '#ff6b6b';
+    if (!preUnlocked && talent.prerequisite) {
+        const preTalent = talentData[talent.prerequisite.id];
+        ctx.fillText('前置: ' + preTalent.name + ' Lv.' + talent.prerequisite.level, screenWidth / 2, modalY + 175);
+    }
     
     // 按钮
     const btnW = 100;
     const btnH = 40;
-    const btnY = modalY + 165;
+    const btnY = modalY + 200;
+    const upgradeBtnX = screenWidth / 2 + 10;
     
     // 取消按钮
     ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
@@ -3796,28 +3875,53 @@ function drawTalentModal() {
     ctx.fillText('关闭', screenWidth / 2 - btnW / 2 - 10, btnY + 25);
     
     // 升级按钮
-    if (!isMaxed && isUnlocked) {
-        ctx.fillStyle = '#4fc3f7';
-        roundRect(ctx, screenWidth / 2 + 10, btnY, btnW, btnH, 10);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.font = '14px Arial';
-        ctx.fillText('升级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+    if (canUpgrade) {
+        // 检查金币是否足够
+        const hasEnoughGold = player.gold >= talent.cost;
         
-        // 消耗
-        ctx.font = '12px Arial';
-        ctx.fillStyle = '#ffd700';
-        ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + 38);
+        if (hasEnoughGold) {
+            ctx.fillStyle = '#4fc3f7';
+            roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px Arial';
+            ctx.fillText('升级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+            
+            // 消耗
+            ctx.font = '12px Arial';
+            ctx.fillStyle = '#ffd700';
+            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + 38);
+        } else {
+            // 金币不足，灰色按钮
+            ctx.fillStyle = '#444';
+            roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
+            ctx.fill();
+            ctx.fillStyle = '#888';
+            ctx.font = '14px Arial';
+            ctx.fillText('升级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+            
+            // 显示消耗（红色表示不足）
+            ctx.font = '12px Arial';
+            ctx.fillStyle = '#ff6b6b';
+            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + 38);
+        }
     } else if (!isUnlocked) {
         ctx.fillStyle = '#444';
-        roundRect(ctx, screenWidth / 2 + 10, btnY, btnW, btnH, 10);
+        roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
         ctx.fill();
         ctx.fillStyle = '#888';
         ctx.font = '12px Arial';
         ctx.fillText('需第' + talent.chapter + '章', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
+    } else if (!preUnlocked) {
+        ctx.fillStyle = '#444';
+        roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
+        ctx.fill();
+        ctx.fillStyle = '#888';
+        ctx.font = '12px Arial';
+        ctx.fillText('前置未满', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
     } else {
         ctx.fillStyle = '#ffd700';
-        roundRect(ctx, screenWidth / 2 + 10, btnY, btnW, btnH, 10);
+        roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
         ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.font = '14px Arial';
@@ -3825,6 +3929,54 @@ function drawTalentModal() {
     }
     
     ctx.textBaseline = 'alphabetic';
+}
+
+// 天赋弹窗按钮位置（用于点击检测）
+let talentUpgradeBtn = { x: 0, y: 0, w: 0, h: 0 };
+let talentCloseBtn = { x: 0, y: 0, w: 0, h: 0 };
+
+// 处理天赋弹窗点击
+function handleTalentModalClick(x, y) {
+    if (!talentModal.show) return;
+    
+    const talent = talentData[talentModal.talentId];
+    const isUnlocked = highestUnlockedChapter >= talent.chapter;
+    const preUnlocked = isTalentUnlocked(talentModal.talentId);
+    const isMaxed = talent.level >= talent.max;
+    const canUpgrade = isUnlocked && preUnlocked && !isMaxed;
+    
+    const modalW = 280;
+    const modalH = 260;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+    const btnW = 100;
+    const btnH = 40;
+    const btnY = modalY + 200;
+    
+    // 关闭按钮
+    talentCloseBtn = { x: screenWidth / 2 - btnW - 10, y: btnY, w: btnW, h: btnH };
+    if (x >= talentCloseBtn.x && x <= talentCloseBtn.x + talentCloseBtn.w &&
+        y >= talentCloseBtn.y && y <= talentCloseBtn.y + talentCloseBtn.h) {
+        closeTalentModal();
+        return;
+    }
+    
+    // 升级按钮
+    talentUpgradeBtn = { x: screenWidth / 2 + 10, y: btnY, w: btnW, h: btnH };
+    if (canUpgrade && x >= talentUpgradeBtn.x && x <= talentUpgradeBtn.x + talentUpgradeBtn.w &&
+        y >= talentUpgradeBtn.y && y <= talentUpgradeBtn.y + talentUpgradeBtn.h) {
+        // 检查金币是否足够
+        if (player.gold < talent.cost) {
+            // 金币不足，提示
+            wx.showToast({ title: '金币不足！', icon: 'none' });
+            return;
+        }
+        if (upgradeTalent(talentModal.talentId)) {
+            // 升级成功，保持弹窗打开
+            wx.showToast({ title: '升级成功！', icon: 'success' });
+        }
+        return;
+    }
 }
 
 // ========== 排行Tab ==========
@@ -5519,6 +5671,9 @@ wx.onTouchStart((e) => {
             // 关卡按钮
             if (x >= startX + btnSize + gap && x <= startX + btnSize + gap + btnSize && y >= btnY && y <= btnY + btnSize) {
                 levelReturnHandled = true;  // 标记已处理，防止触摸结束时误触发
+                // 将本次关卡获得的金币累加到总金币
+                player.gold = goldAtStageStart + player.gold;
+                savePlayerData();  // 保存玩家数据
                 gameState = 'mainMenu';
                 mainMenuTab = 'level';  // 确保回到关卡Tab
                 gamePaused = false;
@@ -5743,8 +5898,8 @@ wx.onTouchEnd((e) => {
         if (!talentModal.show) {
             handleTalentClick(levelTouchStartX, levelTouchStartY);
         } else {
-            // 弹窗显示时，检测关闭按钮点击
-            closeTalentModal();
+            // 弹窗显示时，处理按钮点击（关闭/升级）
+            handleTalentModalClick(endX, endY);
         }
     }
 
