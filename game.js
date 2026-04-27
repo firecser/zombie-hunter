@@ -2953,7 +2953,7 @@ let talentData = {
     'bombcount': { name: '炸弹上限', icon: '💣', level: 1, max: 8, cost: 1200, effect: '上限+1', chapter: 6 },
     'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, effect: '弹射+1', chapter: 8 },
     'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, effect: '子弹+1', chapter: 8 },
-    'deathray': { name: '死亡射线', icon: '☠️', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10 },
+    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10 },
     'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, effect: '复活1次', chapter: 10 },
     'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, effect: '吸收伤害', chapter: 10 }
 };
@@ -5918,4 +5918,33 @@ checkAdEnergyDailyReset();
 // 计算离线体力恢复
 calculateOfflineEnergy();
 
+// 获取微信昵称
+loadWechatNickname();
+
 gameLoop();
+
+// ==================== 微信昵称获取 ====================
+function loadWechatNickname() {
+    // 优先使用缓存的昵称
+    const cachedNickname = wx.getStorageSync('zombieHunterNickname');
+    if (cachedNickname) {
+        heroData.name = cachedNickname;
+        return;
+    }
+    
+    // 尝试获取微信用户信息
+    if (wx.getUserProfile) {
+        wx.getUserProfile({
+            desc: '用于显示游戏昵称',
+            success: (res) => {
+                const nickname = res.userInfo.nickName;
+                heroData.name = nickname;
+                wx.setStorageSync('zombieHunterNickname', nickname);
+            },
+            fail: () => {
+                // 授权失败，使用默认昵称
+                console.log('获取微信昵称失败，使用默认昵称');
+            }
+        });
+    }
+}
