@@ -4191,16 +4191,27 @@ function drawMainMenuRank() {
         // 头像
         const avatarX = rankX + 45;
         const avatarY = itemY + (itemH - avatarSize) / 2 - 3;
-        ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
-        ctx.beginPath();
-        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 头像内的图标
-        ctx.font = '16px Arial';
-        ctx.fillStyle = '#4fc3f7';
-        ctx.textAlign = 'center';
-        ctx.fillText('🎮', avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
+        
+        // 自己的头像用微信头像，其他人的用 emoji
+        if (isMe && wechatAvatarImage) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(wechatAvatarImage, avatarX, avatarY, avatarSize, avatarSize);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
+            ctx.beginPath();
+            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            // 头像内的图标
+            const avatarIcon = item.avatar || '🎮';
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#4fc3f7';
+            ctx.textAlign = 'center';
+            ctx.fillText(avatarIcon, avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
+        }
 
         // 玩家信息
         const infoX = avatarX + avatarSize + 10;
@@ -4257,17 +4268,26 @@ function drawMainMenuRank() {
         ctx.textAlign = 'center';
         ctx.fillText(meRank, startX + 18, fixedY + itemH / 2 + 5);
         
-        // 头像
+        // 头像（自己的微信头像）
         const avatarX = startX + 45;
         const avatarY = fixedY + (itemH - avatarSize) / 2 - 3;
-        ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
-        ctx.beginPath();
-        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.font = '16px Arial';
-        ctx.fillStyle = '#4fc3f7';
-        ctx.textAlign = 'center';
-        ctx.fillText('🎮', avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
+        if (wechatAvatarImage) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(wechatAvatarImage, avatarX, avatarY, avatarSize, avatarSize);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
+            ctx.beginPath();
+            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#4fc3f7';
+            ctx.textAlign = 'center';
+            ctx.fillText('🎮', avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
+        }
         
         // 名称
         ctx.fillStyle = '#fff';
