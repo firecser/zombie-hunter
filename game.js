@@ -2967,24 +2967,24 @@ let heroData = {
 // 天赋数据（按章节解锁）
 // prerequisite: { id: 'talent_id', level: N } - 前置天赋及其等级要求
 let talentData = {
-    'core': { name: '怪物之心', icon: '👾', level: 0, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1, prerequisite: null },
-    'damage': { name: '攻击力', icon: '⚔️', level: 0, max: 30, cost: 300, effect: '攻击力+3%', chapter: 2, prerequisite: { id: 'core', level: 5 } },
-    'health': { name: '生命', icon: '❤️', level: 0, max: 30, cost: 300, effect: '生命+30', chapter: 2, prerequisite: { id: 'core', level: 5 } },
-    'goldearn': { name: '金币获取', icon: '🪙', level: 0, max: 20, cost: 400, effect: '金币+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
-    'expearn': { name: '经验获取', icon: '⭐', level: 0, max: 20, cost: 400, effect: '经验+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
-    'attackspeed': { name: '攻击速度', icon: '⚡', level: 0, max: 20, cost: 500, effect: '攻速+2%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'crit': { name: '暴击率', icon: '💥', level: 0, max: 25, cost: 500, effect: '暴击+1.5%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, effect: '穿透+1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, effect: '护盾+20', chapter: 4, prerequisite: { id: 'health', level: 10 } },
-    'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, effect: '范围+10%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, effect: '冰冻+1.5%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, effect: '减速+2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, effect: '上限+1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
-    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, effect: '弹射+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
-    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, effect: '子弹+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
-    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, effect: '复活1次', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, effect: '吸收伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
+    'core': { name: '怪物之心', icon: '👾', level: 0, max: 20, cost: 2000, perLevelPower: 200, effect: '全体属性+2%', chapter: 1, prerequisite: null },
+    'damage': { name: '攻击力', icon: '⚔️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '攻击力+3%', chapter: 2, prerequisite: { id: 'core', level: 5 } },
+    'health': { name: '生命', icon: '❤️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '生命+30', chapter: 2, prerequisite: { id: 'core', level: 5 } },
+    'goldearn': { name: '金币获取', icon: '🪙', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '金币+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
+    'expearn': { name: '经验获取', icon: '⭐', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '经验+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
+    'attackspeed': { name: '攻击速度', icon: '⚡', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '攻速+2%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'crit': { name: '暴击率', icon: '💥', level: 0, max: 25, cost: 500, perLevelPower: 50, effect: '暴击+1.5%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, perLevelPower: 80, effect: '穿透+1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '护盾+20', chapter: 4, prerequisite: { id: 'health', level: 10 } },
+    'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, perLevelPower: 100, effect: '范围+10%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '冰冻+1.5%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '减速+2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, perLevelPower: 120, effect: '上限+1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
+    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, perLevelPower: 150, effect: '弹射+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
+    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, perLevelPower: 150, effect: '子弹+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
+    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '全屏伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, perLevelPower: 800, effect: '复活1次', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '吸收伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
 };
 
 // 检查天赋是否满足前置条件
@@ -2993,6 +2993,15 @@ function isTalentUnlocked(talentId) {
     if (!talent.prerequisite) return true; // 无前置条件
     const preTalent = talentData[talent.prerequisite.id];
     return preTalent.level >= talent.prerequisite.level;
+}
+
+// 计算玩家总战力（基于天赋等级）
+function calculatePower() {
+    let total = 0;
+    Object.keys(talentData).forEach(key => {
+        total += talentData[key].level * talentData[key].perLevelPower;
+    });
+    return total;
 }
 
 // 升级天赋
@@ -3260,11 +3269,13 @@ function drawMainMenuHero() {
     ctx.fill();
     
     // 4行信息
+    // 计算所有天赋等级之和
+    const totalTalentLevel = Object.values(talentData).reduce((sum, t) => sum + t.level, 0);
     const rows = [
         { label: '玩家名字', value: heroData.name },
-        { label: '天赋等级', value: 'Lv.' + heroData.level },
+        { label: '天赋等级', value: 'Lv.' + totalTalentLevel },
         { label: '排行榜名次', value: '第 ' + heroData.rank + ' 名' },
-        { label: '总战力', value: heroData.power.toLocaleString() }
+        { label: '总战力', value: calculatePower().toLocaleString() }
     ];
     
     const rowH = 28;
@@ -4131,10 +4142,11 @@ function drawMainMenuRank() {
         const rightX = screenWidth - padding - 12;
         ctx.textAlign = 'right';
 
-        // 战力
+        // 战力（如果是我自己，使用实时计算值）
+        const displayPower = isMe ? calculatePower() : item.power;
         ctx.fillStyle = '#4fc3f7';
         ctx.font = 'bold 13px Arial';
-        const powerStr = item.power >= 10000 ? (item.power / 10000).toFixed(1) + '万' : item.power.toString();
+        const powerStr = displayPower >= 10000 ? (displayPower / 10000).toFixed(1) + '万' : displayPower.toString();
         ctx.fillText(powerStr, rightX, itemY + itemH / 2 - 3);
 
         // 等级
