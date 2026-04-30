@@ -3002,6 +3002,21 @@ function calculatePower() {
     return total;
 }
 
+// 获取玩家在全服排行榜中的名次
+function getPlayerRank() {
+    const playerPower = calculatePower();
+    // rankCityData 按战力降序排列，找比玩家战力高的人数
+    let higherCount = 0;
+    for (const entry of rankCityData) {
+        if (entry.power > playerPower) {
+            higherCount++;
+        } else {
+            break; // 降序排列，遇到 <= 的就不用继续了
+        }
+    }
+    return higherCount + 1;
+}
+
 // 升级天赋
 function upgradeTalent(talentId) {
     const talent = talentData[talentId];
@@ -3272,7 +3287,7 @@ function drawMainMenuHero() {
     const rows = [
         { label: '玩家名字', value: heroData.name },
         { label: '天赋等级', value: 'Lv.' + totalTalentLevel },
-        { label: '排行榜名次', value: '第 ' + heroData.rank + ' 名' },
+        { label: '排行榜名次', value: '第 ' + getPlayerRank() + ' 名' },
         { label: '总战力', value: calculatePower().toLocaleString() }
     ];
     
