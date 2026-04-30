@@ -2887,9 +2887,8 @@ const rankCityData = [
     { rank: 20, name: '冰封王座', location: '福建 福州', level: 24, power: 37200 },
     { rank: 21, name: '寒意逼人', location: '江西 南昌', level: 23, power: 34300 },
     { rank: 22, name: '冰霜之魂', location: '湖北 武汉', level: 22, power: 31400 },
-    { rank: 23, name: '冰雪猎人', location: '湖南 长沙', level: 12, power: 12800 },
-    { rank: 24, name: '霜刃飞舞', location: '广东 广州', level: 21, power: 28600 },
-    { rank: 25, name: '寒冰冷酷', location: '广西 南宁', level: 20, power: 25800 },
+    { rank: 23, name: '霜刃飞舞', location: '广东 广州', level: 21, power: 28600 },
+    { rank: 24, name: '寒冰冷酷', location: '广西 南宁', level: 20, power: 25800 },
 ];
 
 // 模拟好友排行榜数据
@@ -2898,7 +2897,6 @@ const rankFriendData = [
     { rank: 2, name: '老王', location: '北京', level: 35, power: 75600, avatar: '🎯' },
     { rank: 3, name: '小李', location: '上海', level: 32, power: 62400, avatar: '⚔️' },
     { rank: 4, name: '阿强', location: '浙江 杭州', level: 28, power: 48600, avatar: '🛡️' },
-    { rank: 5, name: '冰雪猎人', location: '湖南 长沙', level: 12, power: 12800, avatar: '❄️' },
 ];
 
 // ========== 商城相关 ==========
@@ -3993,8 +3991,59 @@ function handleTalentModalClick(x, y) {
 // ========== 排行Tab ==========
 function drawMainMenuRank() {
     const topOffset = SAFE_TOP_OFFSET;
-    const currentData = rankTab === 'global' ? rankCityData : rankFriendData;
     const navH = MAIN_MENU_NAV_H;
+
+    // ===== 构建动态排名数据 =====
+    let currentData;
+    let playerOutOfList = false; // 玩家是否在可见列表之外（供底部固定显示）
+    
+    if (rankTab === 'global') {
+        // 全服排行：根据真实战力动态插入玩家
+        const playerPower = calculatePower();
+        currentData = rankCityData.map(item => ({...item})); // 深拷贝
+        
+        // 找到插入位置（按战力降序排列）
+        let insertIdx = currentData.length;
+        for (let i = 0; i < currentData.length; i++) {
+            if (playerPower > currentData[i].power) {
+                insertIdx = i;
+                break;
+            }
+        }
+        
+        // 插入玩家
+        currentData.splice(insertIdx, 0, {
+            rank: insertIdx + 1,
+            name: heroData.name,
+            location: '未知位置',
+            level: heroData.level,
+            power: playerPower
+        });
+        
+        // 重排后续排名编号
+        for (let i = insertIdx + 1; i < currentData.length; i++) {
+            currentData[i].rank = i + 1;
+        }
+        
+        // 玩家是否在可见列表内（前24名）
+        playerOutOfList = (insertIdx >= rankCityData.length);
+    } else {
+        // 好友排行：如果玩家不在列表中则追加
+        currentData = rankFriendData.map(item => ({...item}));
+        const playerExists = currentData.some(item => item.name === heroData.name);
+        if (!playerExists) {
+            const playerPower = calculatePower();
+            currentData.push({
+                rank: currentData.length + 1,
+                name: heroData.name,
+                location: '未知位置',
+                level: heroData.level,
+                power: playerPower,
+                avatar: '🎮'
+            });
+        }
+        // 好友列表玩家自己总是在列表中
+    }
 
     // 绘制标题栏背景
     ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
@@ -4082,7 +4131,7 @@ function drawMainMenuRank() {
         const itemY = listY + 8 + (i * itemH) - rankScrollY;
 
         // 检查是否是自己
-        const isMe = item.name === heroData.name && rankTab === 'global';
+        const isMe = item.name === heroData.name;
 
         // 列表项背景
         if (isMe) {
@@ -4158,13 +4207,71 @@ function drawMainMenuRank() {
     // 恢复上下文，结束裁剪
     ctx.restore();
 
+    // ===== 玩家在列表外时，底部固定显示自己的信息 =====
+    if (rankTab === 'global' && playerOutOfList) {
+        const playerPower = calculatePower();
+        const fixedY = listY + listH - itemH + 8; // 紧贴列表底部
+        
+        // 高亮背景
+        ctx.fillStyle = 'rgba(79, 195, 247, 0.15)';
+        ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        roundRect(ctx, padding + 6, fixedY, screenWidth - padding * 2 - 12, itemH - 6, 8);
+        ctx.fill();
+        ctx.stroke();
+        
+        // 排名（显示 N+名）
+        const meRank = currentData.length; // 最后一名
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(meRank, startX + 18, fixedY + itemH / 2 + 5);
+        
+        // 头像
+        const avatarX = startX + 45;
+        const avatarY = fixedY + (itemH - avatarSize) / 2 - 3;
+        ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
+        ctx.beginPath();
+        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#4fc3f7';
+        ctx.textAlign = 'center';
+        ctx.fillText('🎮', avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
+        
+        // 名称
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 13px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(heroData.name, avatarX + avatarSize + 10, fixedY + itemH / 2 - 3);
+        
+        // 地区
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText('未知位置', avatarX + avatarSize + 10, fixedY + itemH / 2 + 12);
+        
+        // 战力
+        const rightX = screenWidth - padding - 12;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = 'bold 13px Arial';
+        const powerStr = playerPower >= 10000 ? (playerPower / 10000).toFixed(1) + '万' : playerPower.toString();
+        ctx.fillText(powerStr, rightX, fixedY + itemH / 2 - 3);
+        
+        // 等级
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText('Lv.' + heroData.level, rightX, fixedY + itemH / 2 + 12);
+    }
+
     // 底部提示
     const tipY = screenHeight - navH - 5;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#555';
     ctx.font = '10px Arial';
     if (rankTab === 'global') {
-        ctx.fillText('本地前100名排行榜', screenWidth / 2, tipY);
+        ctx.fillText('全服前100名排行榜', screenWidth / 2, tipY);
     } else {
         ctx.fillText('微信好友排行榜', screenWidth / 2, tipY);
     }
@@ -5844,9 +5951,17 @@ wx.onTouchMove((e) => {
             const deltaY = y - rankDragStartY;
             rankScrollY = rankDragStartScrollY - deltaY;
 
-            // 限制滚动范围
-            const currentData = rankTab === 'global' ? rankCityData : rankFriendData;
-            const totalItems = currentData.length;
+            // 限制滚动范围（使用动态数据长度）
+            let totalItems;
+            if (rankTab === 'global') {
+                const playerPower = calculatePower();
+                // 判断玩家是否在列表中：玩家战力 > 列表最后一位
+                const lastPower = rankCityData[rankCityData.length - 1].power;
+                totalItems = playerPower > lastPower ? rankCityData.length + 1 : rankCityData.length;
+            } else {
+                const playerExists = rankFriendData.some(item => item.name === heroData.name);
+                totalItems = playerExists ? rankFriendData.length : rankFriendData.length + 1;
+            }
             const itemH = 50;
             const listY = 105;
             const listH = screenHeight - listY - MAIN_MENU_NAV_H - 10;
@@ -5917,7 +6032,8 @@ wx.onTouchEnd((e) => {
 
     // 排行榜Tab的Tab切换点击检测
     if (gameState === 'mainMenu' && mainMenuTab === 'rank' && !isRankDragging) {
-        const tabY = 55;
+        const topOffset = SAFE_TOP_OFFSET;
+        const tabY = topOffset + 40;
         const tabH = 40;
         const tabGap = 10;
         const tabW = (screenWidth - 30) / 2;
