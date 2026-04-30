@@ -2962,6 +2962,9 @@ let heroData = {
     power: 36666
 };
 
+// 微信头像
+let wechatAvatarImage = null; // 加载后的 Image 对象
+
 // 天赋数据（按章节解锁）
 // prerequisite: { id: 'talent_id', level: N } - 前置天赋及其等级要求
 let talentData = {
@@ -3262,13 +3265,23 @@ function drawMainMenuHero() {
     ctx.arc(centerX, avatarY, avatarR - 2, 0, Math.PI * 2);
     ctx.fill();
     
-    // 怪物图标
-    ctx.fillStyle = '#fff';
-    ctx.font = '40px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('👾', centerX, avatarY);
-    ctx.textBaseline = 'alphabetic';
+    // 微信头像（加载成功后替换默认图标）
+    if (wechatAvatarImage) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(centerX, avatarY, avatarR - 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(wechatAvatarImage, centerX - avatarR + 2, avatarY - avatarR + 2, avatarR * 2 - 4, avatarR * 2 - 4);
+        ctx.restore();
+    } else {
+        // 默认怪物图标
+        ctx.fillStyle = '#fff';
+        ctx.font = '40px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👾', centerX, avatarY);
+        ctx.textBaseline = 'alphabetic';
+    }
     
     // ===== 底部信息面板 =====
     const panelX = 15;
@@ -6217,33 +6230,54 @@ checkAdEnergyDailyReset();
 // 计算离线体力恢复
 calculateOfflineEnergy();
 
-// 获取微信昵称
-loadWechatNickname();
+// 获取微信昵称和头像
+loadWechatInfo();
 
 gameLoop();
 
-// ==================== 微信昵称获取 ====================
-function loadWechatNickname() {
+// ==================== 微信信息获取 ====================
+function loadWechatInfo() {
     // 优先使用缓存的昵称
     const cachedNickname = wx.getStorageSync('zombieHunterNickname');
     if (cachedNickname) {
         heroData.name = cachedNickname;
-        return;
     }
     
-    // 尝试获取微信用户信息
+    // 优先加载缓存的头像
+    const cachedAvatarUrl = wx.getStorageSync('zombieHunterAvatarUrl');
+    if (cachedAvatarUrl) {
+        loadWechatAvatarImage(cachedAvatarUrl);
+    }
+    
+    // 尝试获取微信用户信息（获取最新数据）
     if (wx.getUserProfile) {
         wx.getUserProfile({
-            desc: '用于显示游戏昵称',
+            desc: '用于显示游戏昵称和头像',
             success: (res) => {
                 const nickname = res.userInfo.nickName;
+                const avatarUrl = res.userInfo.avatarUrl;
                 heroData.name = nickname;
                 wx.setStorageSync('zombieHunterNickname', nickname);
+                
+                // 缓存头像URL
+                const cachedUrl = wx.getStorageSync('zombieHunterAvatarUrl');
+                if (avatarUrl !== cachedUrl) {
+                    wx.setStorageSync('zombieHunterAvatarUrl', avatarUrl);
+                    loadWechatAvatarImage(avatarUrl);
+                }
             },
             fail: () => {
-                // 授权失败，使用默认昵称
-                console.log('获取微信昵称失败，使用默认昵称');
+                console.log('获取微信信息失败，使用默认值');
             }
         });
     }
+}
+
+// 加载微信头像图片
+function loadWechatAvatarImage(url) {
+    const img = wx.createImage();
+    img.onload = () => {
+        wechatAvatarImage = img;
+    };
+    img.src = url;
 }
