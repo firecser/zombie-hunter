@@ -4212,8 +4212,8 @@ function drawMainMenuRank() {
         const playerPower = calculatePower();
         const fixedY = listY + listH - itemH + 8; // 紧贴列表底部
         
-        // 高亮背景
-        ctx.fillStyle = 'rgba(79, 195, 247, 0.15)';
+        // 高亮背景（不透明）
+        ctx.fillStyle = '#1e2d4d';
         ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
