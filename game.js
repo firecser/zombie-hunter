@@ -4150,7 +4150,8 @@ function drawMainMenuRank() {
         ctx.textAlign = 'center';
         if (item.rank <= 3) {
             // 前三名显示奖牌emoji
-            const medals = ['🥇', '🥈', '🥉'];
+            const medals = ['🏆', '🥈', '🥉'];
+            ctx.fillStyle = '#fff';
             ctx.font = '18px Arial';
             ctx.fillText(medals[item.rank - 1], rankX + 18, itemY + itemH / 2 + 6);
         } else {
