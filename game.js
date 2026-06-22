@@ -2594,6 +2594,9 @@ function startGame() {
     isLevelDragging = false;
     isLevelLongPressing = false;
 
+    // 离开主菜单时销毁游戏圈按钮
+    destroyGameClubButton();
+
     gameState = 'playing';
     gameRunning = true;
     gameTime = 0;
@@ -2819,7 +2822,8 @@ const MAIN_MENU_TABS = [
     { id: 'level', icon: '🎯', name: '关卡' },
     { id: 'talent', icon: '⭐', name: '天赋' },
     { id: 'rank', icon: '🏆', name: '排行' },
-    { id: 'world', icon: '🗺️', name: '世界' }
+    { id: 'world', icon: '🗺️', name: '世界' },
+    { id: 'club', icon: '👥', name: '圈子' }
     // 商城暂时屏蔽
     // { id: 'shop', icon: '🛒', name: '商城' }
 ];
@@ -2862,6 +2866,9 @@ let rankTouchStartY = 0; // 触摸起始Y
 let isRankDragging = false; // 是否正在拖动
 let rankDragStartY = 0; // 拖动开始Y
 let rankDragStartScrollY = 0; // 拖动开始时的滚动偏移
+
+// 游戏圈按钮（原生覆盖层）
+let gameClubButton = null;
 
 // 模拟全服排行榜数据（本地前100名）
 const rankCityData = [
@@ -3055,6 +3062,8 @@ function drawMainMenu() {
         drawMainMenuRank();
     } else if (mainMenuTab === 'world') {
         drawMainMenuWorld();
+    } else if (mainMenuTab === 'club') {
+        drawMainMenuClub();
     }
     // 商城暂时屏蔽
     // else if (mainMenuTab === 'shop') {
@@ -4504,6 +4513,94 @@ function drawMainMenuWorld() {
     ctx.fillText('点击省份查看区域数据', screenWidth / 2, btnY + 18);
 }
 
+// ========== 游戏圈Tab ==========
+function drawMainMenuClub() {
+    const topOffset = SAFE_TOP_OFFSET;
+    const navH = MAIN_MENU_NAV_H;
+
+    // 标题
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('游戏圈', screenWidth / 2, topOffset + 20);
+
+    // 说明区域
+    const panelY = topOffset + 60;
+    const panelH = 140;
+    const panelX = 15;
+    const panelW = screenWidth - 30;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    roundRect(ctx, panelX, panelY, panelW, panelH, 15);
+    ctx.fill();
+
+    // 大图标
+    ctx.font = '60px Arial';
+    ctx.fillStyle = '#4fc3f7';
+    ctx.textAlign = 'center';
+    ctx.fillText('👥', screenWidth / 2, panelY + 75);
+
+    // 文字
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('加入游戏圈', screenWidth / 2, panelY + 115);
+
+    ctx.font = '13px Arial';
+    ctx.fillStyle = '#888';
+    ctx.fillText('与玩家交流心得、反馈建议、获取最新活动', screenWidth / 2, panelY + 138);
+
+    // 显示原生游戏圈按钮
+    showGameClubButton();
+}
+
+// 游戏圈原生按钮管理
+function showGameClubButton() {
+    if (gameClubButton) {
+        gameClubButton.show();
+        return;
+    }
+    if (!wx.createGameClubButton) {
+        console.log('当前环境不支持游戏圈');
+        return;
+    }
+
+    const btnW = screenWidth - 60;
+    const btnH = 48;
+    const btnX = 30;
+    const btnY = SAFE_TOP_OFFSET + 230;
+
+    gameClubButton = wx.createGameClubButton({
+        type: 'text',
+        text: '   进入游戏圈互动',
+        icon: 'green',
+        style: {
+            left: btnX,
+            top: btnY - 10,
+            width: btnW,
+            height: btnH,
+            borderRadius: 10,
+            backgroundColor: '#4fc3f7',
+            color: '#ffffff',
+            fontSize: 16,
+            lineHeight: btnH,
+            textAlign: 'center'
+        }
+    });
+}
+
+function hideGameClubButton() {
+    if (gameClubButton) {
+        gameClubButton.hide();
+    }
+}
+
+function destroyGameClubButton() {
+    if (gameClubButton) {
+        gameClubButton.destroy();
+        gameClubButton = null;
+    }
+}
+
 // ========== 商城Tab ==========
 function drawMainMenuShop() {
     const topOffset = SAFE_TOP_OFFSET;
@@ -5534,6 +5631,10 @@ function handleMainMenuTouch(x, y) {
             const newTab = MAIN_MENU_TABS[tabIndex].id;
             // 屏蔽商城Tab点击
             if (newTab === 'shop') return;
+            // 离开游戏圈Tab时销毁原生按钮
+            if (mainMenuTab === 'club' && newTab !== 'club') {
+                destroyGameClubButton();
+            }
             mainMenuTab = newTab;
             if (mainMenuTab === 'level') {
                 mainMenuExpandedChapter = 1; // 切到关卡默认展开第1章
