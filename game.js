@@ -3044,6 +3044,11 @@ function upgradeTalent(talentId) {
 let highestUnlockedChapter = 2;
 
 function drawMainMenu() {
+    // 确保游戏圈按钮只在圈子Tab显示
+    if (mainMenuTab !== 'club') {
+        destroyGameClubButton();
+    }
+
     // 渐变背景
     const bgGrad = ctx.createLinearGradient(0, 0, 0, screenHeight);
     bgGrad.addColorStop(0, '#0f3460');
@@ -5794,6 +5799,10 @@ wx.onTouchStart((e) => {
             if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
                 const newTab = MAIN_MENU_TABS[tabIndex].id;
                 if (newTab !== mainMenuTab) {  // Tab有变化时才切换
+                    // 离开游戏圈Tab时销毁原生按钮
+                    if (mainMenuTab === 'club') {
+                        destroyGameClubButton();
+                    }
                     mainMenuTab = newTab;
                     if (mainMenuTab === 'level') {
                         mainMenuExpandedChapter = 1;
