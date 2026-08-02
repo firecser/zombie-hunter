@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "sessions": {
+    "0e91bf0aa99b4133a8db365162fc3d0e": [
+      {
+        "expertId": "WeChatMiniProgramDeveloper",
+        "name": "小程达",
+        "profession": "微信小程序开发者",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/WeChatMiniProgramDeveloper/WeChatMiniProgramDeveloper.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/WeChatMiniProgramDeveloper/WeChatMiniProgramDeveloper_zh.md",
+        "usedAt": 1776495424959,
+        "industryId": "02-Engineering"
+      },
+      {
+        "expertId": "GameDesigner",
+        "name": "玩法师",
+        "profession": "游戏设计师",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/12-GameDevelopment/GameDesigner/GameDesigner.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/12-GameDevelopment/GameDesigner/GameDesigner_zh.md",
+        "usedAt": 1776493535553,
+        "industryId": "12-GameDevelopment"
+      }
+    ]
+  },
+  "lastUpdated": 1776513472831
+}
