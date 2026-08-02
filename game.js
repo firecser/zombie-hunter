@@ -2829,6 +2829,44 @@ const MAIN_MENU_TABS = [
 ];
 const MAIN_MENU_NAV_H = 65;
 
+// ==================== 其他游戏（可拓展） ====================
+// 往 OTHER_GAMES 数组里加项即可扩展「其他游戏」选择页。
+// appId：目标小游戏的 AppID（wx 开头）。填写后点击图标会通过 wx.navigateToMiniProgram 跳转；
+//        为空时点击仅提示「暂未配置」，不会报错。
+// emoji：图标（小游戏里无法直接内嵌 HTML5 网页游戏，用 emoji 作图标最稳妥；有 AppID 后可换成对应小游戏封面图）。
+const OTHER_GAMES = [
+    { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame' },
+    { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', appId: '', mode: 'navigate' },
+    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', appId: '', mode: 'navigate' }
+];
+
+// 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
+const otherGameIcons = {};
+let otherGameIconsLoaded = false;
+
+// 预加载「其他游戏」选择页中配置了 icon 的游戏图标
+function loadOtherGameIcons() {
+    if (otherGameIconsLoaded) return;
+    OTHER_GAMES.forEach((g) => {
+        if (g.icon && !otherGameIcons[g.id]) {
+            const img = wx.createImage();
+            img.onload = () => { otherGameIcons[g.id] = img; };
+            img.onerror = () => { console.log('游戏图标加载失败:', g.id); };
+            img.src = g.icon;
+        }
+    });
+    otherGameIconsLoaded = true;
+}
+let otherGamesModal = { show: false };
+let otherGamesJustOpened = false;
+
+// 内嵌小游戏运行态（mode==='ingame' 的游戏直接在本小游戏内运行，无需 AppID）
+let activeMiniGame = null;       // '2048' 或 null
+let g2048 = null;                // 2048 棋盘状态
+let g2048Best = 0;               // 2048 最高分（持久化到本地）
+let miniGameTouchStartX = 0;     // 小游戏滑动起点
+let miniGameTouchStartY = 0;
+
 // 10章数据（每章6关，共60关）
 const CHAPTERS = [
     { id: 1, name: '冰雪初现', icon: '❄️', levels: [1,2,3,4,5,6], unlocked: true },
@@ -3093,6 +3131,11 @@ function drawMainMenu() {
     // 设置弹窗
     if (settingsModal.show) {
         drawSettingsModal();
+    }
+
+    // 其他游戏选择页
+    if (otherGamesModal.show) {
+        drawOtherGamesPage();
     }
 
     // 底部导航栏
@@ -3360,6 +3403,19 @@ function drawMainMenuHero() {
     ctx.font = '14px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('⚙️  游戏设置', centerX, settingsBtnY + 28);
+
+    // ===== 其他游戏按钮（位于游戏设置下方） =====
+    const otherGamesBtnY = settingsBtnY + settingsBtnH + 12;
+    const otherGamesBtnH = 45;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    roundRect(ctx, panelX, otherGamesBtnY, panelW, otherGamesBtnH, 10);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎮  其他游戏', centerX, otherGamesBtnY + 28);
 }
 
 // 关卡Tab
@@ -5594,6 +5650,437 @@ function handleSettingsClick(x, y) {
     }
 }
 
+// ==================== 其他游戏选择页 ====================
+function computeOtherGamesLayout() {
+    const cols = 3;
+    const gap = 14;
+    const gridX = 20;
+    const gridW = screenWidth - gridX * 2;
+    const cardW = (gridW - gap * (cols - 1)) / cols;
+    const cardH = 110;
+    const startY = SAFE_TOP_OFFSET + 70;
+    const cards = OTHER_GAMES.map((game, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        return {
+            game,
+            x: gridX + col * (cardW + gap),
+            y: startY + row * (cardH + gap),
+            w: cardW,
+            h: cardH
+        };
+    });
+    const backBtn = { x: 15, y: SAFE_TOP_OFFSET + 5, w: 70, h: 32 };
+    return { cards, backBtn };
+}
+
+function drawOtherGamesPage() {
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // 标题
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎮  其他游戏', screenWidth / 2, SAFE_TOP_OFFSET + 28);
+
+    const { cards, backBtn } = computeOtherGamesLayout();
+
+    // 返回按钮
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    roundRect(ctx, backBtn.x, backBtn.y, backBtn.w, backBtn.h, 8);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('‹ 返回', backBtn.x + 12, backBtn.y + 21);
+
+    // 游戏卡片网格
+    cards.forEach((c) => {
+        ctx.fillStyle = 'rgba(30, 58, 95, 0.9)';
+        roundRect(ctx, c.x, c.y, c.w, c.h, 14);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, c.x, c.y, c.w, c.h, 14);
+        ctx.stroke();
+
+        // 图标区域
+        const iconR = 26;
+        const iconCx = c.x + c.w / 2;
+        const iconCy = c.y + 38;
+        const iconImg = otherGameIcons[c.game.id];
+        if (iconImg) {
+            // 已配置真图标：圆角方形裁剪绘制，适配图标位尺寸
+            const size = iconR * 2;
+            const ix = iconCx - iconR;
+            const iy = iconCy - iconR;
+            ctx.save();
+            roundRect(ctx, ix, iy, size, size, 10);
+            ctx.clip();
+            ctx.drawImage(iconImg, ix, iy, size, size);
+            ctx.restore();
+        } else {
+            // 未配置图标：emoji 兜底
+            ctx.fillStyle = 'rgba(79, 195, 247, 0.18)';
+            ctx.beginPath();
+            ctx.arc(iconCx, iconCy, iconR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = '28px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(c.game.emoji, iconCx, iconCy);
+            ctx.textBaseline = 'alphabetic';
+        }
+
+        // 名称
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 13px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(c.game.name, c.x + c.w / 2, c.y + c.h - 18);
+    });
+}
+
+function handleOtherGamesClick(x, y) {
+    if (!otherGamesModal.show) return;
+    const { cards, backBtn } = computeOtherGamesLayout();
+
+    // 返回
+    if (x >= backBtn.x && x <= backBtn.x + backBtn.w && y >= backBtn.y && y <= backBtn.y + backBtn.h) {
+        otherGamesModal.show = false;
+        return;
+    }
+
+    // 游戏卡片
+    for (const c of cards) {
+        if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
+            if (c.game.mode === 'ingame') {
+                startMiniGame(c.game);   // 在本小游戏内直接运行
+            } else {
+                openMiniGame(c.game);    // 跳转其它已发布小游戏（需 AppID）
+            }
+            return;
+        }
+    }
+}
+
+function openMiniGame(game) {
+    if (!game.appId) {
+        if (wx.showToast) {
+            wx.showToast({ title: '该游戏暂未配置AppID', icon: 'none' });
+        } else {
+            console.log('未配置AppID:', game.name);
+        }
+        return;
+    }
+    if (!wx.navigateToMiniProgram) {
+        if (wx.showToast) wx.showToast({ title: '当前环境不支持跳转', icon: 'none' });
+        return;
+    }
+    wx.navigateToMiniProgram({
+        appId: game.appId,
+        envVersion: 'release',
+        success() {},
+        fail(err) {
+            console.error('打开小游戏失败', err);
+            if (wx.showToast) wx.showToast({ title: '打开失败，请重试', icon: 'none' });
+        }
+    });
+}
+
+// ==================== 内嵌小游戏：2048 ====================
+// 直接移植经典 2048 算法（grid/tile/game_manager），用 Canvas 绘制 + 滑动输入，
+// 在本小游戏内运行，无需任何 AppID。
+function g2048Init() {
+    const size = 4;
+    const grid = [];
+    for (let x = 0; x < size; x++) {
+        grid[x] = [];
+        for (let y = 0; y < size; y++) grid[x][y] = 0;
+    }
+    g2048 = { size: size, grid: grid, score: 0, won: false, over: false, keepPlaying: false };
+    try { g2048Best = (wx.getStorageSync && wx.getStorageSync('g2048Best')) || 0; } catch (e) { g2048Best = 0; }
+    g2048AddRandom();
+    g2048AddRandom();
+}
+
+function g2048AvailableCells(g) {
+    const cells = [];
+    for (let x = 0; x < g.size; x++)
+        for (let y = 0; y < g.size; y++)
+            if (g.grid[x][y] === 0) cells.push({ x: x, y: y });
+    return cells;
+}
+
+function g2048AddRandom() {
+    const cells = g2048AvailableCells(g2048);
+    if (!cells.length) return;
+    const c = cells[Math.floor(Math.random() * cells.length)];
+    g2048.grid[c.x][c.y] = Math.random() < 0.9 ? 2 : 4;
+}
+
+function g2048Within(g, x, y) {
+    return x >= 0 && x < g.size && y >= 0 && y < g.size;
+}
+
+function g2048Vector(dir) {
+    return { 0: { x: 0, y: -1 }, 1: { x: 1, y: 0 }, 2: { x: 0, y: 1 }, 3: { x: -1, y: 0 } }[dir];
+}
+
+// 核心移动：0上 1右 2下 3左，与原版算法一致
+function g2048Move(dir) {
+    const g = g2048;
+    if (!g || g.over || (g.won && !g.keepPlaying)) return;
+
+    const v = g2048Vector(dir);
+    const trav = { x: [], y: [] };
+    for (let i = 0; i < g.size; i++) { trav.x.push(i); trav.y.push(i); }
+    if (v.x === 1) trav.x.reverse();
+    if (v.y === 1) trav.y.reverse();
+
+    const mergedFlag = {};
+    let moved = false;
+
+    trav.x.forEach((x) => {
+        trav.y.forEach((y) => {
+            if (g.grid[x][y] === 0) return;
+            const val = g.grid[x][y];
+            let prevX = x, prevY = y;
+            let cx = x, cy = y;
+            // 找到最远空格 & 下一个被阻挡的格子
+            do {
+                prevX = cx; prevY = cy;
+                cx += v.x; cy += v.y;
+            } while (g2048Within(g, cx, cy) && g.grid[cx][cy] === 0);
+
+            const nextVal = g2048Within(g, cx, cy) ? g.grid[cx][cy] : 0;
+            if (nextVal !== 0 && nextVal === val && !mergedFlag[cx + ',' + cy]) {
+                // 合并
+                const newVal = val * 2;
+                g.grid[cx][cy] = newVal;
+                g.grid[x][y] = 0;
+                g.score += newVal;
+                mergedFlag[cx + ',' + cy] = true;
+                if (newVal === 2048) g.won = true;
+                moved = true;
+            } else if (prevX !== x || prevY !== y) {
+                // 滑动到最远空格
+                g.grid[prevX][prevY] = val;
+                g.grid[x][y] = 0;
+                moved = true;
+            }
+        });
+    });
+
+    if (moved) {
+        g2048AddRandom();
+        if (g2048Best < g.score) {
+            g2048Best = g.score;
+            try { if (wx.setStorageSync) wx.setStorageSync('g2048Best', g2048Best); } catch (e) {}
+        }
+        if (!g2048MovesAvailable()) g.over = true;
+    }
+}
+
+function g2048MovesAvailable() {
+    const g = g2048;
+    if (g2048AvailableCells(g).length) return true;
+    for (let x = 0; x < g.size; x++) {
+        for (let y = 0; y < g.size; y++) {
+            const val = g.grid[x][y];
+            if (val === 0) continue;
+            for (let d = 0; d < 4; d++) {
+                const v = g2048Vector(d);
+                const nx = x + v.x, ny = y + v.y;
+                if (g2048Within(g, nx, ny) && g.grid[nx][ny] === val) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function g2048Layout() {
+    const margin = 15;
+    const maxBoard = Math.min(screenWidth - margin * 2, 360);
+    const gap = Math.max(8, Math.round(maxBoard * 0.028));
+    const boardW = maxBoard;
+    const cell = (boardW - gap * 5) / 4;
+    const boardX = (screenWidth - boardW) / 2;
+    const topBarY = SAFE_TOP_OFFSET + 6;
+    const rowB = topBarY + 46;
+    const boardY = topBarY + 100;
+    // 返回 / 新游戏 按钮固定在界面底部（距底 16px）
+    const bottomY = screenHeight - 16 - 32;
+    const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+    const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+    return { margin: margin, gap: gap, boardW: boardW, cell: cell, boardX: boardX, boardY: boardY, backBtn: backBtn, restartBtn: restartBtn, rowB: rowB };
+}
+
+function g2048Color(val) {
+    const map = {
+        2: '#eee4da', 4: '#ede0c8', 8: '#f2b179', 16: '#f59563',
+        32: '#f67c5f', 64: '#f65e3b', 128: '#edcf72', 256: '#edcc61',
+        512: '#edc850', 1024: '#edc53f', 2048: '#edc22e'
+    };
+    return map[val] || '#3c3a32';
+}
+
+function drawMiniGameButton(btn, text) {
+    ctx.fillStyle = '#8f7a66';
+    roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 8);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    ctx.textBaseline = 'alphabetic';
+}
+
+function drawScoreBox(x, y, w, h, label, value) {
+    ctx.fillStyle = '#bbada0';
+    roundRect(ctx, x, y, w, h, 6);
+    ctx.fill();
+    ctx.fillStyle = '#eee4da';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(label, x + w / 2, y + 4);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px Arial';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(String(value), x + w / 2, y + h - 6);
+}
+
+function draw2048Tile(cx, cy, size, val) {
+    ctx.fillStyle = g2048Color(val);
+    roundRect(ctx, cx, cy, size, size, 6);
+    ctx.fill();
+    ctx.fillStyle = (val <= 4) ? '#776e65' : '#f9f6f2';
+    const digits = String(val).length;
+    let fontPx = size * 0.45;
+    if (digits >= 4) fontPx = size * 0.3;
+    else if (digits === 3) fontPx = size * 0.38;
+    ctx.font = 'bold ' + Math.floor(fontPx) + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(val), cx + size / 2, cy + size / 2);
+    ctx.textBaseline = 'alphabetic';
+}
+
+function drawMiniGameOverlay(title, subtitle) {
+    const L = g2048Layout();
+    ctx.fillStyle = 'rgba(238, 228, 218, 0.73)';
+    ctx.fillRect(L.boardX, L.boardY, L.boardW, L.boardW);
+    ctx.fillStyle = '#776e65';
+    ctx.font = 'bold 26px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(title, screenWidth / 2, L.boardY + L.boardW / 2 - 14);
+    ctx.font = '13px Arial';
+    ctx.fillText(subtitle, screenWidth / 2, L.boardY + L.boardW / 2 + 14);
+    ctx.textBaseline = 'alphabetic';
+}
+
+function drawMiniGame2048() {
+    ctx.fillStyle = '#faf8ef';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    const L = g2048Layout();
+
+    drawMiniGameButton(L.backBtn, '‹ 返回');
+    drawMiniGameButton(L.restartBtn, '↻ 新游戏');
+
+    // 标题
+    ctx.fillStyle = '#776e65';
+    ctx.font = 'bold 30px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('2048', L.margin, L.rowB + 26);
+
+    // 分数 / 最高
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 36, '分数', g2048 ? g2048.score : 0);
+    drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 36, '最高', g2048Best);
+
+    // 棋盘背景
+    ctx.fillStyle = '#bbada0';
+    roundRect(ctx, L.boardX, L.boardY, L.boardW, L.boardW, 10);
+    ctx.fill();
+
+    // 格子
+    for (let x = 0; x < 4; x++) {
+        for (let y = 0; y < 4; y++) {
+            const cx = L.boardX + L.gap + x * (L.cell + L.gap);
+            const cy = L.boardY + L.gap + y * (L.cell + L.gap);
+            const val = g2048 ? g2048.grid[x][y] : 0;
+            if (val === 0) {
+                ctx.fillStyle = 'rgba(238, 228, 218, 0.35)';
+                roundRect(ctx, cx, cy, L.cell, L.cell, 6);
+                ctx.fill();
+            } else {
+                draw2048Tile(cx, cy, L.cell, val);
+            }
+        }
+    }
+
+    // 结束 / 胜利 遮罩
+    if (g2048 && g2048.over) {
+        drawMiniGameOverlay('游戏结束', '点「↻ 新游戏」再来一局');
+    } else if (g2048 && g2048.won && !g2048.keepPlaying) {
+        drawMiniGameOverlay('🎉 达成 2048！', '点此继续挑战更高分');
+    }
+}
+
+function inRect(x, y, r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+
+function handleMiniGame2048Input(x, y) {
+    if (!g2048) return;
+    const L = g2048Layout();
+    const dx = x - miniGameTouchStartX;
+    const dy = y - miniGameTouchStartY;
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+
+    // 点击（非滑动）
+    if (Math.max(adx, ady) < 24) {
+        if (inRect(x, y, L.backBtn)) {
+            activeMiniGame = null;
+            otherGamesModal.show = true; // 回到「其他游戏」选择页
+            return;
+        }
+        if (inRect(x, y, L.restartBtn)) {
+            g2048Init();
+            return;
+        }
+        // 胜利后点击棋盘：继续挑战
+        if (g2048.won && !g2048.keepPlaying) {
+            g2048.keepPlaying = true;
+            return;
+        }
+        return;
+    }
+
+    // 滑动方向
+    let dir;
+    if (adx > ady) {
+        dir = dx > 0 ? 1 : 3; // 右 / 左
+    } else {
+        dir = dy > 0 ? 2 : 0; // 下 / 上
+    }
+    g2048Move(dir);
+}
+
+function startMiniGame(game) {
+    if (game.id === '2048') {
+        g2048Init();
+        activeMiniGame = '2048';
+        otherGamesModal.show = false;
+    }
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -5712,6 +6199,14 @@ function handleMainMenuTouch(x, y) {
             settingsPage = 'main';
             settingsJustOpened = true;  // 标记弹窗刚打开，防止本次touchend触发关闭
         }
+
+        // 其他游戏按钮（位于游戏设置下方）
+        const otherGamesBtnY = settingsBtnY + settingsBtnH + 12;
+        const otherGamesBtnH = 45;
+        if (x >= panelX && x <= panelX + panelW && y >= otherGamesBtnY && y <= otherGamesBtnY + otherGamesBtnH) {
+            otherGamesModal.show = true;
+            otherGamesJustOpened = true;  // 防止本次touchend误触关闭
+        }
     }
 }
 
@@ -5723,9 +6218,13 @@ function gameLoop() {
     ctx.clearRect(0, 0, screenWidth, screenHeight);
     
     if (gameState === 'mainMenu') {
-        // 实时更新体力
-        updateEnergyRealtime();
-        drawMainMenu();
+        if (activeMiniGame === '2048') {
+            drawMiniGame2048();
+        } else {
+            // 实时更新体力
+            updateEnergyRealtime();
+            drawMainMenu();
+        }
     } else if (gameState === 'start') {
         drawStartScreen();
     } else if (gameState === 'stageSelect') {
@@ -5788,7 +6287,14 @@ wx.onTouchStart((e) => {
     const touch = e.touches[0];
     const x = touch.clientX;
     const y = touch.clientY;
-    
+
+    // 内嵌小游戏（2048等）：捕获滑动起点并拦截主界面交互
+    if (gameState === 'mainMenu' && activeMiniGame) {
+        miniGameTouchStartX = x;
+        miniGameTouchStartY = y;
+        return;
+    }
+
     if (gameState === 'mainMenu') {
         const navY = screenHeight - MAIN_MENU_NAV_H;
         
@@ -6170,6 +6676,21 @@ wx.onTouchEnd((e) => {
         return;
     }
 
+    // 其他游戏选择页显示时，只处理页内点击，屏蔽主界面交互
+    if (otherGamesModal.show) {
+        if (!otherGamesJustOpened) {
+            handleOtherGamesClick(endX, endY);
+        }
+        otherGamesJustOpened = false;
+        return;
+    }
+
+    // 内嵌小游戏（2048）：滑动移动 + 按钮点击
+    if (gameState === 'mainMenu' && activeMiniGame === '2048') {
+        handleMiniGame2048Input(endX, endY);
+        return;
+    }
+
     // 如果没有真正拖动，且在关卡Tab，执行点击处理
     if (!isLevelDragging && gameState === 'mainMenu' && mainMenuTab === 'level' && !gamePaused) {
         const navY = screenHeight - MAIN_MENU_NAV_H;
@@ -6362,6 +6883,9 @@ calculateOfflineEnergy();
 
 // 获取微信昵称和头像
 loadWechatInfo();
+
+// 预加载「其他游戏」选择页图标
+loadOtherGameIcons();
 
 gameLoop();
 
