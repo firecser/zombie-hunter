@@ -2858,7 +2858,6 @@ function loadOtherGameIcons() {
     otherGameIconsLoaded = true;
 }
 let otherGamesModal = { show: false };
-let otherGamesJustOpened = false;
 
 // 内嵌小游戏运行态（mode==='ingame' 的游戏直接在本小游戏内运行，无需 AppID）
 let activeMiniGame = null;       // '2048' 或 null
@@ -3133,13 +3132,13 @@ function drawMainMenu() {
         drawSettingsModal();
     }
 
-    // 其他游戏选择页
+    // 底部导航栏
+    drawMainMenuNav();
+
+    // 其他游戏选择页（最后绘制，盖住主界面与底部导航，避免Tab透出/被点击）
     if (otherGamesModal.show) {
         drawOtherGamesPage();
     }
-
-    // 底部导航栏
-    drawMainMenuNav();
 }
 
 function drawMainMenuNav() {
@@ -5670,13 +5669,13 @@ function computeOtherGamesLayout() {
             h: cardH
         };
     });
-    const backBtn = { x: 15, y: SAFE_TOP_OFFSET + 5, w: 70, h: 32 };
+    const backBtn = { x: 15, y: screenHeight - 48, w: 70, h: 32 };
     return { cards, backBtn };
 }
 
 function drawOtherGamesPage() {
-    // 半透明遮罩
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    // 不透明底板：完全覆盖主界面（含底部Tab栏），避免看到或误触 主角/关卡/天赋/排行/世界/圈子
+    ctx.fillStyle = '#0f1b2d';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
     // 标题
@@ -5687,14 +5686,16 @@ function drawOtherGamesPage() {
 
     const { cards, backBtn } = computeOtherGamesLayout();
 
-    // 返回按钮
+    // 返回按钮（右下角）
     ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
     roundRect(ctx, backBtn.x, backBtn.y, backBtn.w, backBtn.h, 8);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.font = '14px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText('‹ 返回', backBtn.x + 12, backBtn.y + 21);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('返回', backBtn.x + backBtn.w / 2, backBtn.y + backBtn.h / 2);
+    ctx.textBaseline = 'alphabetic';
 
     // 游戏卡片网格
     cards.forEach((c) => {
@@ -6205,7 +6206,6 @@ function handleMainMenuTouch(x, y) {
         const otherGamesBtnH = 45;
         if (x >= panelX && x <= panelX + panelW && y >= otherGamesBtnY && y <= otherGamesBtnY + otherGamesBtnH) {
             otherGamesModal.show = true;
-            otherGamesJustOpened = true;  // 防止本次touchend误触关闭
         }
     }
 }
@@ -6296,6 +6296,9 @@ wx.onTouchStart((e) => {
     }
 
     if (gameState === 'mainMenu') {
+        // 其他游戏选择页打开时，屏蔽所有主界面交互（包括底部Tab切换）
+        if (otherGamesModal.show) return;
+
         const navY = screenHeight - MAIN_MENU_NAV_H;
         
         // 点击底部导航
@@ -6676,12 +6679,9 @@ wx.onTouchEnd((e) => {
         return;
     }
 
-    // 其他游戏选择页显示时，只处理页内点击，屏蔽主界面交互
+    // 其他游戏选择页显示时，只处理页内点击，屏蔽主界面交互（单次点击即生效）
     if (otherGamesModal.show) {
-        if (!otherGamesJustOpened) {
-            handleOtherGamesClick(endX, endY);
-        }
-        otherGamesJustOpened = false;
+        handleOtherGamesClick(endX, endY);
         return;
     }
 
