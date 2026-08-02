@@ -15,3 +15,10 @@ Thumbs.db
 # 备份文件
 *-backup/
 *.bak
+
+# 游戏深度保护（代码加固）产物与密钥 - 勿提交
+/output/
+/id_rsa.conf
+/private.wx82946280a9b98e78.key
+*.key
+/node_modules/
