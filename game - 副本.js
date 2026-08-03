@@ -1671,24 +1671,10 @@ function drawStartScreen() {
         ctx.fillText(text, screenWidth / 2, startY + i * 22);
     });
     
-    // 开始按钮
-    const btnW = 140;
-    const btnH = 45;
-    const btnX = screenWidth / 2 - btnW / 2;
-    const btnY = screenHeight * 0.68;
-
-    const btnGradient = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
-    btnGradient.addColorStop(0, '#44aa44');
-    btnGradient.addColorStop(1, '#338833');
-    ctx.fillStyle = btnGradient;
-    roundRect(ctx, btnX, btnY, btnW, btnH, 8);
-    ctx.fill();
-
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('开始游戏', screenWidth / 2, btnY + btnH / 2);
+    // 开始按钮（皇室战争风立体金按钮）
+    const btnW = 150;
+    const btnH = 48;
+    drawRoyaleBevelButton({ x: screenWidth / 2 - btnW / 2, y: screenHeight * 0.68, w: btnW, h: btnH, r: 12 }, '开始游戏', 'gold');
 }
 
 // 关卡选择界面
@@ -1719,12 +1705,12 @@ function drawStageSelect() {
         const isCompleted = stageProgress[i];
         
         // 卡片背景
-        ctx.fillStyle = isUnlocked ? '#2d2d44' : '#1a1a2e';
+        ctx.fillStyle = isUnlocked ? ROYALE.panelLight : ROYALE.panel;
         roundRect(ctx, x, y, cardW, cardH, 8);
         ctx.fill();
         
         // 边框
-        ctx.strokeStyle = isCompleted ? '#44cc44' : (isUnlocked ? '#4a4e69' : '#333');
+        ctx.strokeStyle = isCompleted ? ROYALE.green : (isUnlocked ? ROYALE.blue : 'rgba(125,175,225,0.25)');
         ctx.lineWidth = 2;
         roundRect(ctx, x, y, cardW, cardH, 8);
         ctx.stroke();
@@ -1757,28 +1743,25 @@ function drawStageSelect() {
 
 // 游戏结束界面
 function drawGameOver() {
-    // 半透明背景
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
     
-    // 弹窗背景
+    // 弹窗
     const modalW = Math.min(300, screenWidth * 0.85);
     const modalH = 220;
     const modalX = (screenWidth - modalW) / 2;
     const modalY = screenHeight - 130 - modalH;
-    const padding = 20;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
-    roundRect(ctx, modalX, modalY, modalW, modalH, 12);
-    ctx.fill();
-
-    ctx.strokeStyle = '#ff4444';
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 14);
+    // 顶部红色描边强调
+    ctx.strokeStyle = ROYALE.red;
     ctx.lineWidth = 2;
-    roundRect(ctx, modalX, modalY, modalW, modalH, 12);
+    roundRect(ctx, modalX, modalY, modalW, modalH, 14);
     ctx.stroke();
     
     // 标题
-    ctx.fillStyle = '#ff4444';
+    ctx.fillStyle = ROYALE.red;
     ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1796,74 +1779,45 @@ function drawGameOver() {
     const seconds = Math.floor((gameTime % 60000) / 1000);
     ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 125);
     
-    // 按钮（正方形，与技能图标样式一致）
+    // 按钮（皇室战争风立体按钮）
     const btnSize = 48;
     const gap = 15;
     const totalW = btnSize * 2 + gap;
     const startX = screenWidth / 2 - totalW / 2;
     const btnY = modalY + 155;
 
-    // 重玩按钮（红色渐变 + 边框）
-    const restartGradient = ctx.createLinearGradient(startX, btnY, startX, btnY + btnSize);
-    restartGradient.addColorStop(0, '#ff4444');
-    restartGradient.addColorStop(1, '#cc2222');
-    ctx.fillStyle = restartGradient;
-    roundRect(ctx, startX, btnY, btnSize, btnSize, 8);
-    ctx.fill();
-    ctx.strokeStyle = '#ff6666';
-    ctx.lineWidth = 2;
-    roundRect(ctx, startX, btnY, btnSize, btnSize, 8);
-    ctx.stroke();
-
-    // 返回关卡按钮（灰色渐变 + 边框）
-    const backGradient = ctx.createLinearGradient(startX + btnSize + gap, btnY, startX + btnSize + gap, btnY + btnSize);
-    backGradient.addColorStop(0, '#4a4e69');
-    backGradient.addColorStop(1, '#2d2d44');
-    ctx.fillStyle = backGradient;
-    roundRect(ctx, startX + btnSize + gap, btnY, btnSize, btnSize, 8);
-    ctx.fill();
-    ctx.strokeStyle = '#6a6e89';
-    ctx.lineWidth = 2;
-    roundRect(ctx, startX + btnSize + gap, btnY, btnSize, btnSize, 8);
-    ctx.stroke();
+    drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'red');
+    drawRoyaleBevelButton({ x: startX + btnSize + gap, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
 
     // 按钮文字
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 16px Arial';
+    ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🔄', startX + btnSize / 2, btnY + btnSize / 2 - 8);
-    ctx.font = 'bold 10px Arial';
-    ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize / 2 + 10);
-    ctx.font = 'bold 16px Arial';
-    ctx.fillText('📋', startX + btnSize + gap + btnSize / 2, btnY + btnSize / 2 - 8);
-    ctx.font = 'bold 10px Arial';
-    ctx.fillText('关卡', startX + btnSize + gap + btnSize / 2, btnY + btnSize / 2 + 10);
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize + 14);
+    ctx.fillText('关卡', startX + btnSize + gap + btnSize / 2, btnY + btnSize + 14);
 }
 
 // 通关界面
 function drawVictory() {
-    // 半透明背景
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
     
-    // 弹窗背景
+    // 弹窗
     const modalW = Math.min(300, screenWidth * 0.85);
     const modalH = 250;
     const modalX = (screenWidth - modalW) / 2;
     const modalY = screenHeight - 130 - modalH;
     
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
-    roundRect(ctx, modalX, modalY, modalW, modalH, 12);
-    ctx.fill();
-    
-    ctx.strokeStyle = '#ffd700';
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 14);
+    ctx.strokeStyle = ROYALE.gold;
     ctx.lineWidth = 2;
-    roundRect(ctx, modalX, modalY, modalW, modalH, 12);
+    roundRect(ctx, modalX, modalY, modalW, modalH, 14);
     ctx.stroke();
     
     // 标题
-    ctx.fillStyle = '#ffd700';
+    ctx.fillStyle = ROYALE.gold;
     ctx.font = 'bold 22px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1885,103 +1839,40 @@ function drawVictory() {
     const btnY = modalY + 185;
 
     if (currentStage < STAGES.length) {
-        const btnCount = 3;
-        const totalW = btnSize * btnCount + gap * (btnCount - 1);
+        const btnSize = 48;
+        const gap = 15;
+        const totalW = btnSize * 3 + gap * 2;
         const startX = screenWidth / 2 - totalW / 2;
+        const btnY = modalY + 185;
 
-        // 下一关按钮（绿色渐变 + 边框）
-        const nextGradient = ctx.createLinearGradient(startX, btnY, startX, btnY + btnSize);
-        nextGradient.addColorStop(0, '#44aa44');
-        nextGradient.addColorStop(1, '#228822');
-        ctx.fillStyle = nextGradient;
-        roundRect(ctx, startX, btnY, btnSize, btnSize, 8);
-        ctx.fill();
-        ctx.strokeStyle = '#66cc66';
-        ctx.lineWidth = 2;
-        roundRect(ctx, startX, btnY, btnSize, btnSize, 8);
-        ctx.stroke();
+        drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '▶️', 'green');
+        drawRoyaleBevelButton({ x: startX + btnSize + gap, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'gold');
+        drawRoyaleBevelButton({ x: startX + (btnSize + gap) * 2, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
 
-        // 重玩按钮（金色渐变 + 边框）
-        const replayGradient = ctx.createLinearGradient(startX + btnSize + gap, btnY, startX + btnSize + gap, btnY + btnSize);
-        replayGradient.addColorStop(0, '#ffd700');
-        replayGradient.addColorStop(1, '#ff8c00');
-        ctx.fillStyle = replayGradient;
-        roundRect(ctx, startX + btnSize + gap, btnY, btnSize, btnSize, 8);
-        ctx.fill();
-        ctx.strokeStyle = '#ffe066';
-        ctx.lineWidth = 2;
-        roundRect(ctx, startX + btnSize + gap, btnY, btnSize, btnSize, 8);
-        ctx.stroke();
-
-        // 关卡按钮（灰色渐变 + 边框）
-        const stageGradient = ctx.createLinearGradient(startX + (btnSize + gap) * 2, btnY, startX + (btnSize + gap) * 2, btnY + btnSize);
-        stageGradient.addColorStop(0, '#4a4e69');
-        stageGradient.addColorStop(1, '#2d2d44');
-        ctx.fillStyle = stageGradient;
-        roundRect(ctx, startX + (btnSize + gap) * 2, btnY, btnSize, btnSize, 8);
-        ctx.fill();
-        ctx.strokeStyle = '#6a6e89';
-        ctx.lineWidth = 2;
-        roundRect(ctx, startX + (btnSize + gap) * 2, btnY, btnSize, btnSize, 8);
-        ctx.stroke();
-
-        // 按钮文字
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px Arial';
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('▶️', startX + btnSize / 2, btnY + btnSize / 2 - 8);
-        ctx.font = 'bold 9px Arial';
-        ctx.fillText('下一关', startX + btnSize / 2, btnY + btnSize / 2 + 10);
-        ctx.fillStyle = '#1a1a2e';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('🔄', startX + btnSize + gap + btnSize / 2, btnY + btnSize / 2 - 8);
-        ctx.font = 'bold 9px Arial';
-        ctx.fillText('重玩', startX + btnSize + gap + btnSize / 2, btnY + btnSize / 2 + 10);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('📋', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize / 2 - 8);
-        ctx.font = 'bold 9px Arial';
-        ctx.fillText('关卡', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize / 2 + 10);
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('下一关', startX + btnSize / 2, btnY + btnSize + 14);
+        ctx.fillText('重玩', startX + btnSize + gap + btnSize / 2, btnY + btnSize + 14);
+        ctx.fillText('关卡', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize + 14);
     } else {
         // 全通关 - 只显示两个按钮
+        const btnSize = 48;
+        const gap = 15;
         const totalW = btnSize * 2 + gap;
         const startX = screenWidth / 2 - totalW / 2;
+        const btnY = modalY + 185;
 
-        const replayGradient = ctx.createLinearGradient(startX, btnY, startX, btnY + btnSize);
-        replayGradient.addColorStop(0, '#ffd700');
-        replayGradient.addColorStop(1, '#ff8c00');
-        ctx.fillStyle = replayGradient;
-        roundRect(ctx, startX, btnY, btnSize, btnSize, 8);
-        ctx.fill();
-        ctx.strokeStyle = '#ffe066';
-        ctx.lineWidth = 2;
-        roundRect(ctx, startX, btnY, btnSize, btnSize, 8);
-        ctx.stroke();
+        drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'gold');
+        drawRoyaleBevelButton({ x: startX + btnSize + gap, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
 
-        const stageGradient = ctx.createLinearGradient(startX + btnSize + gap, btnY, startX + btnSize + gap, btnY + btnSize);
-        stageGradient.addColorStop(0, '#4a4e69');
-        stageGradient.addColorStop(1, '#2d2d44');
-        ctx.fillStyle = stageGradient;
-        roundRect(ctx, startX + btnSize + gap, btnY, btnSize, btnSize, 8);
-        ctx.fill();
-        ctx.strokeStyle = '#6a6e89';
-        ctx.lineWidth = 2;
-        roundRect(ctx, startX + btnSize + gap, btnY, btnSize, btnSize, 8);
-        ctx.stroke();
-
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#1a1a2e';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('🔄', startX + btnSize / 2, btnY + btnSize / 2 - 8);
-        ctx.font = 'bold 9px Arial';
-        ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize / 2 + 10);
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('📋', startX + btnSize + gap + btnSize / 2, btnY + btnSize / 2 - 8);
-        ctx.font = 'bold 9px Arial';
-        ctx.fillText('关卡', startX + btnSize + gap + btnSize / 2, btnY + btnSize / 2 + 10);
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize + 14);
+        ctx.fillText('关卡', startX + btnSize + gap + btnSize / 2, btnY + btnSize + 14);
     }
 }
 
@@ -2009,28 +1900,9 @@ function drawUpgradePanel() {
     const panelY = screenHeight - 130 - panelH;
     const panelW = totalWidth + 50;
     
-    // 外框阴影
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-    ctx.shadowBlur = 25;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 8;
-    
-    // 外框背景
-    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-    panelGradient.addColorStop(0, '#2a2a3e');
-    panelGradient.addColorStop(1, '#1a1a28');
-    ctx.fillStyle = panelGradient;
-    roundRect(ctx, panelX, panelY, panelW, panelH, 15);
-    ctx.fill();
-    
-    // 清除阴影
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    
-    // 外框边框（金色）
-    ctx.strokeStyle = '#ffd700';
+    // 外框（皇室战争风深蓝面板 + 金色描边）
+    drawRoyalePanel(panelX, panelY, panelW, panelH, 15);
+    ctx.strokeStyle = ROYALE.gold;
     ctx.lineWidth = 3;
     roundRect(ctx, panelX, panelY, panelW, panelH, 15);
     ctx.stroke();
@@ -2146,8 +2018,8 @@ function drawUpgradePanel() {
         
         // 卡片背景
         const cardGradient = ctx.createLinearGradient(x, y, x, y + cardH);
-        cardGradient.addColorStop(0, '#3a3a5a');
-        cardGradient.addColorStop(1, '#252538');
+        cardGradient.addColorStop(0, '#1c3a5e');
+        cardGradient.addColorStop(1, '#0f2440');
         ctx.fillStyle = cardGradient;
         roundRect(ctx, x, y, cardW, cardH, 10);
         ctx.fill();
@@ -3654,7 +3526,7 @@ function drawMainMenuLevel() {
                 ctx.fillText('❄️', cx + cardW / 2, cy + 50);
                 
                 // 三颗星星
-                ctx.fillStyle = isCompleted ? '#ffd700' : '#3a4a5a';
+                ctx.fillStyle = isCompleted ? ROYALE.gold : 'rgba(125,175,225,0.3)';
                 ctx.font = '10px Arial';
                 ctx.fillText('★★★', cx + cardW / 2, cy + 65);
                 
@@ -4020,16 +3892,9 @@ function drawTalentModal() {
     const modalX = (screenWidth - modalW) / 2;
     const modalY = (screenHeight - modalH) / 2;
     
-    // 弹窗背景
-    const bgGrad = ctx.createLinearGradient(0, modalY, 0, modalY + modalH);
-    bgGrad.addColorStop(0, '#1e3a5f');
-    bgGrad.addColorStop(1, '#16213e');
-    ctx.fillStyle = bgGrad;
-    roundRect(ctx, modalX, modalY, modalW, modalH, 15);
-    ctx.fill();
-    
-    // 边框
-    ctx.strokeStyle = '#4fc3f7';
+    // 弹窗（皇室战争风）
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 15);
+    ctx.strokeStyle = ROYALE.blue;
     ctx.lineWidth = 2;
     roundRect(ctx, modalX, modalY, modalW, modalH, 15);
     ctx.stroke();
@@ -4076,12 +3941,7 @@ function drawTalentModal() {
     const upgradeBtnX = screenWidth / 2 + 10;
     
     // 取消按钮
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    roundRect(ctx, screenWidth / 2 - btnW - 10, btnY, btnW, btnH, 10);
-    ctx.fill();
-    ctx.fillStyle = '#888';
-    ctx.font = '14px Arial';
-    ctx.fillText('关闭', screenWidth / 2 - btnW / 2 - 10, btnY + 25);
+    drawRoyaleBevelButton({ x: screenWidth / 2 - btnW - 10, y: btnY, w: btnW, h: btnH, r: 10 }, '关闭', 'blue');
     
     // 升级按钮
     if (canUpgrade) {
@@ -4089,30 +3949,20 @@ function drawTalentModal() {
         const hasEnoughGold = player.gold >= talent.cost;
         
         if (hasEnoughGold) {
-            ctx.fillStyle = '#4fc3f7';
-            roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
-            ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.font = '14px Arial';
-            ctx.fillText('升级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
-            
-            // 消耗
+            drawRoyaleBevelButton({ x: upgradeBtnX, y: btnY, w: btnW, h: btnH, r: 10 }, '升级', 'gold');
+            ctx.fillStyle = '#5a3a00';
             ctx.font = '12px Arial';
-            ctx.fillStyle = '#ffd700';
-            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + 38);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + btnH - 8);
         } else {
-            // 金币不足，灰色按钮
-            ctx.fillStyle = '#444';
-            roundRect(ctx, upgradeBtnX, btnY, btnW, btnH, 10);
-            ctx.fill();
-            ctx.fillStyle = '#888';
-            ctx.font = '14px Arial';
-            ctx.fillText('升级', screenWidth / 2 + btnW / 2 + 10, btnY + 25);
-            
-            // 显示消耗（红色表示不足）
+            // 金币不足
+            drawRoyaleBevelButton({ x: upgradeBtnX, y: btnY, w: btnW, h: btnH, r: 10 }, '升级', 'red');
+            ctx.fillStyle = '#fff';
             ctx.font = '12px Arial';
-            ctx.fillStyle = '#ff6b6b';
-            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + 38);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + btnH - 8);
         }
     } else if (!isUnlocked) {
         ctx.fillStyle = '#444';
@@ -4948,15 +4798,11 @@ function drawShopModal() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
-    // 弹窗背景
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
-    ctx.fill();
-
-    // 弹窗边框
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    // 弹窗（皇室战争风）
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 16);
+    ctx.strokeStyle = ROYALE.gold;
     ctx.lineWidth = 2;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
     ctx.stroke();
 
     if (shopModal.type === 'confirm') {
@@ -5351,15 +5197,11 @@ function drawSettingsModal() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
-    // 弹窗背景
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
-    ctx.fill();
-
-    // 弹窗边框
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    // 弹窗（皇室战争风）
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 16);
+    ctx.strokeStyle = ROYALE.gold;
     ctx.lineWidth = 2;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
     ctx.stroke();
 
     if (settingsPage === 'main') {
@@ -5433,14 +5275,7 @@ function drawSettingsModal() {
         const closeBtnX = modalX + (modalW - closeBtnW) / 2;
         const closeBtnY = modalY + modalH - 50;
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-        roundRect(ctx, closeBtnX, closeBtnY, closeBtnW, closeBtnH, 8);
-        ctx.fill();
-
-        ctx.fillStyle = '#888';
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('关闭', closeBtnX + closeBtnW / 2, closeBtnY + 23);
+        drawRoyaleBevelButton({ x: closeBtnX, y: closeBtnY, w: closeBtnW, h: closeBtnH, r: 10 }, '关闭', 'blue');
 
     } else if (settingsPage === 'rules') {
         // ===== 游戏规则页面 =====
@@ -5778,8 +5613,7 @@ function computeOtherGamesLayout() {
 
 function drawOtherGamesPage() {
     // 不透明底板：完全覆盖主界面（含底部Tab栏），避免看到或误触 主角/关卡/天赋/排行/世界/圈子
-    ctx.fillStyle = '#0f1b2d';
-    ctx.fillRect(0, 0, screenWidth, screenHeight);
+    drawRoyaleBackground();
 
     // 标题
     ctx.fillStyle = '#ffd700';
@@ -5790,22 +5624,14 @@ function drawOtherGamesPage() {
     const { cards, backBtn } = computeOtherGamesLayout();
 
     // 返回按钮（右下角）
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
-    roundRect(ctx, backBtn.x, backBtn.y, backBtn.w, backBtn.h, 8);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = '14px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('返回', backBtn.x + backBtn.w / 2, backBtn.y + backBtn.h / 2);
-    ctx.textBaseline = 'alphabetic';
+    drawRoyaleBevelButton({ x: backBtn.x, y: backBtn.y, w: backBtn.w, h: backBtn.h, r: 8 }, '返回', 'blue');
 
     // 游戏卡片网格
     cards.forEach((c) => {
-        ctx.fillStyle = 'rgba(30, 58, 95, 0.9)';
+        ctx.fillStyle = ROYALE.panelLight;
         roundRect(ctx, c.x, c.y, c.w, c.h, 14);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
+        ctx.strokeStyle = 'rgba(125, 175, 225, 0.5)';
         ctx.lineWidth = 1;
         roundRect(ctx, c.x, c.y, c.w, c.h, 14);
         ctx.stroke();
@@ -6031,32 +5857,15 @@ function g2048Color(val) {
 }
 
 function drawMiniGameButton(btn, text, style) {
-    let top, bottom, border;
-    if (style === 'green') { top = '#44aa44'; bottom = '#338833'; border = '#66cc66'; }
-    else { top = '#4a4e69'; bottom = '#2d2d44'; border = '#6a6e89'; }
-    const grad = ctx.createLinearGradient(btn.x, btn.y, btn.x, btn.y + btn.h);
-    grad.addColorStop(0, top);
-    grad.addColorStop(1, bottom);
-    ctx.fillStyle = grad;
-    roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 8);
-    ctx.fill();
-    ctx.strokeStyle = border;
-    ctx.lineWidth = 2;
-    roundRect(ctx, btn.x, btn.y, btn.w, btn.h, 8);
-    ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 14px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, btn.x + btn.w / 2, btn.y + btn.h / 2);
-    ctx.textBaseline = 'alphabetic';
+    const s = style === 'green' ? 'green' : 'blue';
+    drawRoyaleBevelButton(btn, text, s);
 }
 
 function drawScoreBox(x, y, w, h, label, value) {
-    ctx.fillStyle = '#2d2d44';
+    ctx.fillStyle = ROYALE.panelLight;
     roundRect(ctx, x, y, w, h, 6);
     ctx.fill();
-    ctx.strokeStyle = '#4a4e69';
+    ctx.strokeStyle = ROYALE.blue;
     ctx.lineWidth = 1.5;
     roundRect(ctx, x, y, w, h, 6);
     ctx.stroke();
@@ -6108,8 +5917,8 @@ function drawMiniGameOverlay(title, subtitle) {
 }
 
 function drawMiniGame2048() {
-    // 与主游戏同一套背景（雪地天空场景）
-    drawBackground();
+    // 皇室战争风深蓝背景
+    drawRoyaleBackground();
 
     const L = g2048Layout();
 
@@ -6128,14 +5937,8 @@ function drawMiniGame2048() {
     drawScoreBox(L.margin, L.rowB, scoreW, 36, '分数', g2048 ? g2048.score : 0);
     drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 36, '最高', g2048Best);
 
-    // 棋盘背景（深色面板 + 边框，与主游戏卡片一致）
-    ctx.fillStyle = '#1a1a2e';
-    roundRect(ctx, L.boardX, L.boardY, L.boardW, L.boardW, 10);
-    ctx.fill();
-    ctx.strokeStyle = '#4a4e69';
-    ctx.lineWidth = 2;
-    roundRect(ctx, L.boardX, L.boardY, L.boardW, L.boardW, 10);
-    ctx.stroke();
+    // 棋盘背景（皇室战争风面板）
+    drawRoyalePanel(L.boardX, L.boardY, L.boardW, L.boardW, 10);
 
     // 格子
     for (let x = 0; x < 4; x++) {
@@ -6302,8 +6105,8 @@ function drawQmxzCell(cx, cy, size, isTarget, baseColor, targetColor, img) {
 }
 
 function drawMiniGameQmxz() {
-    // 与主游戏同一套背景（雪地天空场景）
-    drawBackground();
+    // 皇室战争风深蓝背景
+    drawRoyaleBackground();
 
     const L = gQmxzLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
@@ -6336,10 +6139,10 @@ function drawMiniGameQmxz() {
     const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
     drawScoreBox(L.margin, L.rowB, scoreW, 32, '找到', qmxz.lv);
     // 剩余时间框（卡片风，与主游戏一致；最后 6 秒变红预警）
-    ctx.fillStyle = qmxz.timeLeft <= 6 ? 'rgba(255, 68, 68, 0.18)' : '#2d2d44';
+    ctx.fillStyle = qmxz.timeLeft <= 6 ? 'rgba(255, 68, 68, 0.18)' : ROYALE.panelLight;
     roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6);
     ctx.fill();
-    ctx.strokeStyle = qmxz.timeLeft <= 6 ? '#ff4444' : '#4a4e69';
+    ctx.strokeStyle = qmxz.timeLeft <= 6 ? '#ff4444' : ROYALE.blue;
     ctx.lineWidth = 1.5;
     roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6);
     ctx.stroke();
@@ -6461,7 +6264,7 @@ function gBdsjmCatImg() {
 }
 
 function drawMiniGameBdsjm() {
-    drawBackground();
+    drawRoyaleBackground();
     const L = gBdsjmLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
     drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
@@ -6493,10 +6296,10 @@ function drawMiniGameBdsjm() {
     // 状态栏：打爆 / 剩余时间
     const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
     drawScoreBox(L.margin, L.rowB, scoreW, 32, '打爆', bdsjm.score);
-    ctx.fillStyle = bdsjm.timeLeft <= 6 ? 'rgba(255, 68, 68, 0.18)' : '#2d2d44';
+    ctx.fillStyle = bdsjm.timeLeft <= 6 ? 'rgba(255, 68, 68, 0.18)' : ROYALE.panelLight;
     roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6);
     ctx.fill();
-    ctx.strokeStyle = bdsjm.timeLeft <= 6 ? '#ff4444' : '#4a4e69';
+    ctx.strokeStyle = bdsjm.timeLeft <= 6 ? '#ff4444' : ROYALE.blue;
     ctx.lineWidth = 1.5;
     roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6);
     ctx.stroke();
@@ -6518,10 +6321,10 @@ function drawMiniGameBdsjm() {
             const isTargetRow = (r === L.rows - 1);
             if (isTargetRow && c === bdsjm.catCol) {
                 // 神经猫
-                ctx.fillStyle = '#1a1a2e';
+                ctx.fillStyle = ROYALE.panel;
                 roundRect(ctx, cx, cy, L.cell, L.cell, 8);
                 ctx.fill();
-                ctx.strokeStyle = '#ffd700';
+                ctx.strokeStyle = ROYALE.gold;
                 ctx.lineWidth = 2;
                 roundRect(ctx, cx, cy, L.cell, L.cell, 8);
                 ctx.stroke();
@@ -6536,10 +6339,10 @@ function drawMiniGameBdsjm() {
             } else {
                 // 普通块（深色卡片）；命中反馈行闪红✕
                 const justHit = (!isTargetRow && r === L.rows - 2 && c === bdsjm.hitRow && bdsjm.dropAnim < 1);
-                ctx.fillStyle = justHit ? 'rgba(255, 68, 68, 0.5)' : '#2d2d44';
+                ctx.fillStyle = justHit ? 'rgba(255, 68, 68, 0.5)' : ROYALE.panelLight;
                 roundRect(ctx, cx, cy, L.cell, L.cell, 8);
                 ctx.fill();
-                ctx.strokeStyle = '#4a4e69';
+                ctx.strokeStyle = 'rgba(125,175,225,0.4)';
                 ctx.lineWidth = 1;
                 roundRect(ctx, cx, cy, L.cell, L.cell, 8);
                 ctx.stroke();
