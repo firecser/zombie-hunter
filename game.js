@@ -2837,7 +2837,7 @@ const MAIN_MENU_NAV_H = 65;
 const OTHER_GAMES = [
     { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame' },
-    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', appId: '', mode: 'navigate' }
+    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
@@ -2870,6 +2870,13 @@ let miniGameTouchStartY = 0;
 let qmxz = null;                 // qmxz 游戏状态
 let qmxzBest = 0;                // 最高分（找到房祖名次数，持久化到本地）
 let qmxzTrueImg = null, qmxzFalseImg = null, qmxzImgsLoaded = false; // 游戏内图片
+
+// 暴打神经猫（内嵌）
+let bdsjm = null;
+let bdsjmBest = 0;
+let bdsjmCatImgs = [];      // 3 张神经猫图（随机显示）
+let bdsjmImgsLoaded = false;
+const BDSJM_ALL_TIME = 30;  // 限时（秒）
 const QMXZ_COLOR_LVMAP = [2, 3, 4, 5, 5, 6, 6, 7, 7, 7, 8, 8, 8, 8, 8, 8, 9]; // 关卡→网格边长
 const QMXZ_ALL_TIME = 60;        // 总时长（秒）
 
@@ -6114,6 +6121,10 @@ function startMiniGame(game) {
         gQmxzInit();
         activeMiniGame = 'qmxzfzm';
         otherGamesModal.show = false;
+    } else if (game.id === 'bdsjm') {
+        gBdsjmInit();
+        activeMiniGame = 'bdsjm';
+        otherGamesModal.show = false;
     }
 }
 
@@ -6266,10 +6277,11 @@ function drawMiniGameQmxz() {
         drawQmxzCell(cx, cy, cell, isTarget, qmxz.baseColor, qmxz.targetColor, img);
     }
 
-    // 结算遮罩
+    // 结算遮罩（只覆盖游戏区，留出底部「返回/新游戏」按钮）
     if (qmxz.gameOver) {
+        const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
         ctx.fillStyle = 'rgba(15, 27, 45, 0.82)';
-        ctx.fillRect(0, 0, screenWidth, screenHeight);
+        ctx.fillRect(0, 0, screenWidth, btnTop - 8);
         ctx.fillStyle = '#ffd700';
         ctx.font = 'bold 26px Arial';
         ctx.textAlign = 'center';
@@ -6307,6 +6319,202 @@ function handleMiniGameQmxzInput(x, y) {
         if (x >= cx && x <= cx + cell && y >= cy && y <= cy + cell) {
             if (idx === qmxz.targetIdx) gQmxzStart(); // 找到房祖名 → 下一关
             return;
+        }
+    }
+}
+
+// ==================== 内嵌小游戏：暴打神经猫 ====================
+// 移植自 HTML5 版「暴打神经猫」：4 列下落式打猫。最底行为当前目标行，其中某一列藏着神经猫；
+// 点中猫所在列 → 得分+1、命中反馈（红✕淡出）、新猫出现在新目标行随机列；点错列 → 游戏结束。
+// 限时 BDSJM_ALL_TIME 秒，时间到结算，得分 = 打爆猫的次数。
+function loadBdsjmImgs() {
+    if (bdsjmImgsLoaded) return;
+    const names = ['images/bdsjm_cat0.jpg', 'images/bdsjm_cat1.jpg', 'images/bdsjm_cat2.jpg'];
+    bdsjmCatImgs = names.map((s) => { const im = wx.createImage(); im.src = s; return im; });
+    bdsjmImgsLoaded = true;
+}
+
+function gBdsjmInit() {
+    loadBdsjmImgs();
+    bdsjm = {
+        score: 0, timeLeft: BDSJM_ALL_TIME, gameOver: false,
+        catCol: Math.floor(Math.random() * 4),  // 当前目标行猫所在列 0..3
+        hitRow: -1,        // 最近一次命中的列（用于命中反馈）
+        dropAnim: 1,       // 命中反馈进度 0..1（<1 时显示红✕）
+        lastTick: Date.now()
+    };
+    try { bdsjmBest = (wx.getStorageSync && wx.getStorageSync('bdsjmBest')) || 0; } catch (e) { bdsjmBest = 0; }
+}
+
+function gBdsjmLayout() {
+    const margin = 15;
+    const titleY = SAFE_TOP_OFFSET + 10;
+    const rowB = titleY + 34;
+    const boardTop = rowB + 44;
+    const maxBoard = Math.min(screenWidth - margin * 2, 420);
+    const boardW = maxBoard;
+    const boardX = (screenWidth - boardW) / 2;
+    const gap = 10;
+    const cell = (boardW - gap * 5) / 4;
+    const bottomY = screenHeight - 16 - 32;
+    const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+    const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+    // 可见行数（底部目标行 + 上方历史行），按剩余高度算
+    const availH = bottomY - 12 - boardTop;
+    const rows = Math.max(3, Math.min(6, Math.floor(availH / (cell + gap))));
+    return { margin: margin, titleY: titleY, boardX: boardX, boardY: boardTop, boardW: boardW, rowB: rowB, gap: gap, cell: cell, rows: rows, backBtn: backBtn, restartBtn: restartBtn };
+}
+
+function gBdsjmCatImg() {
+    const ready = bdsjmCatImgs.filter((im) => im && im.width);
+    const pool = ready.length ? ready : bdsjmCatImgs;
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function drawMiniGameBdsjm() {
+    drawBackground();
+    const L = gBdsjmLayout();
+    drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+    drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+
+    // 计时 + 命中反馈推进
+    if (!bdsjm.gameOver) {
+        const now = Date.now();
+        const dsec = (now - bdsjm.lastTick) / 1000;
+        bdsjm.lastTick = now;
+        bdsjm.timeLeft -= dsec;
+        if (bdsjm.dropAnim < 1) bdsjm.dropAnim = Math.min(1, bdsjm.dropAnim + dsec * 4);
+        if (bdsjm.timeLeft <= 0) {
+            bdsjm.timeLeft = 0;
+            bdsjm.gameOver = true;
+            if (bdsjmBest < bdsjm.score) {
+                bdsjmBest = bdsjm.score;
+                try { if (wx.setStorageSync) wx.setStorageSync('bdsjmBest', bdsjmBest); } catch (e) {}
+            }
+        }
+    }
+
+    // 标题
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('暴打神经猫', L.margin, L.titleY);
+
+    // 状态栏：打爆 / 剩余时间
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 32, '打爆', bdsjm.score);
+    ctx.fillStyle = bdsjm.timeLeft <= 6 ? 'rgba(255, 68, 68, 0.18)' : '#2d2d44';
+    roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6);
+    ctx.fill();
+    ctx.strokeStyle = bdsjm.timeLeft <= 6 ? '#ff4444' : '#4a4e69';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6);
+    ctx.stroke();
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('剩余时间', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 4);
+    ctx.fillStyle = bdsjm.timeLeft <= 6 ? '#ff6666' : '#fff';
+    ctx.font = 'bold 16px Arial';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(Math.ceil(bdsjm.timeLeft) + 's', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 32 - 6);
+
+    // 网格（4 列 × rows 行），最底行为当前目标行
+    for (let r = 0; r < L.rows; r++) {
+        for (let c = 0; c < 4; c++) {
+            const cx = L.boardX + L.gap + c * (L.cell + L.gap);
+            const cy = L.boardY + L.gap + r * (L.cell + L.gap);
+            const isTargetRow = (r === L.rows - 1);
+            if (isTargetRow && c === bdsjm.catCol) {
+                // 神经猫
+                ctx.fillStyle = '#1a1a2e';
+                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+                ctx.fill();
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 2;
+                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+                ctx.stroke();
+                const im = gBdsjmCatImg();
+                if (im && im.width) {
+                    ctx.save();
+                    roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+                    ctx.clip();
+                    ctx.drawImage(im, cx, cy, L.cell, L.cell);
+                    ctx.restore();
+                }
+            } else {
+                // 普通块（深色卡片）；命中反馈行闪红✕
+                const justHit = (!isTargetRow && r === L.rows - 2 && c === bdsjm.hitRow && bdsjm.dropAnim < 1);
+                ctx.fillStyle = justHit ? 'rgba(255, 68, 68, 0.5)' : '#2d2d44';
+                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+                ctx.fill();
+                ctx.strokeStyle = '#4a4e69';
+                ctx.lineWidth = 1;
+                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+                ctx.stroke();
+                if (justHit) {
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(cx + L.cell * 0.3, cy + L.cell * 0.3);
+                    ctx.lineTo(cx + L.cell * 0.7, cy + L.cell * 0.7);
+                    ctx.moveTo(cx + L.cell * 0.7, cy + L.cell * 0.3);
+                    ctx.lineTo(cx + L.cell * 0.3, cy + L.cell * 0.7);
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    // 结算遮罩（只覆盖游戏区，留出底部「返回/新游戏」按钮）
+    if (bdsjm.gameOver) {
+        const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
+        ctx.fillStyle = 'rgba(15, 27, 45, 0.82)';
+        ctx.fillRect(0, 0, screenWidth, btnTop - 8);
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 26px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('时间到！', screenWidth / 2, screenHeight / 2 - 40);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px Arial';
+        ctx.fillText('打爆 ' + bdsjm.score + ' 只神经猫', screenWidth / 2, screenHeight / 2);
+        ctx.fillText('最高纪录 ' + bdsjmBest + ' 只', screenWidth / 2, screenHeight / 2 + 28);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function handleMiniGameBdsjmInput(x, y) {
+    if (!bdsjm) return;
+    const L = gBdsjmLayout();
+    if (inRect(x, y, L.backBtn)) {
+        activeMiniGame = null;
+        otherGamesModal.show = true;
+        return;
+    }
+    if (inRect(x, y, L.restartBtn)) {
+        gBdsjmInit();
+        return;
+    }
+    if (bdsjm.gameOver) return;
+    // 只响应最底「目标行」的点击
+    const targetRow = L.rows - 1;
+    const cx0 = L.boardX + L.gap;
+    const cy0 = L.boardY + L.gap + targetRow * (L.cell + L.gap);
+    if (x < cx0 || x > cx0 + L.boardW - L.gap || y < cy0 || y > cy0 + L.cell) return;
+    const col = Math.floor((x - cx0) / (L.cell + L.gap));
+    if (col === bdsjm.catCol) {
+        bdsjm.score += 1;
+        bdsjm.hitRow = bdsjm.catCol;
+        bdsjm.catCol = Math.floor(Math.random() * 4);
+        bdsjm.dropAnim = 0; // 触发命中反馈
+    } else {
+        bdsjm.gameOver = true;
+        if (bdsjmBest < bdsjm.score) {
+            bdsjmBest = bdsjm.score;
+            try { if (wx.setStorageSync) wx.setStorageSync('bdsjmBest', bdsjmBest); } catch (e) {}
         }
     }
 }
@@ -6451,6 +6659,8 @@ function gameLoop() {
             drawMiniGame2048();
         } else if (activeMiniGame === 'qmxzfzm') {
             drawMiniGameQmxz();
+        } else if (activeMiniGame === 'bdsjm') {
+            drawMiniGameBdsjm();
         } else {
             // 实时更新体力
             updateEnergyRealtime();
@@ -6925,6 +7135,12 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（全民寻找房祖名）：点击找房祖名 + 按钮点击
     if (gameState === 'mainMenu' && activeMiniGame === 'qmxzfzm') {
         handleMiniGameQmxzInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（暴打神经猫）：点目标行的猫列 + 按钮点击
+    if (gameState === 'mainMenu' && activeMiniGame === 'bdsjm') {
+        handleMiniGameBdsjmInput(endX, endY);
         return;
     }
 

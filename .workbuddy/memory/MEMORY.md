@@ -37,7 +37,7 @@
 - 1.0.3 → 1.0.4 → 1.0.5：迭代版本
 
 ## 版本号规则（重要）
-- **当前版本：1.0.20**（qmxzfzm 内嵌移植已完成、待提交）
+- **当前版本：1.0.21**（内嵌 qmxzfzm + 小游戏风格统一，已提交并打 tag，未推送）
 - 每次推送前必须先读取远程标签确定下一个版本号
 - 命令：`git tag -l --sort=-v:refname` 查看远程标签
 - 版本号命名格式：主版本.次版本.修订号（如1.0.5）
@@ -47,4 +47,11 @@
 - **可读源码 = `game - 副本.js`**（与加固前的可读 game.js 一致）。所有硬编码移植（2048、qmxzfzm 等）都在这里改。
 - 正确工作流：编辑 `game - 副本.js` → 复制 `副本.js` → `game.js` → DevTools「全部加固」（game.js 变混淆 + 生成 game.js.map）后上传 → 上传完把 `副本.js` 拷回 `game.js` 恢复可读。
 - `game.js.map` 是 source map，勿当源码、勿提交。仓库提交的是可读 game.js。
-- 内嵌小游戏（mode:'ingame'）统一接线点：`OTHER_GAMES` 配置、`startMiniGame`、`gameLoop`（activeMiniGame 分支）、`touchEnd`（activeMiniGame 分支）。新增一款照搬 2048/gQmxz* 这一套。
+- 内嵌小游戏（mode:'ingame'）统一接线点：`OTHER_GAMES` 配置、`startMiniGame`、`gameLoop`（activeMiniGame 分支）、`touchEnd`（activeMiniGame 分支）。已移植三款：2048（滑动合成）、qmxzfzm（点图找目标）、bdsjm（4列下落式打猫）；新增一款照搬 2048/gQmxz*/gBdsjm* 这套 ingame 模板。
+
+## 提交与上传约定（重要）
+- **每次本地 git 提交（及打 tag）完成后，必须主动询问用户：「要不要上传（提交审核）？」** 不要默认推送或默认不上传，等用户决定。
+- 若用户决定上传：上传前**必须先加固**——当前 `game.js` 是可读明文，不能直接传。在 DevTools 右键 `game.js` → 已在加固列表则直接「全部加固」（选「高」混淆 + 水印）；未加过则先「添加到加固文件列表」再加固。加固后 `game.js` 变混淆产物即可上传/提审。
+- 插件若勾选「上传时自动加固」，直接上传也会自动加固，效果等同。
+- 上传完成后：把 `game - 副本.js` 拷回 `game.js` 恢复可读源码（仅影响本地工作区，不影响已上传的加固包）。
+- `game.js.map`（source map）随包提审但勿提交到 git；仓库永远存可读 game.js。
