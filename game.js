@@ -2870,17 +2870,17 @@ const MAIN_MENU_NAV_H = 65;
 const OTHER_GAMES = [
     { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame', alpha: '0' },
     { id: 'qiexigua', name: '忍者切水果', emoji: '🍉', icon: 'images/qiexiguaicon.png', appId: '', mode: 'ingame', alpha: 'R' },
-    { id: 'feidegenggao', name: '我要飞的更高', emoji: '🚀', icon: '', appId: '', mode: 'ingame', alpha: 'W' },
-    { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: '', appId: '', mode: 'ingame', alpha: 'Y' },
-    { id: 'xiaoniaofeifei', name: '小鸟飞飞飞', emoji: '🐤', icon: '', appId: '', mode: 'ingame', alpha: 'X' },
+    { id: 'feidegenggao', name: '我要飞的更高', emoji: '🚀', icon: 'images/feidegenggaoicon.png', appId: '', mode: 'ingame', alpha: 'W' },
+    { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: 'images/bunengsiicon.jpg', appId: '', mode: 'ingame', alpha: 'Y' },
+    { id: 'xiaoniaofeifei', name: '小鸟飞飞飞', emoji: '🐤', icon: 'images/xiaoniaofeifeiicon.png', appId: '', mode: 'ingame', alpha: 'X' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
     { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' },
-    { id: 'zuiqiangyanli', name: '最强眼力', emoji: '👀', icon: '', appId: '', mode: 'ingame', alpha: 'Z' },
-    { id: 'qingwa', name: '小青蛙过河', emoji: '🐸', icon: '', appId: '', mode: 'ingame', alpha: 'F' },
-    { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: '', appId: '', mode: 'ingame', alpha: 'S' },
-    { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: '', appId: '', mode: 'ingame', alpha: 'N' },
-    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: '', appId: '', mode: 'ingame', alpha: 'H' },
-    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: '', appId: '', mode: 'ingame', alpha: 'L' }
+    { id: 'zuiqiangyanli', name: '最强眼力', emoji: '👀', icon: 'images/zuiqiangyanliicon.png', appId: '', mode: 'ingame', alpha: 'Z' },
+    { id: 'qingwa', name: '小青蛙过河', emoji: '🐸', icon: 'images/qingwaicon.png', appId: '', mode: 'ingame', alpha: 'F' },
+    { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: 'images/sqsdscjicon.png', appId: '', mode: 'ingame', alpha: 'S' },
+    { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: 'images/shenjingmaoicon.png', appId: '', mode: 'ingame', alpha: 'N' },
+    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.jpg', appId: '', mode: 'ingame', alpha: 'H' },
+    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'L' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
@@ -5676,7 +5676,9 @@ function computeOtherGamesLayout() {
     const vgap = 12;
 
     const contentTop = SAFE_TOP_OFFSET + 48;
-    const contentBottom = screenHeight - 16;
+    const bottomPad = 16;
+    const bottomBtnH = 32;
+    const contentBottom = screenHeight - bottomPad - bottomBtnH - 8;
     const contentH = contentBottom - contentTop;
 
     let maxVirtualY = 0;
@@ -5864,8 +5866,8 @@ function drawOtherGamesPage() {
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('🎮  其他游戏', screenWidth / 2, SAFE_TOP_OFFSET + 28);
 
-    // 固定返回按钮（左上）
-    drawRoyaleBevelButton({ x: 12, y: SAFE_TOP_OFFSET + 6, w: 56, h: 30, r: 8 }, '返回', 'blue');
+    // 固定返回按钮（左下），与内嵌小游戏返回按钮风格一致
+    drawRoyaleBevelButton({ x: 15, y: screenHeight - 16 - 32, w: 70, h: 32, r: 8 }, '返回', 'blue');
 
     // 裁剪内容区后绘制（滚动效果）
     ctx.save();
@@ -5878,10 +5880,10 @@ function drawOtherGamesPage() {
         ctx.fillStyle = ROYALE.gold;
         ctx.font = 'bold 15px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('我玩过的', 20, contentTop + L.playedHeaderY + 20);
+        ctx.fillText('我玩过的', 20, contentTop + L.playedHeaderY + 20 + scrollY);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.font = '11px Arial';
-        ctx.fillText('按累计时长排序', 92, contentTop + L.playedHeaderY + 20);
+        ctx.fillText('按累计时长排序', 92, contentTop + L.playedHeaderY + 20 + scrollY);
 
         L.playedCards.forEach(c => {
             drawOtherGameCard(c.x, contentTop + c.y + scrollY, c.w, c.h, c.game, true);
@@ -5896,7 +5898,7 @@ function drawOtherGamesPage() {
         ctx.fillStyle = ROYALE.gold;
         ctx.font = 'bold 15px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('所有游戏', 20, contentTop + L.allHeaderY + 20);
+        ctx.fillText('所有游戏', 20, contentTop + L.allHeaderY + 20 + scrollY);
 
         L.groups.forEach(grp => {
             const hsy = contentTop + grp.headerY + scrollY;
@@ -5931,8 +5933,8 @@ function handleOtherGamesClick(x, y) {
     const scrollY = otherGamesScrollY;
     const contentTop = L.contentTop;
 
-    // 返回按钮（固定，左上）
-    if (x >= 12 && x <= 12 + 56 && y >= SAFE_TOP_OFFSET + 6 && y <= SAFE_TOP_OFFSET + 6 + 30) {
+    // 返回按钮（固定，左下）
+    if (x >= 15 && x <= 15 + 70 && y >= screenHeight - 16 - 32 && y <= screenHeight - 16) {
         otherGamesModal.show = false;
         return;
     }
