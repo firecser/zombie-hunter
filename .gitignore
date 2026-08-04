@@ -22,3 +22,6 @@ Thumbs.db
 /private.wx82946280a9b98e78.key
 *.key
 /node_modules/
+game.js.map
+code.fortify.config.json
+

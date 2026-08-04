@@ -2870,6 +2870,7 @@ const MAIN_MENU_NAV_H = 65;
 const OTHER_GAMES = [
     { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame', alpha: '0' },
     { id: 'qiexigua', name: '忍者切水果', emoji: '🍉', icon: 'images/qiexiguaicon.png', appId: '', mode: 'ingame', alpha: 'R' },
+    { id: 'feidegenggao', name: '我要飞的更高', emoji: '🚀', icon: '', appId: '', mode: 'ingame', alpha: 'W' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
     { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' }
 ];
@@ -2946,6 +2947,7 @@ function flushMiniGameSeconds() {
 function getMiniGameBest(id) {
     if (id === '2048') return g2048Best;
     if (id === 'qiexigua') return gQiexiguaBest;
+    if (id === 'feidegenggao') return gFeidegenggaoBest;
     if (id === 'qmxzfzm') return qmxzBest;
     if (id === 'bdsjm') return bdsjmBest;
     return 0;
@@ -6286,6 +6288,10 @@ function startMiniGame(game) {
         gQiexiguaInit();
         activeMiniGame = 'qiexigua';
         otherGamesModal.show = false;
+    } else if (game.id === 'feidegenggao') {
+        gFeidegenggaoInit();
+        activeMiniGame = 'feidegenggao';
+        otherGamesModal.show = false;
     }
     // 记录会话开始时间，用于累计游玩时长
     miniGameSessionStart = Date.now();
@@ -6938,6 +6944,204 @@ function handleMiniGameQiexiguaInput(x, y) {
     if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gQiexiguaInit(); return; }
 }
 
+// ===================== 我要飞的更高（竖向自动弹跳爬升，SKY JUMP 玩法） =====================
+let gFeidegenggao = null;
+let gFeidegenggaoBest = 0;
+
+const FD_PLAY_TIME = 60;
+const FD_GRAVITY = 1500;
+const FD_BOUNCE = -640;
+const FD_PLAT_COUNT = 9;
+const FD_SPACING = 100;
+const FD_PLAT_COLORS = ['#7ed957', '#ffd166', '#4cc9f0', '#f72585', '#b5179e', '#ff9e00', '#90be6d', '#577590', '#f9844a'];
+
+function gFeidegenggaoSaveBest(g) {
+    if (gFeidegenggaoBest < g.score) {
+        gFeidegenggaoBest = g.score;
+        try { wx.setStorageSync && wx.setStorageSync('gFeidegenggaoBest', gFeidegenggaoBest); } catch (e) {}
+    }
+}
+
+function gFeidegenggaoLayout() {
+    const margin = 15;
+    const titleY = SAFE_TOP_OFFSET + 10;
+    const rowB = titleY + 34;
+    const boardX = margin;
+    const boardW = screenWidth - margin * 2;
+    const boardY = rowB + 44;
+    const bottomY = screenHeight - 16 - 32;
+    const boardH = bottomY - 12 - boardY;
+    const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+    const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+    return { margin, titleY, rowB, boardX, boardW, boardY, boardH, backBtn, restartBtn };
+}
+
+function gFeidegenggaoInit() {
+    gFeidegenggao = {
+        score: 0,
+        climb: 0,
+        timeLeft: FD_PLAY_TIME,
+        gameOver: false,
+        overReason: '',
+        player: { x: screenWidth / 2, y: 0, vy: 0, r: 16, targetX: screenWidth / 2 },
+        platforms: [],
+        particles: [],
+        lastTick: Date.now()
+    };
+    try { gFeidegenggaoBest = (wx.getStorageSync && wx.getStorageSync('gFeidegenggaoBest')) || 0; } catch (e) { gFeidegenggaoBest = 0; }
+    const L = gFeidegenggaoLayout();
+    const startY = L.boardY + L.boardH - 60;
+    gFeidegenggao.player.y = startY - gFeidegenggao.player.r;
+    gFeidegenggao.player.x = screenWidth / 2;
+    gFeidegenggao.player.targetX = screenWidth / 2;
+    for (let i = 0; i < FD_PLAT_COUNT; i++) {
+        gFeidegenggao.platforms.push({
+            x: 30 + Math.random() * (screenWidth - 60),
+            y: startY - i * FD_SPACING,
+            w: 55 + Math.random() * 30,
+            color: FD_PLAT_COLORS[i % FD_PLAT_COLORS.length]
+        });
+    }
+    // 第一块平台必须正好在主角脚下，保证开局即站稳
+    gFeidegenggao.platforms[0].x = screenWidth / 2;
+    gFeidegenggao.platforms[0].w = Math.max(70, gFeidegenggao.platforms[0].w);
+}
+
+function gFeidegenggaoUpdate(dt) {
+    const g = gFeidegenggao;
+    const L = gFeidegenggaoLayout();
+    const playTop = L.boardY;
+    const playBottom = L.boardY + L.boardH;
+    const targetY = playTop + (playBottom - playTop) * 0.6;
+    const p = g.player;
+
+    g.timeLeft -= dt;
+    if (g.timeLeft <= 0) { g.timeLeft = 0; g.gameOver = true; g.overReason = 'time'; gFeidegenggaoSaveBest(g); return; }
+
+    p.vy += FD_GRAVITY * dt;
+    const prevFeet = p.y + p.r;
+    p.y += p.vy * dt;
+    p.x += (p.targetX - p.x) * Math.min(1, dt * 12);
+    p.x = Math.max(p.r, Math.min(screenWidth - p.r, p.x));
+
+    if (p.vy > 0) {
+        const feet = p.y + p.r;
+        for (const pl of g.platforms) {
+            if (prevFeet <= pl.y + 2 && feet >= pl.y - 2 && Math.abs(p.x - pl.x) < pl.w / 2 + p.r * 0.6) {
+                p.y = pl.y - p.r;
+                p.vy = FD_BOUNCE;
+                for (let i = 0; i < 6; i++) {
+                    const a = Math.random() * Math.PI * 2;
+                    g.particles.push({ x: p.x, y: pl.y, vx: Math.cos(a) * 120, vy: -Math.random() * 120 - 40, life: 0.4, color: '#ffffff' });
+                }
+                break;
+            }
+        }
+    }
+
+    if (p.y < targetY) {
+        const delta = targetY - p.y;
+        p.y += delta;
+        for (const pl of g.platforms) pl.y += delta;
+        for (const pt of g.particles) pt.y += delta;
+        g.climb += delta;
+        g.score = Math.floor(g.climb * 0.1);
+    }
+
+    for (const pl of g.platforms) {
+        if (pl.y > playBottom + 40) {
+            pl.y -= FD_PLAT_COUNT * FD_SPACING;
+            pl.x = 30 + Math.random() * (screenWidth - 60);
+            pl.w = 55 + Math.random() * 30;
+        }
+    }
+
+    for (const pt of g.particles) { pt.vy += FD_GRAVITY * 0.5 * dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt; }
+    g.particles = g.particles.filter(pt => pt.life > 0);
+
+    if (p.y - p.r > playBottom + 30) { g.gameOver = true; g.overReason = 'fall'; gFeidegenggaoSaveBest(g); }
+}
+
+function drawMiniGameFeidegenggao() {
+    drawRoyaleBackground();
+    const L = gFeidegenggaoLayout();
+    drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+    drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+
+    if (!gFeidegenggao.gameOver) {
+        const now = Date.now();
+        const dt = Math.min(0.05, (now - gFeidegenggao.lastTick) / 1000);
+        gFeidegenggao.lastTick = now;
+        gFeidegenggaoUpdate(dt);
+    }
+
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('我要飞的更高', L.margin, L.titleY);
+
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 32, '高度', gFeidegenggao.score);
+    ctx.fillStyle = gFeidegenggao.timeLeft <= 10 ? 'rgba(255,68,68,0.18)' : ROYALE.panelLight;
+    roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6); ctx.fill();
+    ctx.strokeStyle = gFeidegenggao.timeLeft <= 10 ? '#ff4444' : ROYALE.blue;
+    ctx.lineWidth = 1.5; roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6); ctx.stroke();
+    ctx.fillStyle = '#aaa'; ctx.font = '11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('剩余时间', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 4);
+    ctx.fillStyle = gFeidegenggao.timeLeft <= 10 ? '#ff6666' : '#fff';
+    ctx.font = 'bold 16px Arial'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(Math.ceil(gFeidegenggao.timeLeft) + 's', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 32 - 6);
+
+    ctx.save();
+    roundRect(ctx, L.boardX, L.boardY, L.boardW, L.boardH, 10); ctx.clip();
+
+    for (const pl of gFeidegenggao.platforms) {
+        const px = pl.x - pl.w / 2;
+        ctx.fillStyle = pl.color;
+        roundRect(ctx, px, pl.y - 8, pl.w, 16, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        roundRect(ctx, px + 4, pl.y - 6, pl.w - 8, 4, 2); ctx.fill();
+    }
+
+    const p = gFeidegenggao.player;
+    for (const pt of gFeidegenggao.particles) {
+        ctx.globalAlpha = Math.max(0, pt.life * 2);
+        ctx.fillStyle = pt.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.fillStyle = '#ffd54a';
+    ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = (p.r * 1.5) + 'px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🐤', 0, 1);
+    ctx.restore();
+
+    ctx.restore();
+
+    if (gFeidegenggao.gameOver) {
+        ctx.fillStyle = 'rgba(15,27,45,0.82)';
+        ctx.fillRect(0, L.boardY, screenWidth, L.boardH);
+        ctx.fillStyle = '#ffd700'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(gFeidegenggao.overReason === 'fall' ? '你掉下去了！' : '时间到！', screenWidth / 2, L.boardY + L.boardH / 2 - 40);
+        ctx.fillStyle = '#fff'; ctx.font = '18px Arial';
+        ctx.fillText('飞到了 ' + gFeidegenggao.score + ' 米', screenWidth / 2, L.boardY + L.boardH / 2);
+        ctx.fillText('最高纪录 ' + gFeidegenggaoBest + ' 米', screenWidth / 2, L.boardY + L.boardH / 2 + 28);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function handleMiniGameFeidegenggaoInput(x, y) {
+    if (!gFeidegenggao) return;
+    const L = gFeidegenggaoLayout();
+    if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+    if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gFeidegenggaoInit(); return; }
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -7091,6 +7295,8 @@ function gameLoop() {
             drawMiniGameBdsjm();
         } else if (activeMiniGame === 'qiexigua') {
             drawMiniGameQiexigua();
+        } else if (activeMiniGame === 'feidegenggao') {
+            drawMiniGameFeidegenggao();
         } else {
             // 实时更新体力
             updateEnergyRealtime();
@@ -7164,6 +7370,7 @@ wx.onTouchStart((e) => {
         miniGameTouchStartX = x;
         miniGameTouchStartY = y;
         if (activeMiniGame === 'qiexigua' && gQiexigua) gQiexigua.lastSlice = null;
+        if (activeMiniGame === 'feidegenggao' && gFeidegenggao) gFeidegenggao.player.targetX = x;
         return;
     }
 
@@ -7480,6 +7687,12 @@ wx.onTouchMove((e) => {
         return;
     }
 
+    // 内嵌小游戏（我要飞的更高）：拖动控制左右
+    if (gameState === 'mainMenu' && activeMiniGame === 'feidegenggao') {
+        gFeidegenggao.player.targetX = e.touches[0].clientX;
+        return;
+    }
+
     const touch = e.touches[0];
     const x = touch.clientX;
     const y = touch.clientY;
@@ -7599,6 +7812,12 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（忍者切水果）：按钮点击（切割由 touchMove 处理）
     if (gameState === 'mainMenu' && activeMiniGame === 'qiexigua') {
         handleMiniGameQiexiguaInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（我要飞的更高）：按钮点击（左右控制由 touchMove 处理）
+    if (gameState === 'mainMenu' && activeMiniGame === 'feidegenggao') {
+        handleMiniGameFeidegenggaoInput(endX, endY);
         return;
     }
 
