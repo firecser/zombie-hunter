@@ -2874,7 +2874,13 @@ const OTHER_GAMES = [
     { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: '', appId: '', mode: 'ingame', alpha: 'Y' },
     { id: 'xiaoniaofeifei', name: '小鸟飞飞飞', emoji: '🐤', icon: '', appId: '', mode: 'ingame', alpha: 'X' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
-    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' }
+    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' },
+    { id: 'zuiqiangyanli', name: '最强眼力', emoji: '👀', icon: '', appId: '', mode: 'ingame', alpha: 'Z' },
+    { id: 'qingwa', name: '小青蛙过河', emoji: '🐸', icon: '', appId: '', mode: 'ingame', alpha: 'F' },
+    { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: '', appId: '', mode: 'ingame', alpha: 'S' },
+    { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: '', appId: '', mode: 'ingame', alpha: 'N' },
+    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: '', appId: '', mode: 'ingame', alpha: 'H' },
+    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: '', appId: '', mode: 'ingame', alpha: 'L' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
@@ -2954,6 +2960,12 @@ function getMiniGameBest(id) {
     if (id === 'xiaoniaofeifei') return gXnfBest;
     if (id === 'qmxzfzm') return qmxzBest;
     if (id === 'bdsjm') return bdsjmBest;
+    if (id === 'zuiqiangyanli') return gZqylBest;
+    if (id === 'qingwa') return gQingwaBest;
+    if (id === 'sqsdscj') return gSqsdBest;
+    if (id === 'shenjingmao') return gSjmaoBest;
+    if (id === 'yibihua') return gYbhBest;
+    if (id === 'sheqiu') return gDlsqBest;
     return 0;
 }
 // 玩过判定：累计 > 1 分钟
@@ -6304,6 +6316,30 @@ function startMiniGame(game) {
         gXnfInit();
         activeMiniGame = 'xiaoniaofeifei';
         otherGamesModal.show = false;
+    } else if (game.id === 'zuiqiangyanli') {
+        gZqylInit();
+        activeMiniGame = 'zuiqiangyanli';
+        otherGamesModal.show = false;
+    } else if (game.id === 'qingwa') {
+        gQingwaInit();
+        activeMiniGame = 'qingwa';
+        otherGamesModal.show = false;
+    } else if (game.id === 'sqsdscj') {
+        gSqsdInit();
+        activeMiniGame = 'sqsdscj';
+        otherGamesModal.show = false;
+    } else if (game.id === 'shenjingmao') {
+        gSjmaoInit();
+        activeMiniGame = 'shenjingmao';
+        otherGamesModal.show = false;
+    } else if (game.id === 'yibihua') {
+        gYbhInit();
+        activeMiniGame = 'yibihua';
+        otherGamesModal.show = false;
+    } else if (game.id === 'sheqiu') {
+        gDlsqInit();
+        activeMiniGame = 'sheqiu';
+        otherGamesModal.show = false;
     }
     // 记录会话开始时间，用于累计游玩时长
     miniGameSessionStart = Date.now();
@@ -7762,6 +7798,941 @@ function handleMiniGameXnfInput(x, y) {
     if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gXnfInit(); return; }
 }
 
+// 内嵌小游戏通用布局：标题/分数行 + 棋盘区 + 底部按钮
+function gMiniCommonLayout() {
+  const margin = 15;
+  const titleY = SAFE_TOP_OFFSET + 10;
+  const rowB = titleY + 34;
+  const boardX = margin;
+  const boardW = screenWidth - margin * 2;
+  const boardY = rowB + 44;
+  const bottomY = screenHeight - 16 - 32;
+  const boardH = bottomY - 12 - boardY;
+  const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+  const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+  return { margin, titleY, rowB, boardX, boardW, boardY, boardH, bottomY, backBtn, restartBtn };
+}
+
+// ==================== 内嵌小游戏：最强眼力（3 杯猜金币） ====================
+// 移植自 HTML5「最强眼力」：3 个杯子扣住一枚金币，洗杯后凭眼力点中藏币的杯子。
+// 猜中进下一关（洗杯更多更快），猜错扣 1 命，3 命用完结算。得分 = 到达关卡。
+let gZqyl = null;
+let gZqylBest = 0;
+const ZQYL_CUPS = 3;
+
+function gZqylSaveBest() {
+  if (gZqylBest < gZqyl.level) {
+    gZqylBest = gZqyl.level;
+    try { wx.setStorageSync && wx.setStorageSync('gZqylBest', gZqylBest); } catch (e) {}
+  }
+}
+function gZqylLayout() { return gMiniCommonLayout(); }
+function gZqylSlotX(slot) {
+  const L = gZqylLayout();
+  return L.boardX + L.boardW * (slot + 0.5) / ZQYL_CUPS;
+}
+function gZqylInit() {
+  gZqyl = { state: 'shuffle', level: 1, lives: 3, cups: [], coinSlot: 0, swapQueue: [], swapT: 0, msg: '', msgT: 0, lastTick: Date.now() };
+  try { gZqylBest = (wx.getStorageSync && wx.getStorageSync('gZqylBest')) || 0; } catch (e) { gZqylBest = 0; }
+  const colors = ['#4cc9f0', '#f72585', '#ffd166'];
+  for (let i = 0; i < ZQYL_CUPS; i++) gZqyl.cups.push({ slot: i, x: gZqylSlotX(i), hasCoin: false, color: colors[i] });
+  gZqyl.coinSlot = Math.floor(Math.random() * ZQYL_CUPS);
+  gZqyl.cups[gZqyl.coinSlot].hasCoin = true;
+  gZqylBuildShuffle();
+}
+function gZqylBuildShuffle() {
+  const n = 3 + gZqyl.level;
+  gZqyl.swapQueue = [];
+  let prev = -1;
+  for (let i = 0; i < n; i++) {
+    let a = Math.floor(Math.random() * (ZQYL_CUPS - 1));
+    if (a === prev) a = (a + 1) % (ZQYL_CUPS - 1);
+    gZqyl.swapQueue.push([a, a + 1]);
+    prev = a;
+  }
+  gZqyl.swapT = 0;
+}
+function gZqylUpdate(dt) {
+  const g = gZqyl;
+  if (g.state === 'shuffle') {
+    g.swapT += dt;
+    const dur = Math.max(0.18, 0.42 - g.level * 0.02);
+    const t = Math.min(1, g.swapT / dur);
+    if (g.swapQueue.length) {
+      const ab = g.swapQueue[0];
+      const a = ab[0], b = ab[1];
+      const ca = g.cups[a], cb = g.cups[b];
+      const ax = gZqylSlotX(a), bx = gZqylSlotX(b);
+      ca.x = ax + (bx - ax) * t;
+      cb.x = bx + (ax - bx) * t;
+      if (t >= 1) {
+        const ts = ca.slot; ca.slot = cb.slot; cb.slot = ts;
+        const tc = ca.hasCoin; ca.hasCoin = cb.hasCoin; cb.hasCoin = tc;
+        g.swapQueue.shift();
+        g.swapT = 0;
+        if (!g.swapQueue.length) g.state = 'guess';
+      }
+    } else { g.state = 'guess'; }
+  } else if (g.state === 'reveal') {
+    g.msgT -= dt;
+    if (g.msgT <= 0) {
+      if (g.lives <= 0) g.state = 'over';
+      else { g.state = 'shuffle'; gZqylBuildShuffle(); }
+    }
+  }
+}
+function gZqylTap(x, y) {
+  const g = gZqyl;
+  if (!g) return;
+  const L = gZqylLayout();
+  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
+  if (g.state === 'over') { gZqylInit(); return; }
+  if (g.state !== 'guess') return;
+  let picked = -1;
+  for (let i = 0; i < g.cups.length; i++) {
+    if (Math.abs(x - g.cups[i].x) < (L.boardW / ZQYL_CUPS) / 2) { picked = i; break; }
+  }
+  if (picked < 0) return;
+  const cup = g.cups[picked];
+  if (cup.hasCoin) { g.level++; g.msg = '👀 眼力不错！进下一关'; gZqylSaveBest(); }
+  else { g.lives--; g.msg = '😵 看走眼了，扣 1 命'; }
+  g.state = 'reveal';
+  g.msgT = 1.1;
+}
+function gZqylDrawCup(cx, baseY, w, h, color, lift) {
+  const topW = w * 0.62;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx - topW / 2, baseY - h - lift);
+  ctx.lineTo(cx + topW / 2, baseY - h - lift);
+  ctx.lineTo(cx + w / 2, baseY - lift);
+  ctx.lineTo(cx - w / 2, baseY - lift);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(cx, baseY - h - lift, topW / 2, h * 0.12, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+function drawMiniGameZqyl() {
+  const L = gZqylLayout();
+  const now = Date.now();
+  const dt = Math.min(0.05, (now - gZqyl.lastTick) / 1000);
+  gZqyl.lastTick = now;
+  if (gZqyl.state !== 'over') gZqylUpdate(dt);
+
+  drawRoyaleBackground();
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('最强眼力', L.margin, L.titleY);
+  const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+  drawScoreBox(L.margin, L.rowB, scoreW, 32, '关卡', gZqyl.level);
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gZqylBest);
+  ctx.fillStyle = '#fff'; ctx.font = '14px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  let hearts = '';
+  for (let i = 0; i < 3; i++) hearts += (i < gZqyl.lives ? '❤' : '🤍');
+  ctx.fillText(hearts, screenWidth - L.margin, L.rowB + 16);
+
+  const deskY = L.boardY + L.boardH * 0.62;
+  ctx.fillStyle = '#caa472';
+  ctx.fillRect(L.boardX, deskY, L.boardW, L.boardY + L.boardH - deskY);
+  ctx.fillStyle = '#b8915c';
+  ctx.fillRect(L.boardX, deskY, L.boardW, 6);
+
+  const cupW = Math.min(86, (L.boardW / ZQYL_CUPS) * 0.6);
+  const cupH = 92;
+  if (gZqyl.state === 'reveal') {
+    const coinCup = gZqyl.cups[gZqyl.coinSlot];
+    ctx.fillStyle = '#ffd700'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(coinCup.x, deskY - 10, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b8860b'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('¥', coinCup.x, deskY - 10);
+  }
+  for (const cup of gZqyl.cups) {
+    const lift = (gZqyl.state === 'reveal' && cup.hasCoin) ? 36 : 0;
+    gZqylDrawCup(cup.x, deskY, cupW, cupH, cup.color, lift);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (gZqyl.state === 'shuffle') {
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial';
+    ctx.fillText('盯紧金币在哪只杯子下…', screenWidth / 2, L.boardY + 30);
+  } else if (gZqyl.state === 'guess') {
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
+    ctx.fillText('点中藏有金币的杯子！', screenWidth / 2, L.boardY + 30);
+  } else if (gZqyl.state === 'reveal') {
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial';
+    ctx.fillText(gZqyl.msg, screenWidth / 2, L.boardY + 30);
+  } else if (gZqyl.state === 'over') {
+    ctx.fillStyle = 'rgba(15,27,45,0.8)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#ff6b6b'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('眼力耗尽', screenWidth / 2, screenHeight / 2 - 40);
+    ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
+    ctx.fillText('到达第 ' + gZqyl.level + ' 关', screenWidth / 2, screenHeight / 2);
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点「↻ 新游戏」再来一局', screenWidth / 2, screenHeight / 2 + 34);
+  }
+}
+function handleMiniGameZqylInput(x, y) {
+  if (!gZqyl) return;
+  const L = gZqylLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gZqylInit(); return; }
+  gZqylTap(x, y);
+}
+
+// ==================== 内嵌小游戏：小青蛙过河（青蛙换位谜题） ====================
+// 移植自 HTML5「小青蛙过河」：7 个石墩，左 3 蛙面右、右 3 蛙面左，空 1 个。
+// 点青蛙跳过空位或隔一蛙，让左右互换即胜。得分/最佳 = 用最少步数。
+let gQingwa = null;
+let gQingwaBest = 0;
+const QW_SLOTS = 7;
+
+function gQingwaSaveBest() {
+  if (gQingwaBest === 0 || gQingwa.moves < gQingwaBest) {
+    gQingwaBest = gQingwa.moves;
+    try { wx.setStorageSync && wx.setStorageSync('gQingwaBest', gQingwaBest); } catch (e) {}
+  }
+}
+function gQingwaLayout() { return gMiniCommonLayout(); }
+function gQingwaSlotX(i) {
+  const L = gQingwaLayout();
+  return L.boardX + L.boardW * (i + 0.5) / QW_SLOTS;
+}
+function gQingwaInit() {
+  gQingwa = { slots: ['L', 'L', 'L', 0, 'R', 'R', 'R'], moves: 0, time: 0, win: false, anim: null, lastTick: Date.now() };
+  try { gQingwaBest = (wx.getStorageSync && wx.getStorageSync('gQingwaBest')) || 0; } catch (e) { gQingwaBest = 0; }
+}
+function gQingwaWinCheck() {
+  const s = gQingwa.slots;
+  for (let i = 0; i < 3; i++) if (s[i] !== 'R') return false;
+  if (s[3] !== 0) return false;
+  for (let i = 4; i < 7; i++) if (s[i] !== 'L') return false;
+  return true;
+}
+function gQingwaTap(x, y) {
+  const g = gQingwa;
+  if (!g || g.win || g.anim) return;
+  const L = gQingwaLayout();
+  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
+  let picked = -1;
+  for (let i = 0; i < QW_SLOTS; i++) if (Math.abs(x - gQingwaSlotX(i)) < (L.boardW / QW_SLOTS) / 2) { picked = i; break; }
+  if (picked < 0) return;
+  const f = g.slots[picked];
+  if (f !== 'L' && f !== 'R') return;
+  let target = -1;
+  if (f === 'L') {
+    if (picked + 1 < QW_SLOTS && g.slots[picked + 1] === 0) target = picked + 1;
+    else if (picked + 2 < QW_SLOTS && g.slots[picked + 1] === 'R' && g.slots[picked + 2] === 0) target = picked + 2;
+  } else {
+    if (picked - 1 >= 0 && g.slots[picked - 1] === 0) target = picked - 1;
+    else if (picked - 2 >= 0 && g.slots[picked - 1] === 'L' && g.slots[picked - 2] === 0) target = picked - 2;
+  }
+  if (target < 0) return;
+  g.anim = { from: picked, to: target, t: 0, frog: f };
+}
+function gQingwaUpdate(dt) {
+  const g = gQingwa;
+  g.time += dt;
+  if (g.anim) {
+    g.anim.t += dt / 0.22;
+    if (g.anim.t >= 1) {
+      g.slots[g.anim.to] = g.anim.frog;
+      g.slots[g.anim.from] = 0;
+      g.moves++;
+      g.anim = null;
+      if (gQingwaWinCheck()) { g.win = true; gQingwaSaveBest(); }
+    }
+  }
+}
+function drawMiniGameQingwa() {
+  const L = gQingwaLayout();
+  const now = Date.now();
+  const dt = Math.min(0.05, (now - gQingwa.lastTick) / 1000);
+  gQingwa.lastTick = now;
+  if (!gQingwa.win) gQingwaUpdate(dt);
+
+  drawRoyaleBackground();
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('小青蛙过河', L.margin, L.titleY);
+  const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+  drawScoreBox(L.margin, L.rowB, scoreW, 32, '步数', gQingwa.moves);
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gQingwaBest);
+
+  const slotW = L.boardW / QW_SLOTS;
+  const frogY = L.boardY + L.boardH * 0.5;
+  const r = Math.min(slotW * 0.36, 30);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  for (let i = 0; i < QW_SLOTS; i++) { ctx.beginPath(); ctx.arc(gQingwaSlotX(i), frogY, r + 6, 0, Math.PI * 2); ctx.fill(); }
+
+  for (let i = 0; i < QW_SLOTS; i++) {
+    let cx = gQingwaSlotX(i), cy = frogY, frog = gQingwa.slots[i];
+    if (gQingwa.anim && gQingwa.anim.from === i) { frog = 0; }
+    if (gQingwa.anim && gQingwa.anim.to === i && gQingwa.anim.t < 1) {
+      const a = gQingwaSlotX(gQingwa.anim.from), b = gQingwaSlotX(gQingwa.anim.to);
+      cx = a + (b - a) * gQingwa.anim.t;
+      frog = gQingwa.anim.frog;
+    }
+    if (frog === 'L' || frog === 'R') {
+      ctx.fillStyle = '#3fbf3f';
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#1f7a1f'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(cx - r * 0.35, cy - r * 0.4, r * 0.28, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + r * 0.35, cy - r * 0.4, r * 0.28, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(cx - r * 0.35, cy - r * 0.4, r * 0.13, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + r * 0.35, cy - r * 0.4, r * 0.13, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd700';
+      const dir = frog === 'L' ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * r * 0.9, cy + r * 0.1);
+      ctx.lineTo(cx + dir * r * 0.5, cy - r * 0.1);
+      ctx.lineTo(cx + dir * r * 0.5, cy + r * 0.3);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (gQingwa.win) {
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
+    ctx.fillText('🎉 过河成功！', screenWidth / 2, screenHeight / 2 - 40);
+    ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
+    ctx.fillText('用了 ' + gQingwa.moves + ' 步 / ' + gQingwa.time.toFixed(1) + ' 秒', screenWidth / 2, screenHeight / 2);
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点「↻ 新游戏」再挑战', screenWidth / 2, screenHeight / 2 + 34);
+  } else {
+    ctx.fillText('点青蛙跳过空位或隔一蛙，让左右互换', screenWidth / 2, L.boardY + 24);
+  }
+}
+function handleMiniGameQingwaInput(x, y) {
+  if (!gQingwa) return;
+  const L = gQingwaLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gQingwaInit(); return; }
+  if (gQingwa.win) { gQingwaInit(); return; }
+  gQingwaTap(x, y);
+}
+
+// ==================== 内嵌小游戏：数钱数到手抽筋（30 秒狂点） ====================
+// 移植自 HTML5「数钱数到手抽筋」：30 秒倒计时，点屏幕每张钞票 +¥100，按金额定身份阶层。
+let gSqsd = null;
+let gSqsdBest = 0;
+const SQSD_TIME = 30;
+
+function gSqsdSaveBest() {
+  if (gSqsdBest < gSqsd.score) {
+    gSqsdBest = gSqsd.score;
+    try { wx.setStorageSync && wx.setStorageSync('gSqsdBest', gSqsdBest); } catch (e) {}
+  }
+}
+function gSqsdLayout() { return gMiniCommonLayout(); }
+function gSqsdTier(score) {
+  if (score < 5000) return '屌丝';
+  if (score < 10000) return '贫农';
+  if (score < 15000) return '富农';
+  if (score < 20000) return '土豪';
+  if (score < 25000) return '煤老板';
+  return '资本家';
+}
+function gSqsdInit() {
+  gSqsd = { state: 'ready', score: 0, timeLeft: SQSD_TIME, lastTap: 0, msg: '', msgT: 0, lastTick: Date.now() };
+  try { gSqsdBest = (wx.getStorageSync && wx.getStorageSync('gSqsdBest')) || 0; } catch (e) { gSqsdBest = 0; }
+}
+function gSqsdUpdate(dt) {
+  const g = gSqsd;
+  if (g.state === 'playing') {
+    g.timeLeft -= dt;
+    if (g.timeLeft <= 0) { g.timeLeft = 0; g.state = 'over'; gSqsdSaveBest(); }
+  }
+  if (g.msgT > 0) g.msgT -= dt;
+}
+function gSqsdTap(x, y) {
+  const g = gSqsd;
+  if (!g) return;
+  const L = gSqsdLayout();
+  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
+  if (g.state === 'ready') { g.state = 'playing'; return; }
+  if (g.state === 'over') { gSqsdInit(); return; }
+  if (g.state !== 'playing') return;
+  const now = Date.now();
+  if (now - g.lastTap < 50) return;
+  g.lastTap = now;
+  g.score += 100;
+  g.msg = '+' + 100; g.msgT = 0.4;
+}
+function drawMiniGameSqsd() {
+  const L = gSqsdLayout();
+  const now = Date.now();
+  const dt = Math.min(0.05, (now - gSqsd.lastTick) / 1000);
+  gSqsd.lastTick = now;
+  gSqsdUpdate(dt);
+
+  drawRoyaleBackground();
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('数钱数到手抽筋', L.margin, L.titleY);
+  const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+  drawScoreBox(L.margin, L.rowB, scoreW, 32, '已数(¥)', gSqsd.score);
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gSqsdBest);
+
+  const barY = L.rowB + 40;
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  roundRect(ctx, L.margin, barY, L.boardW, 10, 5); ctx.fill();
+  const frac = gSqsd.state === 'playing' ? gSqsd.timeLeft / SQSD_TIME : 1;
+  ctx.fillStyle = frac < 0.3 ? '#ff6b6b' : '#7fffa0';
+  roundRect(ctx, L.margin, barY, L.boardW * frac, 10, 5); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = '12px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText(Math.ceil(gSqsd.timeLeft) + 's', screenWidth - L.margin, barY + 5);
+
+  const cx = screenWidth / 2, cy = L.boardY + L.boardH * 0.5;
+  ctx.fillStyle = '#7bd24a';
+  roundRect(ctx, cx - 70, cy - 80, 140, 160, 12); ctx.fill();
+  ctx.strokeStyle = '#3a8f1f'; ctx.lineWidth = 3; roundRect(ctx, cx - 70, cy - 80, 140, 160, 12); ctx.stroke();
+  ctx.fillStyle = '#3a8f1f'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('¥', cx, cy - 24);
+  ctx.font = 'bold 22px Arial'; ctx.fillText('100', cx, cy + 18);
+  ctx.font = '12px Arial'; ctx.fillText('人民币', cx, cy + 46);
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 18px Arial';
+  ctx.fillText('身份：' + gSqsdTier(gSqsd.score), cx, cy + 110);
+  if (gSqsd.msgT > 0) {
+    ctx.globalAlpha = Math.min(1, gSqsd.msgT * 3);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Arial';
+    ctx.fillText(gSqsd.msg, cx, cy - 110);
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (gSqsd.state === 'ready') ctx.fillText('点屏幕开始数钱，30 秒狂点！', screenWidth / 2, L.boardY + 26);
+  else if (gSqsd.state === 'over') {
+    ctx.fillStyle = 'rgba(15,27,45,0.8)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#ff6b6b'; ctx.font = 'bold 24px Arial';
+    ctx.fillText('时间到！', screenWidth / 2, screenHeight / 2 - 40);
+    ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
+    ctx.fillText('数了 ¥' + gSqsd.score + '，' + gSqsdTier(gSqsd.score), screenWidth / 2, screenHeight / 2);
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点「↻ 新游戏」再来一次', screenWidth / 2, screenHeight / 2 + 34);
+  }
+}
+function handleMiniGameSqsdInput(x, y) {
+  if (!gSqsd) return;
+  const L = gSqsdLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gSqsdInit(); return; }
+  gSqsdTap(x, y);
+}
+
+// ==================== 内嵌小游戏：围住神经猫（六边格围堵） ====================
+// 移植自 Egret「围住神经猫」：六边格(半径4)棋盘，猫居中。点空格放石头，猫走最短路逃向边缘；
+// 猫逃出边缘=失败，被完全围住=胜利。最佳=最少步数。
+let gSjmao = null;
+let gSjmaoBest = 0;
+const SJM_R = 4;
+
+function gSjmaoSaveBest() {
+  if (gSjmaoBest === 0 || gSjmao.steps < gSjmaoBest) {
+    gSjmaoBest = gSjmao.steps;
+    try { wx.setStorageSync && wx.setStorageSync('gSjmaoBest', gSjmaoBest); } catch (e) {}
+  }
+}
+function gSjmaoLayout() { return gMiniCommonLayout(); }
+function gSjmaoKey(q, r) { return q + ',' + r; }
+function gSjmaoNeighbors(q, r) {
+  return [[q + 1, r], [q - 1, r], [q, r + 1], [q, r - 1], [q + 1, r - 1], [q - 1, r + 1]];
+}
+function gSjmaoIsBorder(q, r) {
+  return (Math.abs(q) === SJM_R || Math.abs(r) === SJM_R || Math.abs(-q - r) === SJM_R);
+}
+function gSjmaoInit() {
+  gSjmao = { cells: {}, walls: {}, cat: { q: 0, r: 0 }, steps: 0, over: false, win: false, lastTick: Date.now() };
+  for (let q = -SJM_R; q <= SJM_R; q++) {
+    for (let r = Math.max(-SJM_R, -q - SJM_R); r <= Math.min(SJM_R, -q + SJM_R); r++) {
+      gSjmao.cells[gSjmaoKey(q, r)] = true;
+    }
+  }
+  gSjmao.cat = { q: 0, r: 0 };
+  // 开局随机障碍（原版同款）：没有初始障碍的话猫 4 步必逃，玩家一回合只能放一颗石头，无法取胜
+  const pool = [];
+  for (const k in gSjmao.cells) {
+    const pr = k.split(',');
+    const q = Number(pr[0]), r = Number(pr[1]);
+    if (q === 0 && r === 0) continue;           // 猫所在格
+    if (Math.abs(q) + Math.abs(r) + Math.abs(-q - r) <= 2) continue; // 猫的 6 个邻格留空
+    pool.push(k);
+  }
+  const wallCount = 11 + Math.floor(Math.random() * 4); // 11~14 颗
+  for (let i = 0; i < wallCount && pool.length; i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    gSjmao.walls[pool[idx]] = true;
+    pool.splice(idx, 1);
+  }
+  try { gSjmaoBest = (wx.getStorageSync && wx.getStorageSync('gSjmaoBest')) || 0; } catch (e) { gSjmaoBest = 0; }
+}
+function gSjmaoBorderDist() {
+  // 多源 BFS：从所有边缘格出发，计算每个空格到边缘的最短步数（猫应朝该值最小的方向逃）
+  const bd = {};
+  const qq = [];
+  for (const key in gSjmao.cells) {
+    if (gSjmao.walls[key]) continue;
+    const pr = key.split(',');
+    const q = Number(pr[0]), r = Number(pr[1]);
+    if (gSjmaoIsBorder(q, r)) { bd[key] = 0; qq.push({ q: q, r: r }); }
+  }
+  while (qq.length) {
+    const cur = qq.shift();
+    const ck = gSjmaoKey(cur.q, cur.r);
+    for (const nb of gSjmaoNeighbors(cur.q, cur.r)) {
+      const nk = gSjmaoKey(nb[0], nb[1]);
+      if (!gSjmao.cells[nk] || gSjmao.walls[nk] || bd[nk] !== undefined) continue;
+      bd[nk] = bd[ck] + 1;
+      qq.push({ q: nb[0], r: nb[1] });
+    }
+  }
+  return bd;
+}
+function gSjmaoPixel() {
+  const L = gSjmaoLayout();
+  const size = Math.min((L.boardW) / (SJM_R * 2 + 1.5) / Math.sqrt(3), (L.boardH) / (SJM_R * 1.5 + 1.2));
+  const cx0 = screenWidth / 2;
+  const cy0 = L.boardY + L.boardH / 2;
+  const pos = {};
+  for (const key in gSjmao.cells) {
+    const pr = key.split(',');
+    const q = Number(pr[0]), r = Number(pr[1]);
+    const x = cx0 + size * Math.sqrt(3) * (q + r / 2);
+    const y = cy0 + size * 1.5 * r;
+    pos[key] = { x: x, y: y, rad: size * 0.86 };
+  }
+  return pos;
+}
+function gSjmaoTap(x, y) {
+  const g = gSjmao;
+  if (!g || g.over) return;
+  const L = gSjmaoLayout();
+  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
+  const pos = gSjmaoPixel();
+  let best = null, bd = 1e9, bp = null;
+  for (const key in g.cells) {
+    const p = pos[key];
+    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+    if (d < bd) { bd = d; best = key; bp = p; }
+  }
+  if (!best) return;
+  if ((bp.rad * 1.1) * (bp.rad * 1.1) < bd) return;
+  const pr = best.split(',');
+  const bq = Number(pr[0]), br = Number(pr[1]);
+  const bk = gSjmaoKey(bq, br);
+  if (g.walls[bk] || (bq === g.cat.q && br === g.cat.r)) return;
+  g.walls[bk] = true;
+  g.steps++;
+  // 猫已在边缘 → 直接跑掉（保险判断）
+  if (gSjmaoIsBorder(g.cat.q, g.cat.r)) { g.over = true; g.win = false; return; }
+  const bmap = gSjmaoBorderDist();
+  const catKey = gSjmaoKey(g.cat.q, g.cat.r);
+  // 猫所在格到边缘不可达 → 被围住，玩家胜
+  if (bmap[catKey] === undefined) { g.win = true; g.over = true; gSjmaoSaveBest(); return; }
+  // 猫朝"到边缘距离最小"的邻格走一步（多个同分时随机挑一个）
+  let cands = [], bestDist = 1e9;
+  for (const nb of gSjmaoNeighbors(g.cat.q, g.cat.r)) {
+    const nk = gSjmaoKey(nb[0], nb[1]);
+    if (!g.cells[nk] || g.walls[nk]) continue;
+    if (bmap[nk] === undefined) continue;
+    if (bmap[nk] < bestDist) { bestDist = bmap[nk]; cands = [{ q: nb[0], r: nb[1] }]; }
+    else if (bmap[nk] === bestDist) cands.push({ q: nb[0], r: nb[1] });
+  }
+  if (!cands.length) { g.win = true; g.over = true; gSjmaoSaveBest(); return; }
+  const bestStep = cands[Math.floor(Math.random() * cands.length)];
+  g.cat = bestStep;
+  if (gSjmaoIsBorder(g.cat.q, g.cat.r)) { g.over = true; g.win = false; }
+}
+function drawMiniGameSjmao() {
+  const L = gSjmaoLayout();
+  gSjmao.lastTick = Date.now();
+  drawRoyaleBackground();
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('围住神经猫', L.margin, L.titleY);
+  const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+  drawScoreBox(L.margin, L.rowB, scoreW, 32, '步数', gSjmao.steps);
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gSjmaoBest);
+
+  const pos = gSjmaoPixel();
+  for (const key in gSjmao.cells) {
+    const p = pos[key];
+    const pr = key.split(',');
+    const q = Number(pr[0]), r = Number(pr[1]);
+    const isWall = !!gSjmao.walls[key];
+    const isCat = (q === gSjmao.cat.q && r === gSjmao.cat.r);
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.PI / 180 * (60 * i - 90);
+      const hx = p.x + p.rad * Math.cos(ang);
+      const hy = p.y + p.rad * Math.sin(ang);
+      if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    if (isCat) ctx.fillStyle = '#ffd23f';
+    else if (isWall) ctx.fillStyle = '#5b6472';
+    else ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+    if (isWall) {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.arc(p.x - p.rad * 0.2, p.y - p.rad * 0.1, p.rad * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x + p.rad * 0.25, p.y + p.rad * 0.2, p.rad * 0.16, 0, Math.PI * 2); ctx.fill();
+    }
+    if (isCat) {
+      ctx.fillStyle = '#222'; ctx.font = 'bold ' + Math.floor(p.rad * 0.95) + 'px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🐱', p.x, p.y);
+    }
+  }
+  ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (!gSjmao.over) ctx.fillText('点空格子放石头，别让猫逃到边缘', screenWidth / 2, L.boardY + 22);
+  else {
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (gSjmao.win) {
+      ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial';
+      ctx.fillText('🎉 围住啦！', screenWidth / 2, screenHeight / 2 - 36);
+      ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
+      ctx.fillText('用了 ' + gSjmao.steps + ' 步', screenWidth / 2, screenHeight / 2);
+    } else {
+      ctx.fillStyle = '#ff6b6b'; ctx.font = 'bold 26px Arial';
+      ctx.fillText('猫跑掉了…', screenWidth / 2, screenHeight / 2 - 36);
+      ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
+      ctx.fillText('再试一次围住它', screenWidth / 2, screenHeight / 2);
+    }
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点「↻ 新游戏」再来', screenWidth / 2, screenHeight / 2 + 34);
+  }
+}
+function handleMiniGameSjmaoInput(x, y) {
+  if (!gSjmao) return;
+  const L = gSjmaoLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gSjmaoInit(); return; }
+  if (gSjmao.over) { gSjmaoInit(); return; }
+  gSjmaoTap(x, y);
+}
+
+// ==================== 内嵌小游戏：一笔画（一笔连完所有线） ====================
+// 移植自「一笔画」：从任意点起笔，沿连线一笔画完所有边即过关。每关图形不同，关卡=已通关数。
+let gYbh = null;
+let gYbhBest = 0;
+const YBH_LEVELS = [
+  { name: '三角形', nodes: 3 },
+  { name: '正方形', nodes: 4 },
+  { name: '五边形', nodes: 5 },
+  { name: '小房子', shape: 'house' },
+  { name: '六边形', nodes: 6 },
+  { name: '五角星', shape: 'star5' },
+  { name: '双环', shape: 'fig8' },
+  { name: '信封', shape: 'envelope' }
+];
+
+function gYbhBuild(idx) {
+  const def = YBH_LEVELS[idx];
+  let nodes = [], edges = [];
+  if (def.shape === 'house') {
+    nodes = [[0.2, 0.42], [0.8, 0.42], [0.8, 0.85], [0.2, 0.85], [0.5, 0.16]];
+    edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 0], [4, 1]];
+  } else if (def.shape === 'envelope') {
+    // 经典「信封」：矩形 + 屋顶 + 两条对角线（2 个奇点，可一笔画）
+    nodes = [[0.18, 0.34], [0.82, 0.34], [0.82, 0.84], [0.18, 0.84], [0.5, 0.12]];
+    edges = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 4], [0, 2], [1, 3]];
+  } else if (def.shape === 'star5') {
+    // 五角星（一笔画的经典闭合图形，全为偶点）
+    const cx = 0.5, cy = 0.5, R = 0.38;
+    for (let i = 0; i < 5; i++) { const a = Math.PI / 180 * (360 * i / 5 - 90); nodes.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); }
+    edges = [[0, 2], [2, 4], [4, 1], [1, 3], [3, 0]];
+  } else if (def.shape === 'fig8') {
+    nodes = [[0.5, 0.5], [0.3, 0.18], [0.7, 0.18], [0.3, 0.82], [0.7, 0.82]];
+    edges = [[0, 1], [1, 2], [2, 0], [0, 3], [3, 4], [4, 0]];
+  } else {
+    const n = def.nodes;
+    const cx = 0.5, cy = 0.5, R = 0.38;
+    for (let i = 0; i < n; i++) { const a = Math.PI / 180 * (360 * i / n - 90); nodes.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); }
+    for (let i = 0; i < n; i++) edges.push([i, (i + 1) % n]);
+  }
+  return { name: def.name, nodes: nodes, edges: edges };
+}
+function gYbhLayout() { return gMiniCommonLayout(); }
+function gYbhNodePos(i) {
+  const L = gYbhLayout();
+  const n = gYbh.nodes[i];
+  const pad = L.boardW * 0.12;
+  const x = L.boardX + pad + n[0] * (L.boardW - pad * 2);
+  const y = L.boardY + L.boardH * 0.12 + n[1] * (L.boardH * 0.7);
+  return { x: x, y: y };
+}
+function gYbhInit() {
+  gYbh = { level: 0, nodes: [], edges: [], traversed: {}, current: -1, win: false, stuck: false, name: '', lastTick: Date.now() };
+  try { gYbhBest = (wx.getStorageSync && wx.getStorageSync('gYbhBest')) || 0; } catch (e) { gYbhBest = 0; }
+  gYbhLoad(0);
+}
+function gYbhLoad(idx) {
+  const b = gYbhBuild(idx);
+  gYbh.nodes = b.nodes; gYbh.edges = b.edges; gYbh.name = b.name;
+  gYbh.traversed = {}; gYbh.current = -1; gYbh.win = false; gYbh.stuck = false;
+}
+function gYbhNeighborsUntraversed(node) {
+  const res = [];
+  for (let e = 0; e < gYbh.edges.length; e++) {
+    if (gYbh.traversed[e]) continue;
+    const a = gYbh.edges[e][0], c = gYbh.edges[e][1];
+    if (a === node) res.push({ e: e, to: c });
+    else if (c === node) res.push({ e: e, to: a });
+  }
+  return res;
+}
+function gYbhTraverse(to) {
+  const g = gYbh;
+  const opts = gYbhNeighborsUntraversed(g.current);
+  for (const o of opts) {
+    if (o.to === to) {
+      g.traversed[o.e] = true; g.current = to;
+      if (Object.keys(g.traversed).length === g.edges.length) {
+        g.win = true;
+        if (gYbhBest < g.level + 1) { gYbhBest = g.level + 1; try { wx.setStorageSync && wx.setStorageSync('gYbhBest', gYbhBest); } catch (e) {} }
+      } else {
+        const nxt = gYbhNeighborsUntraversed(g.current);
+        if (nxt.length === 0) g.stuck = true;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+function gYbhOddNodes() {
+  // 奇点（度数为奇数的点）：存在奇点时必须从奇点起笔，否则一定走不通
+  const deg = {};
+  for (const e of gYbh.edges) { deg[e[0]] = (deg[e[0]] || 0) + 1; deg[e[1]] = (deg[e[1]] || 0) + 1; }
+  const res = [];
+  for (let i = 0; i < gYbh.nodes.length; i++) if ((deg[i] || 0) % 2 === 1) res.push(i);
+  return res;
+}
+function gYbhNodeAt(x, y) {
+  const L = gYbhLayout();
+  const rad = Math.min(L.boardW, L.boardH) * 0.08;
+  for (let i = 0; i < gYbh.nodes.length; i++) {
+    const p = gYbhNodePos(i);
+    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+    if (d < rad * rad) return i;
+  }
+  return -1;
+}
+function gYbhTap(x, y) {
+  const g = gYbh;
+  if (!g || g.win || g.stuck) return;
+  const L = gYbhLayout();
+  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
+  const ni = gYbhNodeAt(x, y);
+  if (ni < 0) return;
+  if (g.current < 0) { g.current = ni; return; }
+  gYbhTraverse(ni);
+}
+function gYbhDrag(x, y) {
+  const g = gYbh;
+  if (!g || g.win || g.stuck || g.current < 0) return;
+  const ni = gYbhNodeAt(x, y);
+  if (ni >= 0) gYbhTraverse(ni);
+}
+function drawMiniGameYbh() {
+  const L = gYbhLayout();
+  gYbh.lastTick = Date.now();
+  drawRoyaleBackground();
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 重玩', 'green');
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('一笔画', L.margin, L.titleY);
+  const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+  drawScoreBox(L.margin, L.rowB, scoreW, 32, '关卡', gYbh.level + 1);
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gYbhBest);
+
+  for (let e = 0; e < gYbh.edges.length; e++) {
+    const a = gYbh.edges[e][0], c = gYbh.edges[e][1];
+    const pa = gYbhNodePos(a), pc = gYbhNodePos(c);
+    ctx.strokeStyle = gYbh.traversed[e] ? '#7fffa0' : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = gYbh.traversed[e] ? 6 : 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pc.x, pc.y); ctx.stroke();
+  }
+  const odd = gYbhOddNodes();
+  for (let i = 0; i < gYbh.nodes.length; i++) {
+    const p = gYbhNodePos(i);
+    // 未起笔时，若图形存在奇点则高亮提示可行起点
+    if (gYbh.current < 0 && odd.length > 0 && odd.indexOf(i) >= 0) {
+      ctx.strokeStyle = 'rgba(255,215,0,0.85)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = (gYbh.current === i) ? '#ffd700' : '#fff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 2; ctx.stroke();
+  }
+  ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (gYbh.win) {
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
+    ctx.fillText('🎉 一笔连成！', screenWidth / 2, screenHeight / 2 - 36);
+    ctx.fillStyle = '#fff'; ctx.font = '18px Arial';
+    ctx.fillText('第 ' + (gYbh.level + 1) + ' 关：' + gYbh.name, screenWidth / 2, screenHeight / 2);
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点击屏幕进入下一关', screenWidth / 2, screenHeight / 2 + 34);
+  } else if (gYbh.stuck) {
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#ff9b9b'; ctx.font = 'bold 24px Arial'; ctx.textBaseline = 'middle';
+    ctx.fillText('卡住了～', screenWidth / 2, screenHeight / 2 - 30);
+    ctx.fillStyle = '#fff'; ctx.font = '16px Arial';
+    ctx.fillText('这笔走不通，重玩本关', screenWidth / 2, screenHeight / 2 + 4);
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点「↻ 重玩」再试', screenWidth / 2, screenHeight / 2 + 34);
+  } else {
+    ctx.fillText('从任意点起笔，一笔画完所有连线', screenWidth / 2, L.boardY + 20);
+    if (gYbh.current < 0) ctx.fillText('👆 点一个圆点开始', screenWidth / 2, L.boardY + 40);
+  }
+}
+function handleMiniGameYbhInput(x, y) {
+  if (!gYbh) return;
+  const L = gYbhLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (gYbh.win) { gYbh.level++; if (gYbh.level >= YBH_LEVELS.length) gYbh.level = 0; gYbhLoad(gYbh.level); return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gYbhLoad(gYbh.level); return; }
+  if (gYbh.stuck) { gYbhLoad(gYbh.level); return; }
+  gYbhTap(x, y);
+}
+
+// ==================== 内嵌小游戏：大力射手（拖拽蓄力射门） ====================
+// 移植自 HTML5「大力射手」：按住球向后拉蓄力，松手沿抛物线射出，落地距离(km)即得分。最佳=最远。
+let gDlsq = null;
+let gDlsqBest = 0;
+const DLSQ_GRAV = 1400;
+
+function gDlsqSaveBest() {
+  if (gDlsqBest < gDlsq.dist) {
+    gDlsqBest = gDlsq.dist;
+    try { wx.setStorageSync && wx.setStorageSync('gDlsqBest', gDlsqBest); } catch (e) {}
+  }
+}
+function gDlsqLayout() { return gMiniCommonLayout(); }
+function gDlsqBallPos() {
+  const L = gDlsqLayout();
+  return { x: L.boardX + L.boardW * 0.22, y: L.boardY + L.boardH - 40 };
+}
+function gDlsqInit() {
+  gDlsq = { state: 'aim', vx: 0, vy: 0, ball: gDlsqBallPos(), startBall: gDlsqBallPos(), drag: null, dist: 0, lastTick: Date.now() };
+  try { gDlsqBest = (wx.getStorageSync && wx.getStorageSync('gDlsqBest')) || 0; } catch (e) { gDlsqBest = 0; }
+}
+function gDlsqUpdate(dt) {
+  const g = gDlsq;
+  if (g.state === 'fly') {
+    g.vy += DLSQ_GRAV * dt;
+    g.ball.x += g.vx * dt;
+    g.ball.y += g.vy * dt;
+    if (g.ball.y >= g.startBall.y) {
+      g.ball.y = g.startBall.y;
+      g.state = 'land';
+      const km = Math.max(0, Math.round((g.ball.x - g.startBall.x) / 12));
+      g.dist = km;
+      gDlsqSaveBest();
+    }
+  }
+}
+function gDlsqDragStart(x, y) {
+  const g = gDlsq;
+  if (g.state !== 'aim') return;
+  const b = g.ball;
+  const d = (b.x - x) * (b.x - x) + (b.y - y) * (b.y - y);
+  if (d < 60 * 60) g.drag = { x: x, y: y };
+}
+function gDlsqDragMove(x, y) {
+  const g = gDlsq;
+  if (g.state === 'aim' && g.drag) g.drag = { x: x, y: y };
+}
+function gDlsqDragEnd(x, y) {
+  const g = gDlsq;
+  if (g.state !== 'aim' || !g.drag) return;
+  const b = g.ball;
+  const dx = b.x - g.drag.x, dy = b.y - g.drag.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 20) { g.drag = null; return; }
+  const power = Math.min(1, len / 180);
+  const speed = 300 + power * 1150;
+  const ang = Math.atan2(dy, dx);
+  g.vx = Math.cos(ang) * speed;
+  g.vy = Math.sin(ang) * speed;
+  g.state = 'fly';
+  g.drag = null;
+}
+function drawMiniGameDlsq() {
+  const L = gDlsqLayout();
+  const now = Date.now();
+  const dt = Math.min(0.05, (now - gDlsq.lastTick) / 1000);
+  gDlsq.lastTick = now;
+  gDlsqUpdate(dt);
+
+  drawRoyaleBackground();
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 再来', 'green');
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('大力射手', L.margin, L.titleY);
+  const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+  drawScoreBox(L.margin, L.rowB, scoreW, 32, '距离(km)', gDlsq.dist);
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gDlsqBest);
+
+  const g = gDlsq;
+  const groundY = g.startBall.y;
+  ctx.fillStyle = '#3a7d34';
+  ctx.fillRect(L.boardX, groundY, L.boardW, L.boardY + L.boardH - groundY);
+  ctx.fillStyle = '#2f6b2a';
+  ctx.fillRect(L.boardX, groundY, L.boardW, 6);
+  ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let km = 1; km * 12 < L.boardW; km++) {
+    const mx = L.boardX + km * 12;
+    ctx.fillRect(mx, groundY, 1, 10);
+    if (km % 5 === 0) ctx.fillText(km + 'km', mx, groundY + 12);
+  }
+  if (g.state === 'aim' && g.drag) {
+    const dx = g.ball.x - g.drag.x, dy = g.ball.y - g.drag.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len >= 20) {
+      const ang = Math.atan2(dy, dx);
+      const power = Math.min(1, len / 180);
+      const speed = 300 + power * 1150;
+      let px = g.ball.x, py = g.ball.y, pvx = Math.cos(ang) * speed, pvy = Math.sin(ang) * speed;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      for (let i = 0; i < 40; i++) { pvy += DLSQ_GRAV * 0.03; px += pvx * 0.03; py += pvy * 0.03; if (py > groundY) break; ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill(); }
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(g.ball.x, g.ball.y); ctx.lineTo(g.drag.x, g.drag.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(g.ball.x, g.ball.y, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (g.state === 'aim') ctx.fillText('按住球向后拉，松手射门！', screenWidth / 2, L.boardY + 24);
+  else if (g.state === 'land') {
+    ctx.fillStyle = 'rgba(15,27,45,0.7)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
+    ctx.fillText('射出 ' + g.dist + ' km！', screenWidth / 2, screenHeight / 2 - 30);
+    ctx.fillStyle = '#fff'; ctx.font = '15px Arial';
+    ctx.fillText('点「↻ 再来」再射一次', screenWidth / 2, screenHeight / 2 + 6);
+  }
+}
+function handleMiniGameDlsqInput(x, y) {
+  if (!gDlsq) return;
+  const L = gDlsqLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gDlsqInit(); return; }
+  if (gDlsq.state === 'land') { gDlsqInit(); return; }
+  gDlsqDragEnd(x, y);
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -7921,6 +8892,18 @@ function gameLoop() {
             drawMiniGameBunengsi();
         } else if (activeMiniGame === 'xiaoniaofeifei') {
             drawMiniGameXnf();
+        } else if (activeMiniGame === 'zuiqiangyanli') {
+            drawMiniGameZqyl();
+        } else if (activeMiniGame === 'qingwa') {
+            drawMiniGameQingwa();
+        } else if (activeMiniGame === 'sqsdscj') {
+            drawMiniGameSqsd();
+        } else if (activeMiniGame === 'shenjingmao') {
+            drawMiniGameSjmao();
+        } else if (activeMiniGame === 'yibihua') {
+            drawMiniGameYbh();
+        } else if (activeMiniGame === 'sheqiu') {
+            drawMiniGameDlsq();
         } else {
             // 实时更新体力
             updateEnergyRealtime();
@@ -7998,6 +8981,8 @@ wx.onTouchStart((e) => {
         // 一个都不能死：起跳要跟手，放在 touchStart 立即响应
         if (activeMiniGame === 'bunengsi' && gBunengsi) gBunengsiTap(x, y);
         if (activeMiniGame === 'xiaoniaofeifei' && gXnf) gXnfFlap(x, y);
+        if (activeMiniGame === 'sheqiu' && gDlsq) gDlsqDragStart(x, y);
+        if (activeMiniGame === 'yibihua' && gYbh) gYbhTap(x, y);
         return;
     }
 
@@ -8323,6 +9308,18 @@ wx.onTouchMove((e) => {
     // 内嵌小游戏（一个都不能死）：不响应拖动，避免误触发后面的菜单滚动
     if (gameState === 'mainMenu' && activeMiniGame === 'bunengsi') return;
     if (gameState === 'mainMenu' && activeMiniGame === 'xiaoniaofeifei') return;
+    // 大力射手：拖动蓄力
+    if (gameState === 'mainMenu' && activeMiniGame === 'sheqiu') {
+        const sm = e.touches[0];
+        if (gDlsq) gDlsqDragMove(sm.clientX, sm.clientY);
+        return;
+    }
+    // 一笔画：拖动连线
+    if (gameState === 'mainMenu' && activeMiniGame === 'yibihua') {
+        const sm = e.touches[0];
+        if (gYbh) gYbhDrag(sm.clientX, sm.clientY);
+        return;
+    }
 
     const touch = e.touches[0];
     const x = touch.clientX;
@@ -8460,6 +9457,42 @@ wx.onTouchEnd((e) => {
 
     if (gameState === 'mainMenu' && activeMiniGame === 'xiaoniaofeifei') {
         handleMiniGameXnfInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（最强眼力）：点杯猜币
+    if (gameState === 'mainMenu' && activeMiniGame === 'zuiqiangyanli') {
+        handleMiniGameZqylInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（小青蛙过河）：点青蛙跳
+    if (gameState === 'mainMenu' && activeMiniGame === 'qingwa') {
+        handleMiniGameQingwaInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（数钱数到手抽筋）：点屏幕数钱
+    if (gameState === 'mainMenu' && activeMiniGame === 'sqsdscj') {
+        handleMiniGameSqsdInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（围住神经猫）：点格放石头
+    if (gameState === 'mainMenu' && activeMiniGame === 'shenjingmao') {
+        handleMiniGameSjmaoInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（一笔画）：起点/连线/按钮
+    if (gameState === 'mainMenu' && activeMiniGame === 'yibihua') {
+        handleMiniGameYbhInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（大力射手）：蓄力结束/按钮
+    if (gameState === 'mainMenu' && activeMiniGame === 'sheqiu') {
+        handleMiniGameDlsqInput(endX, endY);
         return;
     }
 
