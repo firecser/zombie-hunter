@@ -2869,6 +2869,7 @@ const MAIN_MENU_NAV_H = 65;
 // emoji：图标（小游戏里无法直接内嵌 HTML5 网页游戏，用 emoji 作图标最稳妥；有 AppID 后可换成对应小游戏封面图）。
 const OTHER_GAMES = [
     { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame', alpha: '0' },
+    { id: 'qiexigua', name: '忍者切水果', emoji: '🍉', icon: 'images/qiexiguaicon.png', appId: '', mode: 'ingame', alpha: 'R' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
     { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' }
 ];
@@ -2944,6 +2945,7 @@ function flushMiniGameSeconds() {
 // 仅展示用的最高分
 function getMiniGameBest(id) {
     if (id === '2048') return g2048Best;
+    if (id === 'qiexigua') return gQiexiguaBest;
     if (id === 'qmxzfzm') return qmxzBest;
     if (id === 'bdsjm') return bdsjmBest;
     return 0;
@@ -6280,6 +6282,10 @@ function startMiniGame(game) {
         gBdsjmInit();
         activeMiniGame = 'bdsjm';
         otherGamesModal.show = false;
+    } else if (game.id === 'qiexigua') {
+        gQiexiguaInit();
+        activeMiniGame = 'qiexigua';
+        otherGamesModal.show = false;
     }
     // 记录会话开始时间，用于累计游玩时长
     miniGameSessionStart = Date.now();
@@ -6701,6 +6707,237 @@ function handleMiniGameBdsjmInput(x, y) {
     // row !== catRowInt（点其他行）→ 忽略，不算失误
 }
 
+// ==================== 内嵌小游戏：忍者切水果 ====================
+// 纯 Canvas 重写经典「水果忍者」玩法：水果/炸弹从底部抛出做抛物线运动，
+// 手指滑动的轨迹线段切中水果 → 得分（连击加成），切中炸弹 → 游戏结束；限时 QX_ALL_TIME 秒，时间到结算。
+const QX_ALL_TIME = 60;
+let gQiexigua = null;
+let gQiexiguaBest = 0;
+
+const QX_FRUITS = ['🍉', '🍎', '🍊', '🍋', '🍓', '🍌', '🍇', '🍑'];
+const QX_FRUIT_COLORS = ['#ff5e7e', '#ff4d4d', '#ff9f43', '#feca57', '#ff6b81', '#f6e58d', '#a55eea', '#ff9ff3'];
+
+function gQiexiguaInit() {
+    gQiexigua = {
+        score: 0,
+        timeLeft: QX_ALL_TIME,
+        gameOver: false,
+        fruits: [],
+        particles: [],
+        floaters: [],
+        spawnTimer: 0.6,
+        spawnInterval: 0.85,
+        combo: 0,
+        comboTimer: 0,
+        trail: [],
+        lastSlice: null,
+        lastTick: Date.now()
+    };
+    try { gQiexiguaBest = (wx.getStorageSync && wx.getStorageSync('gQiexiguaBest')) || 0; } catch (e) { gQiexiguaBest = 0; }
+}
+
+function gQiexiguaSpawn() {
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+        const isBomb = Math.random() < 0.15;
+        const r = 26 + Math.random() * 10;
+        const x = 40 + Math.random() * (screenWidth - 80);
+        const vy = -(760 + Math.random() * 260);
+        const vx = (Math.random() - 0.5) * 360;
+        gQiexigua.fruits.push({
+            bomb: isBomb,
+            emoji: isBomb ? '💣' : QX_FRUITS[Math.floor(Math.random() * QX_FRUITS.length)],
+            color: isBomb ? '#2d3436' : QX_FRUIT_COLORS[Math.floor(Math.random() * QX_FRUIT_COLORS.length)],
+            x: x, y: screenHeight + r + 10,
+            vx: vx, vy: vy, r: r,
+            rot: Math.random() * Math.PI * 2,
+            vr: (Math.random() - 0.5) * 6,
+            alive: true
+        });
+    }
+}
+
+function gQiexiguaUpdate(dt) {
+    const g = gQiexigua;
+    g.timeLeft -= dt;
+    if (g.timeLeft <= 0) {
+        g.timeLeft = 0; g.gameOver = true;
+        if (gQiexiguaBest < g.score) { gQiexiguaBest = g.score; try { wx.setStorageSync('gQiexiguaBest', gQiexiguaBest); } catch (e) {} }
+        return;
+    }
+    g.spawnTimer -= dt;
+    if (g.spawnTimer <= 0) {
+        gQiexiguaSpawn();
+        g.spawnInterval = Math.max(0.42, 0.85 - g.score * 0.006);
+        g.spawnTimer = g.spawnInterval * (0.8 + Math.random() * 0.4);
+    }
+    const G = 1500;
+    for (const f of g.fruits) {
+        if (!f.alive) continue;
+        f.vy += G * dt;
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+        f.rot += f.vr * dt;
+        if (f.y > screenHeight + f.r * 2.5) f.alive = false;
+    }
+    if (g.combo > 0) { g.comboTimer -= dt; if (g.comboTimer <= 0) g.combo = 0; }
+    for (const p of g.particles) { p.vy += G * 0.5 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
+    g.particles = g.particles.filter(p => p.life > 0);
+    for (const fl of g.floaters) { fl.y -= 40 * dt; fl.life -= dt; }
+    g.floaters = g.floaters.filter(fl => fl.life > 0);
+    g.fruits = g.fruits.filter(f => f.alive);
+    if (g.trail.length) { for (const t of g.trail) t.life -= dt; g.trail = g.trail.filter(t => t.life > 0); }
+}
+
+function gPointSegDist(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - x1, py - y1);
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function gQiexiguaSlice(x, y) {
+    const g = gQiexigua;
+    if (!g || g.gameOver) return;
+    const last = g.lastSlice;
+    g.lastSlice = { x, y };
+    g.trail.push({ x, y, life: 0.18 });
+    if (g.trail.length > 16) g.trail.shift();
+    if (!last) return;
+    for (const f of g.fruits) {
+        if (!f.alive) continue;
+        if (gPointSegDist(f.x, f.y, last.x, last.y, x, y) <= f.r + 6) {
+            if (f.bomb) {
+                g.gameOver = true;
+                if (gQiexiguaBest < g.score) { gQiexiguaBest = g.score; try { wx.setStorageSync('gQiexiguaBest', gQiexiguaBest); } catch (e) {} }
+                return;
+            }
+            f.alive = false;
+            g.combo += 1;
+            g.comboTimer = 0.6;
+            const gain = g.combo > 1 ? g.combo : 1;
+            g.score += gain;
+            for (let i = 0; i < 8; i++) {
+                const a = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 220;
+                g.particles.push({ x: f.x, y: f.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, life: 0.5 + Math.random() * 0.3, color: f.color, r: 3 + Math.random() * 4 });
+            }
+            g.floaters.push({ x: f.x, y: f.y - f.r, text: '+' + gain + (g.combo > 1 ? (' x' + g.combo) : ''), life: 0.8, color: '#ffd700' });
+        }
+    }
+}
+
+function gQiexiguaLayout() {
+    const margin = 15;
+    const titleY = SAFE_TOP_OFFSET + 10;
+    const rowB = titleY + 34;
+    const boardX = margin;
+    const boardW = screenWidth - margin * 2;
+    const boardY = rowB + 44;
+    const bottomY = screenHeight - 16 - 32;
+    const boardH = bottomY - 12 - boardY;
+    const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+    const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+    return { margin, titleY, rowB, boardX, boardW, boardY, boardH, backBtn, restartBtn };
+}
+
+function drawMiniGameQiexigua() {
+    drawRoyaleBackground();
+    const L = gQiexiguaLayout();
+    drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+    drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+
+    if (!gQiexigua.gameOver) {
+        const now = Date.now();
+        const dt = Math.min(0.05, (now - gQiexigua.lastTick) / 1000);
+        gQiexigua.lastTick = now;
+        gQiexiguaUpdate(dt);
+    }
+
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('忍者切水果', L.margin, L.titleY);
+
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 32, '分数', gQiexigua.score);
+    ctx.fillStyle = gQiexigua.timeLeft <= 10 ? 'rgba(255,68,68,0.18)' : ROYALE.panelLight;
+    roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6); ctx.fill();
+    ctx.strokeStyle = gQiexigua.timeLeft <= 10 ? '#ff4444' : ROYALE.blue;
+    ctx.lineWidth = 1.5; roundRect(ctx, L.margin + scoreW + 10, L.rowB, scoreW, 32, 6); ctx.stroke();
+    ctx.fillStyle = '#aaa'; ctx.font = '11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('剩余时间', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 4);
+    ctx.fillStyle = gQiexigua.timeLeft <= 10 ? '#ff6666' : '#fff';
+    ctx.font = 'bold 16px Arial'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(Math.ceil(gQiexigua.timeLeft) + 's', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 32 - 6);
+
+    ctx.save();
+    roundRect(ctx, L.boardX, L.boardY, L.boardW, L.boardH, 10); ctx.clip();
+
+    for (const f of gQiexigua.fruits) {
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate(f.rot);
+        ctx.fillStyle = f.color;
+        ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.arc(0, 0, f.r, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.font = (f.r * 1.8) + 'px Arial';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(f.emoji, 0, 2);
+        ctx.restore();
+    }
+    for (const p of gQiexigua.particles) {
+        ctx.globalAlpha = Math.max(0, p.life * 2);
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    if (gQiexigua.trail.length > 1) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 4; ctx.lineCap = 'round';
+        for (let i = 1; i < gQiexigua.trail.length; i++) {
+            const a = gQiexigua.trail[i - 1], b = gQiexigua.trail[i];
+            ctx.globalAlpha = Math.max(0, b.life * 4);
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+    }
+    for (const fl of gQiexigua.floaters) {
+        ctx.globalAlpha = Math.max(0, fl.life);
+        ctx.fillStyle = fl.color; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(fl.text, fl.x, fl.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    if (gQiexigua.combo > 1 && !gQiexigua.gameOver) {
+        ctx.fillStyle = '#ffd700'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('连击 x' + gQiexigua.combo, screenWidth / 2, L.boardY + 8);
+    }
+
+    if (gQiexigua.gameOver) {
+        ctx.fillStyle = 'rgba(15,27,45,0.82)';
+        ctx.fillRect(0, L.boardY, screenWidth, L.boardH);
+        ctx.fillStyle = '#ffd700'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('时间到！', screenWidth / 2, L.boardY + L.boardH / 2 - 40);
+        ctx.fillStyle = '#fff'; ctx.font = '18px Arial';
+        ctx.fillText('切了 ' + gQiexigua.score + ' 个水果', screenWidth / 2, L.boardY + L.boardH / 2);
+        ctx.fillText('最高纪录 ' + gQiexiguaBest + ' 个', screenWidth / 2, L.boardY + L.boardH / 2 + 28);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function handleMiniGameQiexiguaInput(x, y) {
+    if (!gQiexigua) return;
+    gQiexigua.lastSlice = null;
+    const L = gQiexiguaLayout();
+    if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+    if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gQiexiguaInit(); return; }
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -6852,6 +7089,8 @@ function gameLoop() {
             drawMiniGameQmxz();
         } else if (activeMiniGame === 'bdsjm') {
             drawMiniGameBdsjm();
+        } else if (activeMiniGame === 'qiexigua') {
+            drawMiniGameQiexigua();
         } else {
             // 实时更新体力
             updateEnergyRealtime();
@@ -6924,6 +7163,7 @@ wx.onTouchStart((e) => {
     if (gameState === 'mainMenu' && activeMiniGame) {
         miniGameTouchStartX = x;
         miniGameTouchStartY = y;
+        if (activeMiniGame === 'qiexigua' && gQiexigua) gQiexigua.lastSlice = null;
         return;
     }
 
@@ -7233,6 +7473,13 @@ wx.onTouchStart((e) => {
 wx.onTouchMove((e) => {
     if (gameState !== 'mainMenu') return;
 
+    // 内嵌小游戏（忍者切水果）：滑动切割
+    if (gameState === 'mainMenu' && activeMiniGame === 'qiexigua') {
+        const mt = e.touches[0];
+        gQiexiguaSlice(mt.clientX, mt.clientY);
+        return;
+    }
+
     const touch = e.touches[0];
     const x = touch.clientX;
     const y = touch.clientY;
@@ -7346,6 +7593,12 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（暴打神经猫）：点目标行的猫列 + 按钮点击
     if (gameState === 'mainMenu' && activeMiniGame === 'bdsjm') {
         handleMiniGameBdsjmInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（忍者切水果）：按钮点击（切割由 touchMove 处理）
+    if (gameState === 'mainMenu' && activeMiniGame === 'qiexigua') {
+        handleMiniGameQiexiguaInput(endX, endY);
         return;
     }
 
