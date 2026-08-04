@@ -6484,9 +6484,9 @@ function handleMiniGameQmxzInput(x, y) {
 }
 
 // ==================== 内嵌小游戏：暴打神经猫 ====================
-// 移植自 HTML5 版「暴打神经猫」：4 列下落式打猫。最底行为当前目标行，其中某一列藏着神经猫；
-// 点中猫所在列 → 得分+1、命中反馈（红✕淡出）、新猫出现在新目标行随机列；点错列 → 游戏结束。
-// 限时 BDSJM_ALL_TIME 秒，时间到结算，得分 = 打爆猫的次数。
+// 移植自 HTML5 版「暴打神经猫」：4 列下落式打猫。神经猫从顶部下落，出现在不同行、随机列；
+// 在猫所在行点中猫所在列 → 得分+1、命中反馈（红✕淡出）、新猫从顶部重新下落；在同行走错列 → 游戏结束；
+// 猫落到底部行仍未被打中 → 视为漏接，游戏结束。限时 BDSJM_ALL_TIME 秒，时间到结算，得分 = 打爆猫的次数。
 function loadBdsjmImgs() {
     if (bdsjmImgsLoaded) return;
     const names = ['images/bdsjm_cat0.jpg', 'images/bdsjm_cat1.jpg', 'images/bdsjm_cat2.jpg'];
@@ -6498,8 +6498,10 @@ function gBdsjmInit() {
     loadBdsjmImgs();
     bdsjm = {
         score: 0, timeLeft: BDSJM_ALL_TIME, gameOver: false,
-        catCol: Math.floor(Math.random() * 4),  // 当前目标行猫所在列 0..3
-        hitRow: -1,        // 最近一次命中的列（用于命中反馈）
+        catCol: Math.floor(Math.random() * 4),  // 神经猫所在列 0..3
+        catRow: 0,                              // 神经猫所在行（浮点，0=顶行，rows-1=底行），随时间下落
+        dropSpeed: 1.1,                         // 下落速度（行/秒），随分数提升
+        flashRow: -1, flashCol: -1,             // 最近一次命中的格（用于红✕反馈）
         dropAnim: 1,       // 命中反馈进度 0..1（<1 时显示红✕）
         lastTick: Date.now()
     };
@@ -6544,6 +6546,18 @@ function drawMiniGameBdsjm() {
         bdsjm.lastTick = now;
         bdsjm.timeLeft -= dsec;
         if (bdsjm.dropAnim < 1) bdsjm.dropAnim = Math.min(1, bdsjm.dropAnim + dsec * 4);
+        // 神经猫下落（速度随分数提升）
+        bdsjm.dropSpeed = 1.1 + bdsjm.score * 0.05;
+        bdsjm.catRow += bdsjm.dropSpeed * dsec;
+        if (bdsjm.catRow >= L.rows - 1) {
+            // 落到底部仍未被打中 → 漏接，游戏结束
+            bdsjm.catRow = L.rows - 1;
+            bdsjm.gameOver = true;
+            if (bdsjmBest < bdsjm.score) {
+                bdsjmBest = bdsjm.score;
+                try { if (wx.setStorageSync) wx.setStorageSync('bdsjmBest', bdsjmBest); } catch (e) {}
+            }
+        }
         if (bdsjm.timeLeft <= 0) {
             bdsjm.timeLeft = 0;
             bdsjm.gameOver = true;
@@ -6581,50 +6595,50 @@ function drawMiniGameBdsjm() {
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(Math.ceil(bdsjm.timeLeft) + 's', L.margin + scoreW + 10 + scoreW / 2, L.rowB + 32 - 6);
 
-    // 网格（4 列 × rows 行），最底行为当前目标行
+    // 网格（4 列 × rows 行）普通块
     for (let r = 0; r < L.rows; r++) {
         for (let c = 0; c < 4; c++) {
             const cx = L.boardX + L.gap + c * (L.cell + L.gap);
             const cy = L.boardY + L.gap + r * (L.cell + L.gap);
-            const isTargetRow = (r === L.rows - 1);
-            if (isTargetRow && c === bdsjm.catCol) {
-                // 神经猫
-                ctx.fillStyle = ROYALE.panel;
-                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
-                ctx.fill();
-                ctx.strokeStyle = ROYALE.gold;
-                ctx.lineWidth = 2;
-                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+            // 命中反馈：在最近命中的格画红✕
+            const justHit = (r === bdsjm.flashRow && c === bdsjm.flashCol && bdsjm.dropAnim < 1);
+            ctx.fillStyle = justHit ? 'rgba(255, 68, 68, 0.5)' : ROYALE.panelLight;
+            roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(125,175,225,0.4)';
+            ctx.lineWidth = 1;
+            roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+            ctx.stroke();
+            if (justHit) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(cx + L.cell * 0.3, cy + L.cell * 0.3);
+                ctx.lineTo(cx + L.cell * 0.7, cy + L.cell * 0.7);
+                ctx.moveTo(cx + L.cell * 0.7, cy + L.cell * 0.3);
+                ctx.lineTo(cx + L.cell * 0.3, cy + L.cell * 0.7);
                 ctx.stroke();
-                const im = gBdsjmCatImg();
-                if (im && im.width) {
-                    ctx.save();
-                    roundRect(ctx, cx, cy, L.cell, L.cell, 8);
-                    ctx.clip();
-                    ctx.drawImage(im, cx, cy, L.cell, L.cell);
-                    ctx.restore();
-                }
-            } else {
-                // 普通块（深色卡片）；命中反馈行闪红✕
-                const justHit = (!isTargetRow && r === L.rows - 2 && c === bdsjm.hitRow && bdsjm.dropAnim < 1);
-                ctx.fillStyle = justHit ? 'rgba(255, 68, 68, 0.5)' : ROYALE.panelLight;
-                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
-                ctx.fill();
-                ctx.strokeStyle = 'rgba(125,175,225,0.4)';
-                ctx.lineWidth = 1;
-                roundRect(ctx, cx, cy, L.cell, L.cell, 8);
-                ctx.stroke();
-                if (justHit) {
-                    ctx.strokeStyle = '#fff';
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.moveTo(cx + L.cell * 0.3, cy + L.cell * 0.3);
-                    ctx.lineTo(cx + L.cell * 0.7, cy + L.cell * 0.7);
-                    ctx.moveTo(cx + L.cell * 0.7, cy + L.cell * 0.3);
-                    ctx.lineTo(cx + L.cell * 0.3, cy + L.cell * 0.7);
-                    ctx.stroke();
-                }
             }
+        }
+    }
+    // 神经猫（浮点行位置，平滑下落），单独绘制在普通块之上
+    {
+        const cx = L.boardX + L.gap + bdsjm.catCol * (L.cell + L.gap);
+        const cy = L.boardY + L.gap + bdsjm.catRow * (L.cell + L.gap);
+        ctx.fillStyle = ROYALE.panel;
+        roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+        ctx.fill();
+        ctx.strokeStyle = ROYALE.gold;
+        ctx.lineWidth = 2;
+        roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+        ctx.stroke();
+        const im = gBdsjmCatImg();
+        if (im && im.width) {
+            ctx.save();
+            roundRect(ctx, cx, cy, L.cell, L.cell, 8);
+            ctx.clip();
+            ctx.drawImage(im, cx, cy, L.cell, L.cell);
+            ctx.restore();
         }
     }
 
@@ -6661,24 +6675,30 @@ function handleMiniGameBdsjmInput(x, y) {
         return;
     }
     if (bdsjm.gameOver) return;
-    // 只响应最底「目标行」的点击
-    const targetRow = L.rows - 1;
+    // 响应猫所在行的点击；其他行点击忽略，猫所在行走错列 → 游戏结束
     const cx0 = L.boardX + L.gap;
-    const cy0 = L.boardY + L.gap + targetRow * (L.cell + L.gap);
-    if (x < cx0 || x > cx0 + L.boardW - L.gap || y < cy0 || y > cy0 + L.cell) return;
+    const cy0 = L.boardY + L.gap;
     const col = Math.floor((x - cx0) / (L.cell + L.gap));
-    if (col === bdsjm.catCol) {
+    const row = Math.floor((y - cy0) / (L.cell + L.gap));
+    const catRowInt = Math.round(bdsjm.catRow);
+    if (row < 0 || row >= L.rows || col < 0 || col >= 4) return; // 点击棋盘外（含间隙）→ 忽略
+    if (row === catRowInt && col === bdsjm.catCol) {
+        // 命中：得分，红✕反馈在命中格，新猫从顶部重新下落
         bdsjm.score += 1;
-        bdsjm.hitRow = bdsjm.catCol;
+        bdsjm.flashRow = catRowInt;
+        bdsjm.flashCol = bdsjm.catCol;
         bdsjm.catCol = Math.floor(Math.random() * 4);
+        bdsjm.catRow = 0;
         bdsjm.dropAnim = 0; // 触发命中反馈
-    } else {
+    } else if (row === catRowInt) {
+        // 同行走错列 → 游戏结束
         bdsjm.gameOver = true;
         if (bdsjmBest < bdsjm.score) {
             bdsjmBest = bdsjm.score;
             try { if (wx.setStorageSync) wx.setStorageSync('bdsjmBest', bdsjmBest); } catch (e) {}
         }
     }
+    // row !== catRowInt（点其他行）→ 忽略，不算失误
 }
 
 // 世界Tab点击处理
