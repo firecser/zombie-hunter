@@ -2871,15 +2871,15 @@ const OTHER_GAMES = [
     { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame', alpha: '0' },
     { id: 'qiexigua', name: '忍者切水果', emoji: '🍉', icon: 'images/qiexiguaicon.png', appId: '', mode: 'ingame', alpha: 'R' },
     { id: 'feidegenggao', name: '我要飞的更高', emoji: '🚀', icon: 'images/feidegenggaoicon.png', appId: '', mode: 'ingame', alpha: 'W' },
-    { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: 'images/bunengsiicon.jpg', appId: '', mode: 'ingame', alpha: 'Y' },
+    { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: 'images/bunengsiicon.png', appId: '', mode: 'ingame', alpha: 'Y' },
     { id: 'xiaoniaofeifei', name: '小鸟飞飞飞', emoji: '🐤', icon: 'images/xiaoniaofeifeiicon.png', appId: '', mode: 'ingame', alpha: 'X' },
-    { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
-    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' },
+    { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzfzmicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
+    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.png', appId: '', mode: 'ingame', alpha: 'B' },
     { id: 'zuiqiangyanli', name: '最强眼力', emoji: '👀', icon: 'images/zuiqiangyanliicon.png', appId: '', mode: 'ingame', alpha: 'Z' },
     { id: 'qingwa', name: '小青蛙过河', emoji: '🐸', icon: 'images/qingwaicon.png', appId: '', mode: 'ingame', alpha: 'F' },
     { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: 'images/sqsdscjicon.png', appId: '', mode: 'ingame', alpha: 'S' },
     { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: 'images/shenjingmaoicon.png', appId: '', mode: 'ingame', alpha: 'N' },
-    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.jpg', appId: '', mode: 'ingame', alpha: 'H' },
+    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.png', appId: '', mode: 'ingame', alpha: 'H' },
     { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'L' }
 ];
 
@@ -5702,8 +5702,9 @@ function computeOtherGamesLayout() {
                 w: cardW, h: cardH
             });
         }
-        if (!otherGamesExpanded && played.length > 5) {
-            const idx = 5;
+        // 超过 5 个才有折叠需求：收起态显示「更多 ▾」，展开态显示「收起 ▴」
+        if (played.length > 5) {
+            const idx = shown; // 紧跟在最后一张卡之后
             const col = idx % cols;
             const row = Math.floor(idx / cols);
             moreBtn = { x: gridX + col * (cardW + gap), y: playedGridStartY + row * (cardH + vgap), w: cardW, h: cardH };
@@ -5889,7 +5890,7 @@ function drawOtherGamesPage() {
             drawOtherGameCard(c.x, contentTop + c.y + scrollY, c.w, c.h, c.game, true);
         });
         if (L.moreBtn) {
-            drawOtherGamesMoreBtn(L.moreBtn.x, contentTop + L.moreBtn.y + scrollY, L.moreBtn.w, L.moreBtn.h, false);
+            drawOtherGamesMoreBtn(L.moreBtn.x, contentTop + L.moreBtn.y + scrollY, L.moreBtn.w, L.moreBtn.h, otherGamesExpanded);
         }
     }
 
@@ -5966,11 +5967,14 @@ function handleOtherGamesClick(x, y) {
             return;
         }
     }
-    // 更多按钮
+    // 更多 / 收起 按钮
     if (L.moreBtn) {
         const sy = contentTop + L.moreBtn.y + scrollY;
         if (x >= L.moreBtn.x && x <= L.moreBtn.x + L.moreBtn.w && y >= sy && y <= sy + L.moreBtn.h) {
             otherGamesExpanded = !otherGamesExpanded;
+            // 收起后内容变短，滚动量可能越界，重新钳制
+            const L2 = computeOtherGamesLayout();
+            otherGamesScrollY = Math.max(-L2.maxScroll, Math.min(0, otherGamesScrollY));
             return;
         }
     }
