@@ -2872,6 +2872,7 @@ const OTHER_GAMES = [
     { id: 'qiexigua', name: '忍者切水果', emoji: '🍉', icon: 'images/qiexiguaicon.png', appId: '', mode: 'ingame', alpha: 'R' },
     { id: 'feidegenggao', name: '我要飞的更高', emoji: '🚀', icon: '', appId: '', mode: 'ingame', alpha: 'W' },
     { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: '', appId: '', mode: 'ingame', alpha: 'Y' },
+    { id: 'xiaoniaofeifei', name: '小鸟飞飞飞', emoji: '🐤', icon: '', appId: '', mode: 'ingame', alpha: 'X' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
     { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' }
 ];
@@ -2950,6 +2951,7 @@ function getMiniGameBest(id) {
     if (id === 'qiexigua') return gQiexiguaBest;
     if (id === 'feidegenggao') return gFeidegenggaoBest;
     if (id === 'bunengsi') return gBunengsiBest;
+    if (id === 'xiaoniaofeifei') return gXnfBest;
     if (id === 'qmxzfzm') return qmxzBest;
     if (id === 'bdsjm') return bdsjmBest;
     return 0;
@@ -6298,6 +6300,10 @@ function startMiniGame(game) {
         gBunengsiInit();
         activeMiniGame = 'bunengsi';
         otherGamesModal.show = false;
+    } else if (game.id === 'xiaoniaofeifei') {
+        gXnfInit();
+        activeMiniGame = 'xiaoniaofeifei';
+        otherGamesModal.show = false;
     }
     // 记录会话开始时间，用于累计游玩时长
     miniGameSessionStart = Date.now();
@@ -7444,6 +7450,318 @@ function handleMiniGameBunengsiInput(x, y) {
     if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gBunengsiInit(); return; }
 }
 
+// ==================== 内嵌小游戏：小鸟飞飞飞 ====================
+// 移植自 HTML5 版「小鸟飞飞飞」(Flappy Bird 类)：点击让小鸟向上振翅，重力使其下坠，
+// 穿越上下水管之间的缝隙得分，撞管或落地即结束。为保证与原版物理一致，内部用 320×550
+// 虚拟坐标系 + 固定步长(0.03s≈33fps) 还原：重力 1.5、起跳冲量 -12、水管速度 -3、间距 57 帧、缝宽 100。
+const XNF_VW = 320;
+const XNF_VH = 550;
+const XNF_FRAME = 0.03;            // 原版定时器节流 30ms
+const XNF_GRAVITY = 1.5;           // 逐帧重力 (虚拟 px/帧²)
+const XNF_JUMP_V = -12;            // 振翅冲量 (虚拟 px/帧)
+const XNF_PIPE_SPEED = -3;         // 水管左移速度 (虚拟 px/帧)
+const XNF_PIPE_W = 52;
+const XNF_PIPE_H = 320;
+const XNF_GAP = 100;               // 缝隙竖直高度
+const XNF_GAP_MIN = 60;            // 缝隙顶(b) 随机下界
+const XNF_GAP_MAX = 170;           // 缝隙顶(b) 随机上界
+const XNF_SPAWN_FRAMES = 57;       // 每隔多少帧生成一对水管
+const XNF_BIRD_X = 96;             // 小鸟固定横坐标 (虚拟，约 30% 宽，反应更从容)
+const XNF_BIRD_HW = 16;            // 碰撞半宽
+const XNF_BIRD_HH = 15;            // 碰撞半高
+const XNF_GROUND_Y = XNF_VH - 112; // 地面线 (虚拟)
+const XNF_READY_Y = XNF_VH * 0.42; // 待飞时小鸟中心 y
+
+let gXnf = null;
+let gXnfBest = 0;
+
+function gXnfSaveBest() {
+    if (gXnfBest < gXnf.score) {
+        gXnfBest = gXnf.score;
+        try { wx.setStorageSync && wx.setStorageSync('gXnfBest', gXnfBest); } catch (e) {}
+    }
+}
+
+function gXnfLayout() {
+    const margin = 15;
+    const titleY = SAFE_TOP_OFFSET + 10;
+    const rowB = titleY + 34;
+    const bottomY = screenHeight - 16 - 32;
+    const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+    const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+    return { margin, titleY, rowB, bottomY, backBtn, restartBtn };
+}
+
+function gXnfInit() {
+    gXnf = {
+        state: 'ready',          // ready -> flying -> dead
+        by: XNF_READY_Y,         // 小鸟中心 y (虚拟)
+        vy: 0,
+        score: 0,
+        pipes: [],
+        spawnCounter: XNF_SPAWN_FRAMES + 17, // 起飞后先空 ~0.5s 再出第一对水管
+        frame: 0,
+        acc: 0,
+        hint: 2.2,
+        deadFlash: 0,
+        bob: 0,
+        lastTick: Date.now()
+    };
+    try { gXnfBest = (wx.getStorageSync && wx.getStorageSync('gXnfBest')) || 0; } catch (e) { gXnfBest = 0; }
+}
+
+function gXnfPopPipe() {
+    const b = XNF_GAP_MIN + Math.random() * (XNF_GAP_MAX - XNF_GAP_MIN); // 缝隙顶 y
+    gXnf.pipes.push({
+        x: XNF_VW,                // 从右侧进入
+        gapTop: b,                // 缝隙顶部 y
+        gapBottom: b + XNF_GAP,   // 缝隙底部 y
+        scored: false
+    });
+}
+
+function gXnfCollide(p) {
+    const g = gXnf;
+    const bx1 = XNF_BIRD_X - XNF_BIRD_HW, by1 = g.by - XNF_BIRD_HH;
+    const bx2 = XNF_BIRD_X + XNF_BIRD_HW, by2 = g.by + XNF_BIRD_HH;
+    const px1 = p.x, px2 = p.x + XNF_PIPE_W;
+    if (!(px2 > bx1 && px1 < bx2)) return false;                 // 水平不重叠
+    if (by1 < p.gapTop && by2 > p.gapTop - XNF_PIPE_H) return true;   // 撞顶部水管
+    if (by1 < p.gapBottom + XNF_PIPE_H && by2 > p.gapBottom) return true; // 撞底部水管
+    return false;
+}
+
+function gXnfDie() {
+    if (gXnf.state === 'dead') return;
+    gXnf.state = 'dead';
+    gXnf.deadFlash = 1;
+    gXnfSaveBest();
+}
+
+function gXnfStepFrame() {
+    const g = gXnf;
+    g.frame++;
+    if (g.state === 'flying') {
+        g.vy += XNF_GRAVITY;
+        g.by += g.vy;
+        if (g.by - XNF_BIRD_HH < 0) { g.by = XNF_BIRD_HH; if (g.vy < 0) g.vy = 0; }
+        if (g.by + XNF_BIRD_HH >= XNF_GROUND_Y) { g.by = XNF_GROUND_Y - XNF_BIRD_HH; gXnfDie(); return; }
+        g.spawnCounter--;
+        if (g.spawnCounter <= 0) { gXnfPopPipe(); g.spawnCounter = XNF_SPAWN_FRAMES; }
+        for (const p of g.pipes) {
+            p.x += XNF_PIPE_SPEED;
+            if (!p.scored && p.x + XNF_PIPE_W < XNF_BIRD_X - 26) { p.scored = true; g.score++; }
+            if (gXnfCollide(p)) { gXnfDie(); return; }
+        }
+        g.pipes = g.pipes.filter(p => p.x + XNF_PIPE_W > -4);
+    } else if (g.state === 'ready') {
+        g.bob += 1;
+        g.by = XNF_READY_Y + Math.sin(g.bob * 0.12) * 6;
+    }
+}
+
+function gXnfUpdate(dt) {
+    const g = gXnf;
+    g.acc += dt;
+    let steps = 0;
+    while (g.acc >= XNF_FRAME && steps < 6) {
+        g.acc -= XNF_FRAME;
+        gXnfStepFrame();
+        steps++;
+        if (g.state === 'dead') break;
+    }
+    if (g.hint > 0 && g.state === 'flying') g.hint -= dt;
+}
+
+function gXnfFlap(x, y) {
+    const g = gXnf;
+    if (!g) return;
+    const L = gXnfLayout();
+    if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return; // 按钮不触发振翅
+    if (g.state === 'ready') { g.state = 'flying'; g.vy = XNF_JUMP_V; g.hint = 0; }
+    else if (g.state === 'flying') { g.vy = XNF_JUMP_V; }
+}
+
+function gXnfDrawPipePart(x, y, w, h, capH, capOver, capAtTop) {
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, '#3a8f1f');
+    grad.addColorStop(0.5, '#7bd24a');
+    grad.addColorStop(1, '#3a8f1f');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#2c6b15';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    const capY = capAtTop ? y : (y + h - capH);
+    ctx.fillStyle = '#8fe05a';
+    ctx.fillRect(x - capOver, capY, w + capOver * 2, capH);
+    ctx.strokeStyle = '#2c6b15';
+    ctx.strokeRect(x - capOver, capY, w + capOver * 2, capH);
+}
+
+function gXnfDrawPipe(p, sx, sy) {
+    const x = p.x * sx;
+    const w = XNF_PIPE_W * sx;
+    const topH = XNF_PIPE_H * sy;
+    const topY = (p.gapTop - XNF_PIPE_H) * sy;
+    const botY = p.gapBottom * sy;
+    const botH = XNF_PIPE_H * sy;
+    const capH = 14 * sy;
+    const capOver = 4 * sx;
+    gXnfDrawPipePart(x, topY, w, topH, capH, capOver, false); // 顶管：管帽在底部
+    gXnfDrawPipePart(x, botY, w, botH, capH, capOver, true);  // 底管：管帽在顶部
+}
+
+function gXnfDrawBird(sx, sy) {
+    const g = gXnf;
+    const cx = XNF_BIRD_X * sx;
+    const cy = g.by * sy;
+    const r = XNF_BIRD_HH * sy;
+    let ang = 0;
+    if (g.state === 'flying') ang = g.vy < 0 ? -0.45 : Math.min(1.4, g.vy * 0.05);
+    else if (g.state === 'dead') ang = 1.4;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#c98a00';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(r * 0.25, r * 0.25, r * 0.55, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(r * 0.4, -r * 0.35, r * 0.32, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(r * 0.48, -r * 0.35, r * 0.15, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff7a1a';
+    ctx.beginPath();
+    ctx.moveTo(r * 0.9, -r * 0.05);
+    ctx.lineTo(r * 1.5, r * 0.02);
+    ctx.lineTo(r * 0.9, r * 0.25);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+}
+
+function drawMiniGameXnf() {
+    const L = gXnfLayout();
+    const now = Date.now();
+    const dt = Math.min(0.05, (now - gXnf.lastTick) / 1000);
+    gXnf.lastTick = now;
+    if (gXnf.state !== 'dead') gXnfUpdate(dt);
+    else if (gXnf.deadFlash > 0) gXnf.deadFlash -= dt * 2;
+
+    const sx = screenWidth / XNF_VW;
+    const sy = screenHeight / XNF_VH;
+    const groundScreenY = XNF_GROUND_Y * sy;
+
+    // 天空
+    const sky = ctx.createLinearGradient(0, 0, 0, groundScreenY);
+    sky.addColorStop(0, '#4ec0ca');
+    sky.addColorStop(1, '#9fe3e8');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, screenWidth, groundScreenY);
+
+    // 云
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    const clouds = [[60, 120], [240, 80], [160, 200]];
+    for (const c of clouds) {
+        const ccx = c[0] * sx, ccy = c[1] * sy, cr = 22 * sy;
+        ctx.beginPath();
+        ctx.arc(ccx, ccy, cr, 0, Math.PI * 2);
+        ctx.arc(ccx + cr, ccy + 4, cr * 0.8, 0, Math.PI * 2);
+        ctx.arc(ccx - cr, ccy + 4, cr * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 世界（裁剪到天空区域）
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, screenWidth, groundScreenY); ctx.clip();
+    for (const p of gXnf.pipes) gXnfDrawPipe(p, sx, sy);
+    gXnfDrawBird(sx, sy);
+    ctx.restore();
+
+    // 地面
+    ctx.fillStyle = '#ded895';
+    ctx.fillRect(0, groundScreenY, screenWidth, screenHeight - groundScreenY);
+    ctx.fillStyle = '#73bf2e';
+    ctx.fillRect(0, groundScreenY, screenWidth, 18 * sy);
+    ctx.fillStyle = '#5aa322';
+    ctx.fillRect(0, groundScreenY, screenWidth, 6 * sy);
+    const tileW = 28 * sx;
+    let off = (gXnf.frame * XNF_PIPE_SPEED * sx);
+    off = ((off % tileW) + tileW) % tileW;
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    for (let gx = -off; gx < screenWidth; gx += tileW) {
+        ctx.fillRect(gx, groundScreenY + 22 * sy, 14 * sx, (screenHeight - groundScreenY) - 22 * sy);
+    }
+
+    // 准备 / 飞行提示
+    if (gXnf.state === 'ready') {
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🐤', screenWidth / 2, groundScreenY * 0.5 - 34);
+        ctx.fillText('点击屏幕，让小鸟振翅起飞', screenWidth / 2, groundScreenY * 0.5 + 4);
+    } else if (gXnf.hint > 0 && gXnf.state === 'flying') {
+        ctx.globalAlpha = Math.min(1, gXnf.hint);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 15px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('点一下振翅，别撞水管！', screenWidth / 2, 90);
+        ctx.globalAlpha = 1;
+    }
+
+    // 死亡闪白 + 遮罩
+    if (gXnf.state === 'dead') {
+        if (gXnf.deadFlash > 0) {
+            ctx.fillStyle = 'rgba(255,255,255,' + (0.5 * Math.max(0, gXnf.deadFlash)).toFixed(3) + ')';
+            ctx.fillRect(0, 0, screenWidth, screenHeight);
+        }
+        ctx.fillStyle = 'rgba(15,27,45,0.8)';
+        ctx.fillRect(0, 0, screenWidth, screenHeight);
+        ctx.fillStyle = '#ff6b6b';
+        ctx.font = 'bold 28px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('啪！撞了', screenWidth / 2, screenHeight / 2 - 50);
+        ctx.fillStyle = '#fff';
+        ctx.font = '20px Arial';
+        ctx.fillText('本局得分 ' + gXnf.score, screenWidth / 2, screenHeight / 2 - 6);
+        ctx.fillText('最高纪录 ' + gXnfBest, screenWidth / 2, screenHeight / 2 + 28);
+        ctx.fillStyle = '#ffd700';
+        ctx.font = '14px Arial';
+        ctx.fillText('点「↻ 新游戏」再来一局', screenWidth / 2, screenHeight / 2 + 64);
+        ctx.textBaseline = 'alphabetic';
+    }
+
+    // HUD（始终置顶，确保按钮可见可点）
+    drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+    drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.strokeText('小鸟飞飞飞', L.margin, L.titleY);
+    ctx.fillText('小鸟飞飞飞', L.margin, L.titleY);
+
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 32, '得分', gXnf.score);
+    drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最高', gXnfBest);
+}
+
+function handleMiniGameXnfInput(x, y) {
+    if (!gXnf) return;
+    const L = gXnfLayout();
+    if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+    if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gXnfInit(); return; }
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -7601,6 +7919,8 @@ function gameLoop() {
             drawMiniGameFeidegenggao();
         } else if (activeMiniGame === 'bunengsi') {
             drawMiniGameBunengsi();
+        } else if (activeMiniGame === 'xiaoniaofeifei') {
+            drawMiniGameXnf();
         } else {
             // 实时更新体力
             updateEnergyRealtime();
@@ -7677,6 +7997,7 @@ wx.onTouchStart((e) => {
         if (activeMiniGame === 'feidegenggao' && gFeidegenggao) gFeidegenggao.player.targetX = x;
         // 一个都不能死：起跳要跟手，放在 touchStart 立即响应
         if (activeMiniGame === 'bunengsi' && gBunengsi) gBunengsiTap(x, y);
+        if (activeMiniGame === 'xiaoniaofeifei' && gXnf) gXnfFlap(x, y);
         return;
     }
 
@@ -8001,6 +8322,7 @@ wx.onTouchMove((e) => {
 
     // 内嵌小游戏（一个都不能死）：不响应拖动，避免误触发后面的菜单滚动
     if (gameState === 'mainMenu' && activeMiniGame === 'bunengsi') return;
+    if (gameState === 'mainMenu' && activeMiniGame === 'xiaoniaofeifei') return;
 
     const touch = e.touches[0];
     const x = touch.clientX;
@@ -8133,6 +8455,11 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（一个都不能死）：按钮点击（起跳由 touchStart 处理）
     if (gameState === 'mainMenu' && activeMiniGame === 'bunengsi') {
         handleMiniGameBunengsiInput(endX, endY);
+        return;
+    }
+
+    if (gameState === 'mainMenu' && activeMiniGame === 'xiaoniaofeifei') {
+        handleMiniGameXnfInput(endX, endY);
         return;
     }
 
