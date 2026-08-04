@@ -2968,6 +2968,16 @@ function getMiniGameBest(id) {
     if (id === 'sheqiu') return gDlsqBest;
     return 0;
 }
+// 卡片上的纪录文案：多数游戏"越高越好"，青蛙/围猫是"步数越少越好"，需要区分
+function getMiniGameBestText(id) {
+    const v = getMiniGameBest(id);
+    if (id === 'qingwa' || id === 'shenjingmao') return v > 0 ? ('最少 ' + v + ' 步') : '最少 -';
+    if (id === 'sqsdscj') return v > 0 ? ('最高 ¥' + v) : '最高 ¥0';
+    if (id === 'sheqiu') return '最远 ' + v + ' km';
+    if (id === 'yibihua') return '通关 ' + v + ' 关';
+    if (id === 'zuiqiangyanli') return '最高 ' + v + ' 关';
+    return '最高 ' + v;
+}
 // 玩过判定：累计 > 1 分钟
 function isPlayed(id) {
     return (miniGamePlaySeconds[id] || 0) > 60;
@@ -5789,7 +5799,7 @@ function drawOtherGameCard(x, y, w, h, game, isPlayedCard) {
         ctx.fillText('⏱ ' + mins + '分钟', x + w / 2, y + h - 14);
     } else {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-        ctx.fillText('最高 ' + getMiniGameBest(game.id), x + w / 2, y + h - 14);
+        ctx.fillText(getMiniGameBestText(game.id), x + w / 2, y + h - 14);
     }
 }
 
@@ -7859,15 +7869,19 @@ function gZqylUpdate(dt) {
     const dur = Math.max(0.18, 0.42 - g.level * 0.02);
     const t = Math.min(1, g.swapT / dur);
     if (g.swapQueue.length) {
+      // 队列里存的是「位置(slot)」，按 slot 找杯子来动画，金币跟着杯子走（不能交换 hasCoin，
+      // 否则杯子的渲染位置与逻辑位置对不上，会出现杯子瞬移）
       const ab = g.swapQueue[0];
       const a = ab[0], b = ab[1];
-      const ca = g.cups[a], cb = g.cups[b];
+      let ca = null, cb = null;
+      for (const c of g.cups) { if (c.slot === a) ca = c; else if (c.slot === b) cb = c; }
+      if (!ca || !cb) { g.swapQueue.shift(); g.swapT = 0; if (!g.swapQueue.length) g.state = 'guess'; return; }
       const ax = gZqylSlotX(a), bx = gZqylSlotX(b);
       ca.x = ax + (bx - ax) * t;
       cb.x = bx + (ax - bx) * t;
       if (t >= 1) {
-        const ts = ca.slot; ca.slot = cb.slot; cb.slot = ts;
-        const tc = ca.hasCoin; ca.hasCoin = cb.hasCoin; cb.hasCoin = tc;
+        ca.slot = b; cb.slot = a;
+        ca.x = gZqylSlotX(ca.slot); cb.x = gZqylSlotX(cb.slot);
         g.swapQueue.shift();
         g.swapT = 0;
         if (!g.swapQueue.length) g.state = 'guess';
@@ -7894,7 +7908,7 @@ function gZqylTap(x, y) {
   }
   if (picked < 0) return;
   const cup = g.cups[picked];
-  if (cup.hasCoin) { g.level++; g.msg = '👀 眼力不错！进下一关'; gZqylSaveBest(); }
+  if (cup.hasCoin) { gZqylSaveBest(); g.level++; g.msg = '👀 眼力不错！进下一关'; }
   else { g.lives--; g.msg = '😵 看走眼了，扣 1 命'; }
   g.state = 'reveal';
   g.msgT = 1.1;
@@ -8003,8 +8017,23 @@ function gQingwaSlotX(i) {
   return L.boardX + L.boardW * (i + 0.5) / QW_SLOTS;
 }
 function gQingwaInit() {
-  gQingwa = { slots: ['L', 'L', 'L', 0, 'R', 'R', 'R'], moves: 0, time: 0, win: false, anim: null, lastTick: Date.now() };
+  gQingwa = { slots: ['L', 'L', 'L', 0, 'R', 'R', 'R'], moves: 0, time: 0, win: false, stuck: false, anim: null, lastTick: Date.now() };
   try { gQingwaBest = (wx.getStorageSync && wx.getStorageSync('gQingwaBest')) || 0; } catch (e) { gQingwaBest = 0; }
+}
+// 死局判定：这个谜题走错顺序会卡死（没有任何合法跳法），必须提示重来
+function gQingwaHasMove() {
+  const s = gQingwa.slots;
+  for (let i = 0; i < QW_SLOTS; i++) {
+    const f = s[i];
+    if (f === 'L') {
+      if (i + 1 < QW_SLOTS && s[i + 1] === 0) return true;
+      if (i + 2 < QW_SLOTS && s[i + 1] === 'R' && s[i + 2] === 0) return true;
+    } else if (f === 'R') {
+      if (i - 1 >= 0 && s[i - 1] === 0) return true;
+      if (i - 2 >= 0 && s[i - 1] === 'L' && s[i - 2] === 0) return true;
+    }
+  }
+  return false;
 }
 function gQingwaWinCheck() {
   const s = gQingwa.slots;
@@ -8015,7 +8044,7 @@ function gQingwaWinCheck() {
 }
 function gQingwaTap(x, y) {
   const g = gQingwa;
-  if (!g || g.win || g.anim) return;
+  if (!g || g.win || g.stuck || g.anim) return;
   const L = gQingwaLayout();
   if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
   let picked = -1;
@@ -8045,6 +8074,7 @@ function gQingwaUpdate(dt) {
       g.moves++;
       g.anim = null;
       if (gQingwaWinCheck()) { g.win = true; gQingwaSaveBest(); }
+      else if (!gQingwaHasMove()) g.stuck = true;
     }
   }
 }
@@ -8106,6 +8136,14 @@ function drawMiniGameQingwa() {
     ctx.fillText('用了 ' + gQingwa.moves + ' 步 / ' + gQingwa.time.toFixed(1) + ' 秒', screenWidth / 2, screenHeight / 2);
     ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
     ctx.fillText('点「↻ 新游戏」再挑战', screenWidth / 2, screenHeight / 2 + 34);
+  } else if (gQingwa.stuck) {
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#ff9b9b'; ctx.font = 'bold 24px Arial'; ctx.textBaseline = 'middle';
+    ctx.fillText('卡住了～', screenWidth / 2, screenHeight / 2 - 30);
+    ctx.fillStyle = '#fff'; ctx.font = '16px Arial';
+    ctx.fillText('所有青蛙都跳不动了', screenWidth / 2, screenHeight / 2 + 4);
+    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
+    ctx.fillText('点击屏幕重新开始', screenWidth / 2, screenHeight / 2 + 34);
   } else {
     ctx.fillText('点青蛙跳过空位或隔一蛙，让左右互换', screenWidth / 2, L.boardY + 24);
   }
@@ -8115,7 +8153,7 @@ function handleMiniGameQingwaInput(x, y) {
   const L = gQingwaLayout();
   if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
   if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gQingwaInit(); return; }
-  if (gQingwa.win) { gQingwaInit(); return; }
+  if (gQingwa.win || gQingwa.stuck) { gQingwaInit(); return; }
   gQingwaTap(x, y);
 }
 
@@ -8635,6 +8673,7 @@ function gDlsqUpdate(dt) {
     g.vy += DLSQ_GRAV * dt;
     g.ball.x += g.vx * dt;
     g.ball.y += g.vy * dt;
+    g.dist = Math.max(0, Math.round((g.ball.x - g.startBall.x) / 12)); // 飞行中实时跳数字
     if (g.ball.y >= g.startBall.y) {
       g.ball.y = g.startBall.y;
       g.state = 'land';
@@ -8688,13 +8727,17 @@ function drawMiniGameDlsq() {
 
   const g = gDlsq;
   const groundY = g.startBall.y;
+  // 镜头跟随：球最远能飞 1500px，远超屏宽，不跟随就"射出去看不见了"
+  const camX = Math.max(0, g.ball.x - (L.boardX + L.boardW * 0.45));
+  const bx = g.ball.x - camX;
   ctx.fillStyle = '#3a7d34';
   ctx.fillRect(L.boardX, groundY, L.boardW, L.boardY + L.boardH - groundY);
   ctx.fillStyle = '#2f6b2a';
   ctx.fillRect(L.boardX, groundY, L.boardW, 6);
   ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  for (let km = 1; km * 12 < L.boardW; km++) {
-    const mx = L.boardX + km * 12;
+  for (let km = 1; km * 12 - camX < L.boardW; km++) {
+    const mx = L.boardX + km * 12 - camX;
+    if (mx < L.boardX) continue;
     ctx.fillRect(mx, groundY, 1, 10);
     if (km % 5 === 0) ctx.fillText(km + 'km', mx, groundY + 12);
   }
@@ -8712,8 +8755,17 @@ function drawMiniGameDlsq() {
     ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(g.ball.x, g.ball.y); ctx.lineTo(g.drag.x, g.drag.y); ctx.stroke(); ctx.setLineDash([]);
   }
+  // 球飞得过高超出棋盘顶部时，贴顶画个提示位，避免"球消失"
+  const topY = L.boardY + 8;
+  const drawY = Math.max(topY, g.ball.y);
+  ctx.globalAlpha = (g.ball.y < topY) ? 0.5 : 1;
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(g.ball.x, g.ball.y, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(bx, drawY, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.globalAlpha = 1;
+  if (g.ball.y < topY) {
+    ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('▲', bx, topY - 6);
+  }
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (g.state === 'aim') ctx.fillText('按住球向后拉，松手射门！', screenWidth / 2, L.boardY + 24);
   else if (g.state === 'land') {
@@ -9320,6 +9372,10 @@ wx.onTouchMove((e) => {
         if (gYbh) gYbhDrag(sm.clientX, sm.clientY);
         return;
     }
+
+    // 兜底：其余内嵌小游戏（2048/qmxzfzm/bdsjm/最强眼力/青蛙/数钱/围猫）不需要拖动，
+    // 直接吞掉，避免手指划动穿透到背后的关卡Tab/其他游戏页滚动
+    if (activeMiniGame) return;
 
     const touch = e.touches[0];
     const x = touch.clientX;
