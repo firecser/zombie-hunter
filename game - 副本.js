@@ -2868,9 +2868,9 @@ const MAIN_MENU_NAV_H = 65;
 //        为空时点击仅提示「暂未配置」，不会报错。
 // emoji：图标（小游戏里无法直接内嵌 HTML5 网页游戏，用 emoji 作图标最稳妥；有 AppID 后可换成对应小游戏封面图）。
 const OTHER_GAMES = [
-    { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame' },
-    { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame' },
-    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame' }
+    { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame', alpha: '0' },
+    { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
+    { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
@@ -2907,6 +2907,51 @@ let qmxzTrueImg = null, qmxzFalseImg = null, qmxzImgsLoaded = false; // 游戏�
 // 暴打神经猫（内嵌）
 let bdsjm = null;
 let bdsjmBest = 0;
+
+// ===== 其他游戏页：累计时长 / 最高分 / 滚动 状态 =====
+let miniGamePlaySeconds = {};     // id -> 累计游玩秒数（持久化到本地）
+let miniGameStatsLoaded = false;
+let miniGameSessionStart = 0;    // 当前会话开始时间戳（进入小游戏时记录）
+let miniGameLastFlush = 0;       // 上次落盘时间戳（每 10 秒刷一次，防崩溃丢数据）
+let otherGamesScrollY = 0;       // 其他游戏页滚动偏移（<= 0）
+let otherGamesExpanded = false;  // “我玩过的”是否展开全部
+// 手指拖动状态（其他游戏页）
+let ogTouchStartX = 0, ogTouchStartY = 0, ogDragStartY = 0, ogDragStartScrollY = 0, isOgDragging = false;
+
+function loadMiniGameStats() {
+    try { miniGamePlaySeconds = (wx.getStorageSync && wx.getStorageSync('miniGamePlaySeconds')) || {}; } catch (e) { miniGamePlaySeconds = {}; }
+    if (typeof miniGamePlaySeconds !== 'object' || miniGamePlaySeconds === null) miniGamePlaySeconds = {};
+}
+function saveMiniGameStats() {
+    try { if (wx.setStorageSync) wx.setStorageSync('miniGamePlaySeconds', miniGamePlaySeconds); } catch (e) {}
+}
+function ensureMiniGameStatsLoaded() {
+    if (!miniGameStatsLoaded) { loadMiniGameStats(); miniGameStatsLoaded = true; }
+}
+// 累加某游戏累计游玩秒数
+function addMiniGamePlaySeconds(id, sec) {
+    if (!id || !sec || sec <= 0) return;
+    miniGamePlaySeconds[id] = (miniGamePlaySeconds[id] || 0) + sec;
+    saveMiniGameStats();
+}
+// 把当前进行中的会话时长结算进存储（进入/退出/每10秒调用）
+function flushMiniGameSeconds() {
+    if (!activeMiniGame || !miniGameSessionStart) return;
+    const elapsed = Math.floor((Date.now() - miniGameSessionStart) / 1000);
+    if (elapsed > 0) addMiniGamePlaySeconds(activeMiniGame, elapsed);
+    miniGameSessionStart = Date.now();
+}
+// 仅展示用的最高分
+function getMiniGameBest(id) {
+    if (id === '2048') return g2048Best;
+    if (id === 'qmxzfzm') return qmxzBest;
+    if (id === 'bdsjm') return bdsjmBest;
+    return 0;
+}
+// 玩过判定：累计 > 1 分钟
+function isPlayed(id) {
+    return (miniGamePlaySeconds[id] || 0) > 60;
+}
 let bdsjmCatImgs = [];      // 3 张神经猫图（随机显示）
 let bdsjmImgsLoaded = false;
 const BDSJM_ALL_TIME = 30;  // 限时（秒）
@@ -5588,109 +5633,324 @@ function handleSettingsClick(x, y) {
 }
 
 // ==================== 其他游戏选择页 ====================
+// ============ 其他游戏页布局（我玩过的 + 所有游戏 alpha 分组 + 字母索引 + 更多展开） ============
 function computeOtherGamesLayout() {
+    ensureMiniGameStatsLoaded();
     const cols = 3;
     const gap = 14;
     const gridX = 20;
-    const gridW = screenWidth - gridX * 2;
+    const gridRightPad = 36; // 右侧给字母索引留空间
+    const gridW = screenWidth - gridX - gridRightPad;
     const cardW = (gridW - gap * (cols - 1)) / cols;
-    const cardH = 110;
-    const startY = SAFE_TOP_OFFSET + 70;
-    const cards = OTHER_GAMES.map((game, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        return {
-            game,
-            x: gridX + col * (cardW + gap),
-            y: startY + row * (cardH + gap),
-            w: cardW,
-            h: cardH
-        };
+    const cardH = 104;
+    const vgap = 12;
+
+    const contentTop = SAFE_TOP_OFFSET + 48;
+    const contentBottom = screenHeight - 16;
+    const contentH = contentBottom - contentTop;
+
+    let maxVirtualY = 0;
+
+    // ---- 我玩过的（按累计时长降序） ----
+    const played = OTHER_GAMES.filter(g => isPlayed(g.id))
+        .sort((a, b) => (miniGamePlaySeconds[b.id] || 0) - (miniGamePlaySeconds[a.id] || 0));
+    const playedHeaderY = 0;
+    const playedGridStartY = 38;
+    const playedCards = [];
+    let moreBtn = null;
+    if (played.length > 0) {
+        const shown = otherGamesExpanded ? played.length : Math.min(played.length, 5);
+        for (let i = 0; i < shown; i++) {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            playedCards.push({
+                game: played[i],
+                x: gridX + col * (cardW + gap),
+                y: playedGridStartY + row * (cardH + vgap),
+                w: cardW, h: cardH
+            });
+        }
+        if (!otherGamesExpanded && played.length > 5) {
+            const idx = 5;
+            const col = idx % cols;
+            const row = Math.floor(idx / cols);
+            moreBtn = { x: gridX + col * (cardW + gap), y: playedGridStartY + row * (cardH + vgap), w: cardW, h: cardH };
+        }
+        const totalSlots = shown + (moreBtn ? 1 : 0);
+        const rows = Math.ceil(totalSlots / cols);
+        maxVirtualY = playedGridStartY + rows * (cardH + vgap);
+    }
+
+    // ---- 所有游戏（按 alpha 分组，A-Z 在前，'0' 在最后） ----
+    const allHeaderY = maxVirtualY + 16;
+    const groupsRaw = {};
+    OTHER_GAMES.forEach(g => {
+        const key = (g.alpha || '0').toUpperCase();
+        (groupsRaw[key] = groupsRaw[key] || []).push(g);
     });
-    const backBtn = { x: 15, y: screenHeight - 48, w: 70, h: 32 };
-    return { cards, backBtn };
+    const groupLetters = Object.keys(groupsRaw).sort((a, b) => {
+        const ka = a === '0' ? 'zzz' : a;
+        const kb = b === '0' ? 'zzz' : b;
+        return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    const groups = [];
+    const groupHeaders = [];
+    let gy = allHeaderY + 34;
+    groupLetters.forEach(letter => {
+        const items = groupsRaw[letter].slice().sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+        const headerY = gy;
+        groupHeaders.push({ letter, y: headerY });
+        const cards = [];
+        items.forEach((g, i) => {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            cards.push({ game: g, x: gridX + col * (cardW + gap), y: headerY + 30 + row * (cardH + vgap), w: cardW, h: cardH });
+        });
+        const rows = Math.ceil(items.length / cols);
+        const endY = headerY + 30 + rows * (cardH + vgap);
+        groups.push({ letter, headerY, cards });
+        gy = endY + 16;
+    });
+    if (groupLetters.length > 0) maxVirtualY = gy;
+
+    const maxScroll = Math.max(0, maxVirtualY - contentH);
+
+    return {
+        contentTop, contentBottom, contentH, cardW, cardH,
+        played, playedHeaderY, playedCards, moreBtn,
+        allHeaderY, groups, groupHeaders,
+        letters: groupLetters, maxScroll
+    };
+}
+
+// 单个游戏卡（我玩过的 = 金边+时长；所有游戏 = 蓝边+最高分）
+function drawOtherGameCard(x, y, w, h, game, isPlayedCard) {
+    ctx.fillStyle = ROYALE.panelLight;
+    roundRect(ctx, x, y, w, h, 14);
+    ctx.fill();
+    ctx.strokeStyle = isPlayedCard ? ROYALE.gold : 'rgba(125, 175, 225, 0.5)';
+    ctx.lineWidth = isPlayedCard ? 1.5 : 1;
+    roundRect(ctx, x, y, w, h, 14);
+    ctx.stroke();
+
+    const iconR = 24;
+    const iconCx = x + w / 2;
+    const iconCy = y + 36;
+    const iconImg = otherGameIcons[game.id];
+    if (iconImg) {
+        const size = iconR * 2;
+        const ix = iconCx - iconR, iy = iconCy - iconR;
+        ctx.save();
+        roundRect(ctx, ix, iy, size, size, 10);
+        ctx.clip();
+        ctx.drawImage(iconImg, ix, iy, size, size);
+        ctx.restore();
+    } else {
+        ctx.fillStyle = 'rgba(79, 195, 247, 0.18)';
+        ctx.beginPath();
+        ctx.arc(iconCx, iconCy, iconR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = '26px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(game.emoji, iconCx, iconCy);
+        ctx.textBaseline = 'alphabetic';
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(game.name, x + w / 2, y + h - 30);
+
+    ctx.font = '10px Arial';
+    if (isPlayedCard) {
+        const mins = Math.max(1, Math.round((miniGamePlaySeconds[game.id] || 0) / 60));
+        ctx.fillStyle = ROYALE.gold;
+        ctx.fillText('⏱ ' + mins + '分钟', x + w / 2, y + h - 14);
+    } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fillText('最高 ' + getMiniGameBest(game.id), x + w / 2, y + h - 14);
+    }
+}
+
+// “更多 / 收起”按钮（样式等同游戏卡）
+function drawOtherGamesMoreBtn(x, y, w, h, expanded) {
+    ctx.fillStyle = ROYALE.panelLight;
+    roundRect(ctx, x, y, w, h, 14);
+    ctx.fill();
+    ctx.strokeStyle = ROYALE.gold;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x, y, w, h, 14);
+    ctx.stroke();
+    ctx.fillStyle = ROYALE.gold;
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(expanded ? '收起 ▴' : '更多 ▾', x + w / 2, y + h / 2);
+    ctx.textBaseline = 'alphabetic';
+}
+
+// 右侧字母索引（固定层）
+function drawOtherGamesLetterIndex(L) {
+    const bandTop = L.contentTop + 6;
+    const bandBottom = L.contentBottom - 6;
+    const bandH = bandBottom - bandTop;
+    const n = L.letters.length;
+    const idxX = screenWidth - 20;
+    // 当前激活字母：最靠近内容顶部的分组
+    let activeLetter = L.letters[0];
+    let bestDiff = Infinity;
+    L.groupHeaders.forEach(gh => {
+        const screenY = L.contentTop + gh.y + otherGamesScrollY;
+        if (screenY <= L.contentTop + 30) {
+            const d = Math.abs(screenY - L.contentTop);
+            if (d < bestDiff) { bestDiff = d; activeLetter = gh.letter; }
+        }
+    });
+    L.letters.forEach((letter, i) => {
+        const cy = bandTop + (i + 0.5) * bandH / n;
+        const isActive = letter === activeLetter;
+        ctx.fillStyle = isActive ? ROYALE.gold : 'rgba(255, 255, 255, 0.55)';
+        ctx.font = isActive ? 'bold 12px Arial' : '11px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(letter, idxX, cy);
+    });
+    ctx.textBaseline = 'alphabetic';
 }
 
 function drawOtherGamesPage() {
-    // 不透明底板：完全覆盖主界面（含底部Tab栏），避免看到或误触 主角/关卡/天赋/排行/世界/圈子
+    // 不透明底板：完全覆盖主界面（含底部Tab栏）
     drawRoyaleBackground();
 
-    // 标题
-    ctx.fillStyle = '#ffd700';
+    const L = computeOtherGamesLayout();
+    const scrollY = otherGamesScrollY;
+    const contentTop = L.contentTop;
+
+    // 固定标题
+    ctx.fillStyle = ROYALE.gold;
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
     ctx.fillText('🎮  其他游戏', screenWidth / 2, SAFE_TOP_OFFSET + 28);
 
-    const { cards, backBtn } = computeOtherGamesLayout();
+    // 固定返回按钮（左上）
+    drawRoyaleBevelButton({ x: 12, y: SAFE_TOP_OFFSET + 6, w: 56, h: 30, r: 8 }, '返回', 'blue');
 
-    // 返回按钮（右下角）
-    drawRoyaleBevelButton({ x: backBtn.x, y: backBtn.y, w: backBtn.w, h: backBtn.h, r: 8 }, '返回', 'blue');
+    // 裁剪内容区后绘制（滚动效果）
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, contentTop, screenWidth, L.contentH);
+    ctx.clip();
 
-    // 游戏卡片网格
-    cards.forEach((c) => {
-        ctx.fillStyle = ROYALE.panelLight;
-        roundRect(ctx, c.x, c.y, c.w, c.h, 14);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(125, 175, 225, 0.5)';
-        ctx.lineWidth = 1;
-        roundRect(ctx, c.x, c.y, c.w, c.h, 14);
-        ctx.stroke();
+    // ---- 我玩过的 ----
+    if (L.played.length > 0) {
+        ctx.fillStyle = ROYALE.gold;
+        ctx.font = 'bold 15px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('我玩过的', 20, contentTop + L.playedHeaderY + 20);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '11px Arial';
+        ctx.fillText('按累计时长排序', 92, contentTop + L.playedHeaderY + 20);
 
-        // 图标区域
-        const iconR = 26;
-        const iconCx = c.x + c.w / 2;
-        const iconCy = c.y + 38;
-        const iconImg = otherGameIcons[c.game.id];
-        if (iconImg) {
-            // 已配置真图标：圆角方形裁剪绘制，适配图标位尺寸
-            const size = iconR * 2;
-            const ix = iconCx - iconR;
-            const iy = iconCy - iconR;
-            ctx.save();
-            roundRect(ctx, ix, iy, size, size, 10);
-            ctx.clip();
-            ctx.drawImage(iconImg, ix, iy, size, size);
-            ctx.restore();
-        } else {
-            // 未配置图标：emoji 兜底
-            ctx.fillStyle = 'rgba(79, 195, 247, 0.18)';
-            ctx.beginPath();
-            ctx.arc(iconCx, iconCy, iconR, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.font = '28px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(c.game.emoji, iconCx, iconCy);
-            ctx.textBaseline = 'alphabetic';
+        L.playedCards.forEach(c => {
+            drawOtherGameCard(c.x, contentTop + c.y + scrollY, c.w, c.h, c.game, true);
+        });
+        if (L.moreBtn) {
+            drawOtherGamesMoreBtn(L.moreBtn.x, contentTop + L.moreBtn.y + scrollY, L.moreBtn.w, L.moreBtn.h, false);
         }
+    }
 
-        // 名称
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 13px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(c.game.name, c.x + c.w / 2, c.y + c.h - 18);
-    });
+    // ---- 所有游戏（alpha 分组） ----
+    if (L.groups.length > 0) {
+        ctx.fillStyle = ROYALE.gold;
+        ctx.font = 'bold 15px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('所有游戏', 20, contentTop + L.allHeaderY + 20);
+
+        L.groups.forEach(grp => {
+            const hsy = contentTop + grp.headerY + scrollY;
+            if (hsy > contentTop - 30 && hsy < L.contentBottom + 30) {
+                ctx.fillStyle = ROYALE.gold;
+                roundRect(ctx, 16, hsy - 4, 26, 26, 6);
+                ctx.fill();
+                ctx.fillStyle = '#1a1a2e';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(grp.letter, 29, hsy + 9);
+                ctx.textBaseline = 'alphabetic';
+            }
+            grp.cards.forEach(c => {
+                drawOtherGameCard(c.x, contentTop + c.y + scrollY, c.w, c.h, c.game, false);
+            });
+        });
+    }
+
+    ctx.restore();
+
+    // 右侧字母索引（固定层，仅在多于 1 个分组时显示）
+    if (L.letters.length > 1) {
+        drawOtherGamesLetterIndex(L);
+    }
 }
 
 function handleOtherGamesClick(x, y) {
     if (!otherGamesModal.show) return;
-    const { cards, backBtn } = computeOtherGamesLayout();
+    const L = computeOtherGamesLayout();
+    const scrollY = otherGamesScrollY;
+    const contentTop = L.contentTop;
 
-    // 返回
-    if (x >= backBtn.x && x <= backBtn.x + backBtn.w && y >= backBtn.y && y <= backBtn.y + backBtn.h) {
+    // 返回按钮（固定，左上）
+    if (x >= 12 && x <= 12 + 56 && y >= SAFE_TOP_OFFSET + 6 && y <= SAFE_TOP_OFFSET + 6 + 30) {
         otherGamesModal.show = false;
         return;
     }
 
-    // 游戏卡片
-    for (const c of cards) {
-        if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
-            if (c.game.mode === 'ingame') {
-                startMiniGame(c.game);   // 在本小游戏内直接运行
-            } else {
-                openMiniGame(c.game);    // 跳转其它已发布小游戏（需 AppID）
+    // 右侧字母索引（固定）
+    if (x >= screenWidth - 30) {
+        const bandTop = L.contentTop + 6;
+        const bandBottom = L.contentBottom - 6;
+        const bandH = bandBottom - bandTop;
+        const n = L.letters.length;
+        if (n > 0 && y >= bandTop - 10 && y <= bandBottom + 10) {
+            let idx = Math.floor((y - bandTop) / (bandH / n));
+            idx = Math.max(0, Math.min(n - 1, idx));
+            const letter = L.letters[idx];
+            const gh = L.groupHeaders.find(g => g.letter === letter);
+            if (gh) {
+                otherGamesScrollY = Math.max(-L.maxScroll, Math.min(0, 6 - gh.y));
             }
+        }
+        return;
+    }
+
+    // 内容区：我玩过的卡片
+    for (const c of L.playedCards) {
+        const sy = contentTop + c.y + scrollY;
+        if (x >= c.x && x <= c.x + c.w && y >= sy && y <= sy + c.h) {
+            if (c.game.mode === 'ingame') startMiniGame(c.game);
+            else openMiniGame(c.game);
             return;
+        }
+    }
+    // 更多按钮
+    if (L.moreBtn) {
+        const sy = contentTop + L.moreBtn.y + scrollY;
+        if (x >= L.moreBtn.x && x <= L.moreBtn.x + L.moreBtn.w && y >= sy && y <= sy + L.moreBtn.h) {
+            otherGamesExpanded = !otherGamesExpanded;
+            return;
+        }
+    }
+    // 内容区：所有游戏卡片
+    for (const grp of L.groups) {
+        for (const c of grp.cards) {
+            const sy = contentTop + c.y + scrollY;
+            if (x >= c.x && x <= c.x + c.w && y >= sy && y <= sy + c.h) {
+                if (c.game.mode === 'ingame') startMiniGame(c.game);
+                else openMiniGame(c.game);
+                return;
+            }
         }
     }
 }
@@ -5978,11 +6238,13 @@ function handleMiniGame2048Input(x, y) {
     // 点击（非滑动）
     if (Math.max(adx, ady) < 24) {
         if (inRect(x, y, L.backBtn)) {
+            flushMiniGameSeconds();
             activeMiniGame = null;
             otherGamesModal.show = true; // 回到「其他游戏」选择页
             return;
         }
         if (inRect(x, y, L.restartBtn)) {
+            flushMiniGameSeconds();
             g2048Init();
             return;
         }
@@ -6005,6 +6267,7 @@ function handleMiniGame2048Input(x, y) {
 }
 
 function startMiniGame(game) {
+    ensureMiniGameStatsLoaded();
     if (game.id === '2048') {
         g2048Init();
         activeMiniGame = '2048';
@@ -6018,6 +6281,9 @@ function startMiniGame(game) {
         activeMiniGame = 'bdsjm';
         otherGamesModal.show = false;
     }
+    // 记录会话开始时间，用于累计游玩时长
+    miniGameSessionStart = Date.now();
+    miniGameLastFlush = Date.now();
 }
 
 // ==================== 内嵌小游戏：全民寻找房祖名 ====================
@@ -6191,11 +6457,13 @@ function handleMiniGameQmxzInput(x, y) {
     if (!qmxz) return;
     const L = gQmxzLayout();
     if (inRect(x, y, L.backBtn)) {
+        flushMiniGameSeconds();
         activeMiniGame = null;
         otherGamesModal.show = true; // 回到「其他游戏」选择页
         return;
     }
     if (inRect(x, y, L.restartBtn)) {
+        flushMiniGameSeconds();
         gQmxzInit();
         return;
     }
@@ -6382,11 +6650,13 @@ function handleMiniGameBdsjmInput(x, y) {
     if (!bdsjm) return;
     const L = gBdsjmLayout();
     if (inRect(x, y, L.backBtn)) {
+        flushMiniGameSeconds();
         activeMiniGame = null;
         otherGamesModal.show = true;
         return;
     }
     if (inRect(x, y, L.restartBtn)) {
+        flushMiniGameSeconds();
         gBdsjmInit();
         return;
     }
@@ -6535,6 +6805,9 @@ function handleMainMenuTouch(x, y) {
         const otherGamesBtnH = 45;
         if (x >= panelX && x <= panelX + panelW && y >= otherGamesBtnY && y <= otherGamesBtnY + otherGamesBtnH) {
             otherGamesModal.show = true;
+            otherGamesScrollY = 0;
+            otherGamesExpanded = false;
+            ensureMiniGameStatsLoaded();
         }
     }
 }
@@ -6546,6 +6819,12 @@ function gameLoop() {
     
     ctx.clearRect(0, 0, screenWidth, screenHeight);
     
+    // 内嵌小游戏累计时长：每 10 秒刷一次本地存储，避免崩溃丢数据
+    if (gameState === 'mainMenu' && activeMiniGame && Date.now() - miniGameLastFlush > 10000) {
+        flushMiniGameSeconds();
+        miniGameLastFlush = Date.now();
+    }
+
     if (gameState === 'mainMenu') {
         if (activeMiniGame === '2048') {
             drawMiniGame2048();
@@ -6629,8 +6908,11 @@ wx.onTouchStart((e) => {
     }
 
     if (gameState === 'mainMenu') {
-        // 其他游戏选择页打开时，屏蔽所有主界面交互（包括底部Tab切换）
-        if (otherGamesModal.show) return;
+        // 其他游戏选择页打开时，进入页内滚动/点击处理（屏蔽主界面交互）
+        if (otherGamesModal.show) {
+            ogTouchStartX = x; ogTouchStartY = y; ogDragStartY = y; ogDragStartScrollY = otherGamesScrollY; isOgDragging = false;
+            return;
+        }
 
         const navY = screenHeight - MAIN_MENU_NAV_H;
         
@@ -6935,6 +7217,16 @@ wx.onTouchMove((e) => {
     const x = touch.clientX;
     const y = touch.clientY;
 
+    // 其他游戏页滚动
+    if (otherGamesModal.show) {
+        if (!isOgDragging && Math.abs(y - ogDragStartY) > 10) isOgDragging = true;
+        if (isOgDragging) {
+            const layout = computeOtherGamesLayout();
+            otherGamesScrollY = Math.max(-layout.maxScroll, Math.min(0, ogDragStartScrollY + (y - ogDragStartY)));
+        }
+        return;
+    }
+
     // 关卡Tab滚动
     if (mainMenuTab === 'level' && isLevelDragging) {
         const deltaY = y - levelDragStartY;
@@ -7014,7 +7306,8 @@ wx.onTouchEnd((e) => {
 
     // 其他游戏选择页显示时，只处理页内点击，屏蔽主界面交互（单次点击即生效）
     if (otherGamesModal.show) {
-        handleOtherGamesClick(endX, endY);
+        if (!isOgDragging) handleOtherGamesClick(endX, endY);
+        isOgDragging = false;
         return;
     }
 
