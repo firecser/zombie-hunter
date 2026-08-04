@@ -2871,6 +2871,7 @@ const OTHER_GAMES = [
     { id: '2048', name: '2048', emoji: '🔢', icon: 'images/2048icon.png', appId: '', mode: 'ingame', alpha: '0' },
     { id: 'qiexigua', name: '忍者切水果', emoji: '🍉', icon: 'images/qiexiguaicon.png', appId: '', mode: 'ingame', alpha: 'R' },
     { id: 'feidegenggao', name: '我要飞的更高', emoji: '🚀', icon: '', appId: '', mode: 'ingame', alpha: 'W' },
+    { id: 'bunengsi', name: '一个都不能死', emoji: '🏃', icon: '', appId: '', mode: 'ingame', alpha: 'Y' },
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
     { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.jpg', appId: '', mode: 'ingame', alpha: 'B' }
 ];
@@ -2948,6 +2949,7 @@ function getMiniGameBest(id) {
     if (id === '2048') return g2048Best;
     if (id === 'qiexigua') return gQiexiguaBest;
     if (id === 'feidegenggao') return gFeidegenggaoBest;
+    if (id === 'bunengsi') return gBunengsiBest;
     if (id === 'qmxzfzm') return qmxzBest;
     if (id === 'bdsjm') return bdsjmBest;
     return 0;
@@ -6292,6 +6294,10 @@ function startMiniGame(game) {
         gFeidegenggaoInit();
         activeMiniGame = 'feidegenggao';
         otherGamesModal.show = false;
+    } else if (game.id === 'bunengsi') {
+        gBunengsiInit();
+        activeMiniGame = 'bunengsi';
+        otherGamesModal.show = false;
     }
     // 记录会话开始时间，用于累计游玩时长
     miniGameSessionStart = Date.now();
@@ -7142,6 +7148,302 @@ function handleMiniGameFeidegenggaoInput(x, y) {
     if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gFeidegenggaoInit(); return; }
 }
 
+// ===================== 一个都不能死（多跑道跳障碍，任一小人被撞即失败） =====================
+let gBunengsi = null;
+let gBunengsiBest = 0;
+
+const BNS_LANES = 4;
+const BNS_GRAVITY = 2600;
+const BNS_JUMP_V = 760;
+const BNS_BASE_SPEED = 250;
+const BNS_SPEED_GROW = 10;
+const BNS_RUNNER_OFFSET = 76;
+const BNS_RUNNER_W = 24;
+const BNS_RUNNER_H = 30;
+const BNS_LANE_TINT = ['rgba(76,201,240,0.10)', 'rgba(247,37,133,0.10)', 'rgba(126,217,87,0.10)', 'rgba(255,209,102,0.10)'];
+const BNS_RUNNER_COLORS = ['#4cc9f0', '#f72585', '#7ed957', '#ffd166'];
+
+function gBunengsiSaveBest(g) {
+    const sec = Math.floor(g.time);
+    if (gBunengsiBest < sec) {
+        gBunengsiBest = sec;
+        try { wx.setStorageSync && wx.setStorageSync('gBunengsiBest', gBunengsiBest); } catch (e) {}
+    }
+}
+
+function gBunengsiLayout() {
+    const margin = 15;
+    const titleY = SAFE_TOP_OFFSET + 10;
+    const rowB = titleY + 34;
+    const boardX = margin;
+    const boardW = screenWidth - margin * 2;
+    const boardY = rowB + 44;
+    const bottomY = screenHeight - 16 - 32;
+    const boardH = bottomY - 12 - boardY;
+    const backBtn = { x: margin, y: bottomY, w: 70, h: 32 };
+    const restartBtn = { x: screenWidth - margin - 84, y: bottomY, w: 84, h: 32 };
+    return { margin, titleY, rowB, boardX, boardW, boardY, boardH, backBtn, restartBtn };
+}
+
+function gBunengsiInit() {
+    gBunengsi = {
+        time: 0,
+        score: 0,
+        gameOver: false,
+        deadLane: -1,
+        deadFlash: 0,
+        hint: 3.5,
+        lanes: [],
+        particles: [],
+        lastTick: Date.now()
+    };
+    try { gBunengsiBest = (wx.getStorageSync && wx.getStorageSync('gBunengsiBest')) || 0; } catch (e) { gBunengsiBest = 0; }
+    const L = gBunengsiLayout();
+    // 每条跑道占一个等高「格位」（点击热区），跑道条居中显示在格位里
+    const slotH = L.boardH / BNS_LANES;
+    const bandH = Math.min(190, slotH - 16);
+    for (let i = 0; i < BNS_LANES; i++) {
+        const slotTop = L.boardY + slotH * i;
+        const bandTop = slotTop + (slotH - bandH) / 2;
+        gBunengsi.lanes.push({
+            index: i,
+            slotTop: slotTop,
+            slotH: slotH,
+            bandTop: bandTop,
+            bandH: bandH,
+            groundY: bandTop + bandH - 22,
+            off: 0,
+            vy: 0,
+            jumping: false,
+            boxes: [],
+            // 各跑道错开首次生成时间，开局不会同时涌来
+            spawnTimer: 1.4 + Math.random() * 1.2 + i * 0.45
+        });
+    }
+}
+
+function gBunengsiUpdate(dt) {
+    const g = gBunengsi;
+    const L = gBunengsiLayout();
+    g.time += dt;
+    g.score = Math.floor(g.time);
+    if (g.hint > 0) g.hint -= dt;
+
+    const speed = BNS_BASE_SPEED + g.time * BNS_SPEED_GROW;
+    const spawnBase = Math.max(0.62, 1.7 - g.time * 0.015);
+    const runnerX = L.boardX + BNS_RUNNER_OFFSET;
+    const rx1 = runnerX - BNS_RUNNER_W / 2;
+    const rx2 = runnerX + BNS_RUNNER_W / 2;
+    const rightX = L.boardX + L.boardW;
+
+    for (const lane of g.lanes) {
+        // 跳跃物理（off 为离地高度，vy 向下为正）
+        if (lane.jumping) {
+            lane.vy += BNS_GRAVITY * dt;
+            lane.off -= lane.vy * dt;
+            if (lane.off <= 0) { lane.off = 0; lane.vy = 0; lane.jumping = false; }
+        }
+
+        lane.spawnTimer -= dt;
+        if (lane.spawnTimer <= 0) {
+            lane.boxes.push({ x: rightX + 6, w: 14 + Math.random() * 16, h: 20 + Math.random() * 30 });
+            lane.spawnTimer = spawnBase + Math.random() * spawnBase;
+        }
+
+        for (let i = lane.boxes.length - 1; i >= 0; i--) {
+            const b = lane.boxes[i];
+            b.x -= speed * dt;
+            if (b.x + b.w < L.boardX - 20) { lane.boxes.splice(i, 1); continue; }
+            // 碰撞：障碍横向压住小人 且 小人抬腿高度不够
+            if (b.x < rx2 - 3 && b.x + b.w > rx1 + 3 && lane.off < b.h - 3) {
+                g.gameOver = true;
+                g.deadLane = lane.index;
+                g.deadFlash = 1;
+                const col = BNS_RUNNER_COLORS[lane.index % BNS_RUNNER_COLORS.length];
+                for (let k = 0; k < 14; k++) {
+                    const a = Math.random() * Math.PI * 2;
+                    g.particles.push({
+                        x: runnerX, y: lane.groundY - BNS_RUNNER_H / 2,
+                        vx: Math.cos(a) * 220, vy: Math.sin(a) * 220 - 80,
+                        life: 0.7, color: col
+                    });
+                }
+                gBunengsiSaveBest(g);
+                return;
+            }
+        }
+    }
+
+    gBunengsiStepParticles(dt);
+}
+
+function gBunengsiStepParticles(dt) {
+    const g = gBunengsi;
+    for (const pt of g.particles) {
+        pt.vy += 900 * dt;
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+        pt.life -= dt;
+    }
+    g.particles = g.particles.filter(pt => pt.life > 0);
+}
+
+function gBunengsiTap(x, y) {
+    const g = gBunengsi;
+    if (!g || g.gameOver) return;
+    const L = gBunengsiLayout();
+    if (x < L.boardX || x > L.boardX + L.boardW || y < L.boardY || y > L.boardY + L.boardH) return;
+    const laneH = L.boardH / BNS_LANES;
+    let idx = Math.floor((y - L.boardY) / laneH);
+    idx = Math.max(0, Math.min(BNS_LANES - 1, idx));
+    const lane = g.lanes[idx];
+    if (lane && !lane.jumping) { lane.jumping = true; lane.vy = -BNS_JUMP_V; }
+    g.hint = 0;
+}
+
+function drawMiniGameBunengsi() {
+    drawRoyaleBackground();
+    const L = gBunengsiLayout();
+    drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+    drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+
+    const now = Date.now();
+    const dt = Math.min(0.05, (now - gBunengsi.lastTick) / 1000);
+    gBunengsi.lastTick = now;
+    if (!gBunengsi.gameOver) {
+        gBunengsiUpdate(dt);
+    } else {
+        gBunengsiStepParticles(dt);
+        if (gBunengsi.deadFlash > 0) gBunengsi.deadFlash -= dt * 2;
+    }
+
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('一个都不能死', L.margin, L.titleY);
+
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 32, '存活', gBunengsi.time.toFixed(1) + 's');
+    drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最高纪录', gBunengsiBest + 's');
+
+    ctx.save();
+    roundRect(ctx, L.boardX, L.boardY, L.boardW, L.boardH, 10);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(10,20,36,0.55)';
+    ctx.fillRect(L.boardX, L.boardY, L.boardW, L.boardH);
+
+    const runnerX = L.boardX + BNS_RUNNER_OFFSET;
+
+    for (const lane of gBunengsi.lanes) {
+        // 跑道条底板
+        ctx.fillStyle = BNS_LANE_TINT[lane.index % BNS_LANE_TINT.length];
+        roundRect(ctx, L.boardX + 4, lane.bandTop, L.boardW - 8, lane.bandH, 8); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, L.boardX + 4, lane.bandTop, L.boardW - 8, lane.bandH, 8); ctx.stroke();
+
+        if (gBunengsi.gameOver && gBunengsi.deadLane === lane.index && gBunengsi.deadFlash > 0) {
+            ctx.fillStyle = 'rgba(255,68,68,' + (0.4 * Math.max(0, gBunengsi.deadFlash)).toFixed(3) + ')';
+            roundRect(ctx, L.boardX + 4, lane.bandTop, L.boardW - 8, lane.bandH, 8); ctx.fill();
+        }
+
+        // 跑道编号
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('跑道 ' + (lane.index + 1), L.boardX + 14, lane.bandTop + 8);
+
+        // 地面
+        ctx.fillStyle = '#0d1729';
+        ctx.fillRect(L.boardX + 4, lane.groundY, L.boardW - 8, 6);
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(L.boardX + 4, lane.groundY, L.boardW - 8, 2);
+
+        // 障碍
+        for (const b of lane.boxes) {
+            ctx.fillStyle = '#122036';
+            roundRect(ctx, b.x, lane.groundY - b.h, b.w, b.h, 3); ctx.fill();
+            ctx.strokeStyle = '#4cc9f0';
+            ctx.lineWidth = 1.5;
+            roundRect(ctx, b.x, lane.groundY - b.h, b.w, b.h, 3); ctx.stroke();
+        }
+
+        // 小人
+        const dead = gBunengsi.gameOver && gBunengsi.deadLane === lane.index;
+        if (!dead) {
+            const bob = lane.jumping ? 0 : Math.sin(gBunengsi.time * 16 + lane.index) * 1.5;
+            const cy = lane.groundY - lane.off - BNS_RUNNER_H / 2 + bob;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.translate(runnerX, lane.groundY + 2);
+            ctx.scale(1, 0.28);
+            ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+
+            ctx.fillStyle = BNS_RUNNER_COLORS[lane.index % BNS_RUNNER_COLORS.length];
+            ctx.beginPath(); ctx.arc(runnerX, cy, BNS_RUNNER_H / 2, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(runnerX, cy, BNS_RUNNER_H / 2, 0, Math.PI * 2); ctx.stroke();
+            ctx.font = '18px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.fillText('🏃', runnerX, cy + 1);
+        } else {
+            // 阵亡跑道留下墓碑
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.fillText('💀', runnerX, lane.groundY - 16);
+        }
+    }
+
+    for (const pt of gBunengsi.particles) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 1.6));
+        ctx.fillStyle = pt.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (gBunengsi.hint > 0 && !gBunengsi.gameOver) {
+        ctx.globalAlpha = Math.min(1, gBunengsi.hint);
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 15px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('点哪条跑道，哪个小人就起跳', screenWidth / 2, L.boardY + 24);
+        ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+
+    if (gBunengsi.gameOver) {
+        ctx.fillStyle = 'rgba(15,27,45,0.82)';
+        ctx.fillRect(0, L.boardY, screenWidth, L.boardH);
+        ctx.fillStyle = '#ff6b6b';
+        ctx.font = 'bold 26px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('第 ' + (gBunengsi.deadLane + 1) + ' 号小人挂了！', screenWidth / 2, L.boardY + L.boardH / 2 - 40);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px Arial';
+        ctx.fillText('坚持了 ' + gBunengsi.time.toFixed(1) + ' 秒', screenWidth / 2, L.boardY + L.boardH / 2);
+        ctx.fillText('最高纪录 ' + gBunengsiBest + ' 秒', screenWidth / 2, L.boardY + L.boardH / 2 + 28);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function handleMiniGameBunengsiInput(x, y) {
+    if (!gBunengsi) return;
+    const L = gBunengsiLayout();
+    if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+    if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gBunengsiInit(); return; }
+}
+
 // 世界Tab点击处理
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
@@ -7297,6 +7599,8 @@ function gameLoop() {
             drawMiniGameQiexigua();
         } else if (activeMiniGame === 'feidegenggao') {
             drawMiniGameFeidegenggao();
+        } else if (activeMiniGame === 'bunengsi') {
+            drawMiniGameBunengsi();
         } else {
             // 实时更新体力
             updateEnergyRealtime();
@@ -7371,6 +7675,8 @@ wx.onTouchStart((e) => {
         miniGameTouchStartY = y;
         if (activeMiniGame === 'qiexigua' && gQiexigua) gQiexigua.lastSlice = null;
         if (activeMiniGame === 'feidegenggao' && gFeidegenggao) gFeidegenggao.player.targetX = x;
+        // 一个都不能死：起跳要跟手，放在 touchStart 立即响应
+        if (activeMiniGame === 'bunengsi' && gBunengsi) gBunengsiTap(x, y);
         return;
     }
 
@@ -7693,6 +7999,9 @@ wx.onTouchMove((e) => {
         return;
     }
 
+    // 内嵌小游戏（一个都不能死）：不响应拖动，避免误触发后面的菜单滚动
+    if (gameState === 'mainMenu' && activeMiniGame === 'bunengsi') return;
+
     const touch = e.touches[0];
     const x = touch.clientX;
     const y = touch.clientY;
@@ -7818,6 +8127,12 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（我要飞的更高）：按钮点击（左右控制由 touchMove 处理）
     if (gameState === 'mainMenu' && activeMiniGame === 'feidegenggao') {
         handleMiniGameFeidegenggaoInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（一个都不能死）：按钮点击（起跳由 touchStart 处理）
+    if (gameState === 'mainMenu' && activeMiniGame === 'bunengsi') {
+        handleMiniGameBunengsiInput(endX, endY);
         return;
     }
 
