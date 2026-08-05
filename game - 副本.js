@@ -6812,7 +6812,10 @@ function gQiexiguaSpawn() {
         const isBomb = Math.random() < 0.15;
         const r = 26 + Math.random() * 10;
         const x = 40 + Math.random() * (screenWidth - 80);
-        const vy = -(760 + Math.random() * 260);
+        const G = 1500; // 与 gQiexiguaUpdate 中重力一致
+        const spawnY = screenHeight + r + 10;
+        const peakY = screenHeight * (0.15 + Math.random() * 0.25); // 最高点落在屏幕 15%~40% 处（上半部分）
+        const vy = -Math.sqrt(2 * G * (spawnY - peakY));
         const vx = (Math.random() - 0.5) * 360;
         gQiexigua.fruits.push({
             bomb: isBomb,
