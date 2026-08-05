@@ -7972,6 +7972,28 @@ function gZqylDrawCup(cx, baseY, w, h, color, lift) {
   ctx.ellipse(cx, baseY - h - lift, topW / 2, h * 0.12, 0, 0, Math.PI * 2);
   ctx.fill();
 }
+function drawZqylHeart(cx, cy, s, active) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s * 0.35);
+  ctx.bezierCurveTo(cx - s * 0.6, cy - s * 0.05, cx - s * 0.5, cy - s * 0.45, cx, cy - s * 0.15);
+  ctx.bezierCurveTo(cx + s * 0.5, cy - s * 0.45, cx + s * 0.6, cy - s * 0.05, cx, cy + s * 0.35);
+  ctx.closePath();
+  if (active) {
+    ctx.fillStyle = '#ff3b3b';
+    ctx.fill();
+    ctx.strokeStyle = '#ffd0d0';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawMiniGameZqyl() {
   const L = gZqylLayout();
   const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
@@ -7988,10 +8010,13 @@ function drawMiniGameZqyl() {
   const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
   drawScoreBox(L.margin, L.rowB, scoreW, 32, '关卡', gZqyl.level);
   drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gZqylBest);
-  ctx.fillStyle = '#fff'; ctx.font = '14px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-  let hearts = '';
-  for (let i = 0; i < 3; i++) hearts += (i < gZqyl.lives ? '❤' : '🤍');
-  ctx.fillText(hearts, screenWidth - L.margin, L.rowB + 16);
+  // 命数：初始 3 颗全红，扣命后从右往左逐个变白，全白即游戏结束
+  const hSize = 17, hGap = 22;
+  const hY = L.rowB + 16;
+  const hStartX = screenWidth - L.margin - 2 * hGap - hSize / 2;
+  for (let i = 0; i < 3; i++) {
+    drawZqylHeart(hStartX + i * hGap, hY, hSize, i < gZqyl.lives);
+  }
 
   const deskY = L.boardY + L.boardH * 0.62;
   ctx.fillStyle = '#caa472';
