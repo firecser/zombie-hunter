@@ -7939,6 +7939,7 @@ function gZqylDrawCup(cx, baseY, w, h, color, lift) {
 }
 function drawMiniGameZqyl() {
   const L = gZqylLayout();
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   const now = Date.now();
   const dt = Math.min(0.05, (now - gZqyl.lastTick) / 1000);
   gZqyl.lastTick = now;
@@ -7987,7 +7988,7 @@ function drawMiniGameZqyl() {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Arial';
     ctx.fillText(gZqyl.msg, screenWidth / 2, L.boardY + 30);
   } else if (gZqyl.state === 'over') {
-    ctx.fillStyle = 'rgba(15,27,45,0.8)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.8)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#ff6b6b'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('眼力耗尽', screenWidth / 2, screenHeight / 2 - 40);
     ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
@@ -8086,6 +8087,7 @@ function gQingwaUpdate(dt) {
 }
 function drawMiniGameQingwa() {
   const L = gQingwaLayout();
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   const now = Date.now();
   const dt = Math.min(0.05, (now - gQingwa.lastTick) / 1000);
   gQingwa.lastTick = now;
@@ -8135,7 +8137,7 @@ function drawMiniGameQingwa() {
   }
   ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (gQingwa.win) {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
     ctx.fillText('🎉 过河成功！', screenWidth / 2, screenHeight / 2 - 40);
     ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
@@ -8143,7 +8145,7 @@ function drawMiniGameQingwa() {
     ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
     ctx.fillText('点「↻ 新游戏」再挑战', screenWidth / 2, screenHeight / 2 + 34);
   } else if (gQingwa.stuck) {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#ff9b9b'; ctx.font = 'bold 24px Arial'; ctx.textBaseline = 'middle';
     ctx.fillText('卡住了～', screenWidth / 2, screenHeight / 2 - 30);
     ctx.fillStyle = '#fff'; ctx.font = '16px Arial';
@@ -8212,6 +8214,7 @@ function gSqsdTap(x, y) {
 }
 function drawMiniGameSqsd() {
   const L = gSqsdLayout();
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   const now = Date.now();
   const dt = Math.min(0.05, (now - gSqsd.lastTick) / 1000);
   gSqsd.lastTick = now;
@@ -8254,7 +8257,7 @@ function drawMiniGameSqsd() {
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (gSqsd.state === 'ready') ctx.fillText('点屏幕开始数钱，30 秒狂点！', screenWidth / 2, L.boardY + 26);
   else if (gSqsd.state === 'over') {
-    ctx.fillStyle = 'rgba(15,27,45,0.8)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.8)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#ff6b6b'; ctx.font = 'bold 24px Arial';
     ctx.fillText('时间到！', screenWidth / 2, screenHeight / 2 - 40);
     ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
@@ -8396,6 +8399,7 @@ function gSjmaoTap(x, y) {
 }
 function drawMiniGameSjmao() {
   const L = gSjmaoLayout();
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   gSjmao.lastTick = Date.now();
   drawRoyaleBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
@@ -8440,7 +8444,7 @@ function drawMiniGameSjmao() {
   ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (!gSjmao.over) ctx.fillText('点空格子放石头，别让猫逃到边缘', screenWidth / 2, L.boardY + 22);
   else {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if (gSjmao.win) {
       ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial';
@@ -8590,6 +8594,7 @@ function gYbhDrag(x, y) {
 }
 function drawMiniGameYbh() {
   const L = gYbhLayout();
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   gYbh.lastTick = Date.now();
   drawRoyaleBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
@@ -8622,7 +8627,7 @@ function drawMiniGameYbh() {
   }
   ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (gYbh.win) {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
     ctx.fillText('🎉 一笔连成！', screenWidth / 2, screenHeight / 2 - 36);
     ctx.fillStyle = '#fff'; ctx.font = '18px Arial';
@@ -8630,7 +8635,7 @@ function drawMiniGameYbh() {
     ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
     ctx.fillText('点击屏幕进入下一关', screenWidth / 2, screenHeight / 2 + 34);
   } else if (gYbh.stuck) {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#ff9b9b'; ctx.font = 'bold 24px Arial'; ctx.textBaseline = 'middle';
     ctx.fillText('卡住了～', screenWidth / 2, screenHeight / 2 - 30);
     ctx.fillStyle = '#fff'; ctx.font = '16px Arial';
@@ -8717,6 +8722,7 @@ function gDlsqDragEnd(x, y) {
 }
 function drawMiniGameDlsq() {
   const L = gDlsqLayout();
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   const now = Date.now();
   const dt = Math.min(0.05, (now - gDlsq.lastTick) / 1000);
   gDlsq.lastTick = now;
@@ -8775,7 +8781,7 @@ function drawMiniGameDlsq() {
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (g.state === 'aim') ctx.fillText('按住球向后拉，松手射门！', screenWidth / 2, L.boardY + 24);
   else if (g.state === 'land') {
-    ctx.fillStyle = 'rgba(15,27,45,0.7)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = 'rgba(15,27,45,0.7)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
     ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
     ctx.fillText('射出 ' + g.dist + ' km！', screenWidth / 2, screenHeight / 2 - 30);
     ctx.fillStyle = '#fff'; ctx.font = '15px Arial';
