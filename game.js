@@ -2962,7 +2962,7 @@ function getMiniGameBest(id) {
     if (id === 'qmxzfzm') return qmxzBest;
     if (id === 'bdsjm') return bdsjmBest;
     if (id === 'zuiqiangyanli') return gZqylBest;
-    if (id === 'qingwa') return gQingwaBest;
+    if (id === 'qingwa') return (gQingwaBest && gQingwaBest.length) ? (gQingwaBest[(gQingwa ? gQingwa.level : 1) - 1] || 0) : 0;
     if (id === 'sqsdscj') return gSqsdBest;
     if (id === 'shenjingmao') return gSjmaoBest;
     if (id === 'yibihua') return gYbhBest;
@@ -6338,7 +6338,7 @@ function startMiniGame(game) {
         activeMiniGame = 'zuiqiangyanli';
         otherGamesModal.show = false;
     } else if (game.id === 'qingwa') {
-        gQingwaInit();
+        gQingwaInit(1);
         activeMiniGame = 'qingwa';
         otherGamesModal.show = false;
     } else if (game.id === 'sqsdscj') {
@@ -8018,106 +8018,183 @@ function handleMiniGameZqylInput(x, y) {
 // 移植自 HTML5「小青蛙过河」：7 个石墩，左 3 蛙面右、右 3 蛙面左，空 1 个。
 // 点青蛙跳过空位或隔一蛙，让左右互换即胜。得分/最佳 = 用最少步数。
 let gQingwa = null;
-let gQingwaBest = 0;
-const QW_SLOTS = 7;
+let gQingwaBest = [0, 0, 0];          // 各关最佳步数（关 1/2/3）
+const QW_LEVELS = [2, 3, 4];          // 每关每边青蛙数：第1关 2+2+1 / 第2关 3+3+1 / 第3关 4+4+1
 
-function gQingwaSaveBest() {
-  if (gQingwaBest === 0 || gQingwa.moves < gQingwaBest) {
-    gQingwaBest = gQingwa.moves;
-    try { wx.setStorageSync && wx.setStorageSync('gQingwaBest', gQingwaBest); } catch (e) {}
-  }
+function gQingwaBuildSlots(n) {
+  const s = [];
+  for (let i = 0; i < n; i++) s.push('L');
+  s.push(0);
+  for (let i = 0; i < n; i++) s.push('R');
+  return s;
 }
-function gQingwaLayout() { return gMiniCommonLayout(); }
-function gQingwaSlotX(i) {
-  const L = gQingwaLayout();
-  return L.boardX + L.boardW * (i + 0.5) / QW_SLOTS;
-}
-function gQingwaInit() {
-  gQingwa = { slots: ['L', 'L', 'L', 0, 'R', 'R', 'R'], moves: 0, time: 0, win: false, stuck: false, anim: null, lastTick: Date.now() };
-  try { gQingwaBest = (wx.getStorageSync && wx.getStorageSync('gQingwaBest')) || 0; } catch (e) { gQingwaBest = 0; }
-}
-// 死局判定：这个谜题走错顺序会卡死（没有任何合法跳法），必须提示重来
-function gQingwaHasMove() {
-  const s = gQingwa.slots;
-  for (let i = 0; i < QW_SLOTS; i++) {
-    const f = s[i];
-    if (f === 'L') {
-      if (i + 1 < QW_SLOTS && s[i + 1] === 0) return true;
-      if (i + 2 < QW_SLOTS && s[i + 1] === 'R' && s[i + 2] === 0) return true;
-    } else if (f === 'R') {
-      if (i - 1 >= 0 && s[i - 1] === 0) return true;
-      if (i - 2 >= 0 && s[i - 1] === 'L' && s[i - 2] === 0) return true;
-    }
-  }
-  return false;
+function gQingwaGoal(n) {
+  const s = [];
+  for (let i = 0; i < n; i++) s.push('R');
+  s.push(0);
+  for (let i = 0; i < n; i++) s.push('L');
+  return s;
 }
 function gQingwaWinCheck() {
-  const s = gQingwa.slots;
-  for (let i = 0; i < 3; i++) if (s[i] !== 'R') return false;
-  if (s[3] !== 0) return false;
-  for (let i = 4; i < 7; i++) if (s[i] !== 'L') return false;
+  const s = gQingwa.slots, n = gQingwa.n;
+  for (let i = 0; i < n; i++) if (s[i] !== 'R') return false;
+  if (s[n] !== 0) return false;
+  for (let i = 0; i < n; i++) if (s[n + 1 + i] !== 'L') return false;
   return true;
+}
+function gQingwaMoveTo(i, s) {
+  const N = s.length, f = s[i];
+  if (f === 'L') {
+    if (i + 1 < N && s[i + 1] === 0) return i + 1;
+    if (i + 2 < N && s[i + 1] === 'R' && s[i + 2] === 0) return i + 2;
+  } else if (f === 'R') {
+    if (i - 1 >= 0 && s[i - 1] === 0) return i - 1;
+    if (i - 2 >= 0 && s[i - 1] === 'L' && s[i - 2] === 0) return i - 2;
+  }
+  return -1;
+}
+function gQingwaCanMoveTarget(i) { return gQingwaMoveTo(i, gQingwa.slots); }
+function gQingwaHasMove() {
+  const N = gQingwa.slots.length;
+  for (let i = 0; i < N; i++) if (gQingwaCanMoveTarget(i) >= 0) return true;
+  return false;
+}
+// BFS：求从当前局面到目标的最少步解，返回 { moves, first:{from,to} }
+function gQingwaSolve() {
+  const n = gQingwa.n, start = gQingwa.slots;
+  const goal = gQingwaGoal(n);
+  const key = a => a.map(x => x === 0 ? '.' : x).join('');
+  if (key(start) === key(goal)) return { moves: 0 };
+  const q = [{ s: start.slice(), path: [] }];
+  const seen = new Set([key(start)]);
+  while (q.length) {
+    const { s, path } = q.shift();
+    const N = s.length;
+    for (let i = 0; i < N; i++) {
+      const to = gQingwaMoveTo(i, s);
+      if (to < 0) continue;
+      const ns = s.slice(); ns[to] = ns[i]; ns[i] = 0;
+      const k = key(ns);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const np = path.concat([{ from: i, to: to }]);
+      if (key(ns) === key(goal)) return { moves: np.length, first: np[0] };
+      q.push({ s: ns, path: np });
+    }
+  }
+  return null;
+}
+function gQingwaSaveBest() {
+  const lv = gQingwa.level;
+  if (gQingwaBest[lv - 1] === 0 || gQingwa.moves < gQingwaBest[lv - 1]) {
+    gQingwaBest[lv - 1] = gQingwa.moves;
+    try { wx.setStorageSync && wx.setStorageSync('gQingwaBest', JSON.stringify(gQingwaBest)); } catch (e) {}
+  }
+}
+// 底部扩展两个按钮：撤销 / 提示（居中于返回与新游戏之间）
+function gQingwaLayout() {
+  const L = gMiniCommonLayout();
+  const bw = 64, gap = 8;
+  const leftEnd = L.backBtn.x + L.backBtn.w;
+  const rightStart = L.restartBtn.x;
+  const totalW = bw * 2 + gap;
+  const cx0 = (leftEnd + rightStart) / 2 - totalW / 2;
+  L.undoBtn = { x: cx0, y: L.backBtn.y, w: bw, h: 32 };
+  L.hintBtn = { x: cx0 + bw + gap, y: L.backBtn.y, w: bw, h: 32 };
+  return L;
+}
+function gQingwaSlotX(i) {
+  const L = gQingwaLayout();
+  return L.boardX + L.boardW * (i + 0.5) / gQingwa.slots.length;
+}
+function gQingwaInit(level) {
+  const lv = (typeof level === 'number') ? level : (gQingwa ? gQingwa.level : 1);
+  const n = QW_LEVELS[lv - 1];
+  gQingwa = { level: lv, n: n, slots: gQingwaBuildSlots(n), moves: 0, time: 0, win: false, stuck: false, anim: null, history: [], hint: 0, hintFrom: -1, hintTo: -1, lastTick: Date.now() };
+  try { gQingwaBest = JSON.parse((wx.getStorageSync && wx.getStorageSync('gQingwaBest')) || '[0,0,0]'); if (!Array.isArray(gQingwaBest)) gQingwaBest = [0, 0, 0]; } catch (e) { gQingwaBest = [0, 0, 0]; }
+}
+function gQingwaUndo() {
+  const g = gQingwa;
+  if (!g || g.anim || !g.history.length) return;
+  const prev = g.history.pop();
+  g.slots = prev.slots;
+  g.moves = prev.moves;
+  g.win = false; g.stuck = false;
 }
 function gQingwaTap(x, y) {
   const g = gQingwa;
   if (!g || g.win || g.stuck || g.anim) return;
   const L = gQingwaLayout();
-  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn)) return;
+  if (inRect(x, y, L.backBtn) || inRect(x, y, L.restartBtn) || inRect(x, y, L.undoBtn) || inRect(x, y, L.hintBtn)) return;
   let picked = -1;
-  for (let i = 0; i < QW_SLOTS; i++) if (Math.abs(x - gQingwaSlotX(i)) < (L.boardW / QW_SLOTS) / 2) { picked = i; break; }
+  const N = g.slots.length;
+  for (let i = 0; i < N; i++) if (Math.abs(x - gQingwaSlotX(i)) < (L.boardW / N) / 2) { picked = i; break; }
   if (picked < 0) return;
-  const f = g.slots[picked];
-  if (f !== 'L' && f !== 'R') return;
-  let target = -1;
-  if (f === 'L') {
-    if (picked + 1 < QW_SLOTS && g.slots[picked + 1] === 0) target = picked + 1;
-    else if (picked + 2 < QW_SLOTS && g.slots[picked + 1] === 'R' && g.slots[picked + 2] === 0) target = picked + 2;
-  } else {
-    if (picked - 1 >= 0 && g.slots[picked - 1] === 0) target = picked - 1;
-    else if (picked - 2 >= 0 && g.slots[picked - 1] === 'L' && g.slots[picked - 2] === 0) target = picked - 2;
-  }
+  const target = gQingwaCanMoveTarget(picked);
   if (target < 0) return;
-  g.anim = { from: picked, to: target, t: 0, frog: f };
+  g.anim = { from: picked, to: target, t: 0, frog: g.slots[picked] };
 }
 function gQingwaUpdate(dt) {
   const g = gQingwa;
+  if (g.hint > 0) g.hint = Math.max(0, g.hint - dt);
   g.time += dt;
   if (g.anim) {
     g.anim.t += dt / 0.22;
     if (g.anim.t >= 1) {
+      const prev = { slots: g.slots.slice(), moves: g.moves };
       g.slots[g.anim.to] = g.anim.frog;
       g.slots[g.anim.from] = 0;
       g.moves++;
+      g.history.push(prev);
       g.anim = null;
       if (gQingwaWinCheck()) { g.win = true; gQingwaSaveBest(); }
       else if (!gQingwaHasMove()) g.stuck = true;
     }
   }
 }
+// 通关界面居中按钮：第1/2关=下一关，第3关=从第一关重玩
+function gQingwaWinButton() {
+  const w = 150, h = 42;
+  return { x: screenWidth / 2 - w / 2, y: screenHeight / 2 + 48, w: w, h: h, action: gQingwa.level < 3 ? 'next' : 'replay1' };
+}
 function drawMiniGameQingwa() {
   const L = gQingwaLayout();
-  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
+  const btnTop = Math.min(L.backBtn.y, L.restartBtn.y, L.undoBtn.y, L.hintBtn.y);
   const now = Date.now();
   const dt = Math.min(0.05, (now - gQingwa.lastTick) / 1000);
   gQingwa.lastTick = now;
-  if (!gQingwa.win) gQingwaUpdate(dt);
+  if (!gQingwa.win && !gQingwa.stuck) gQingwaUpdate(dt);
 
   drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
-  drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
+  drawMiniGameButton(L.restartBtn, '↻ 重玩', 'green');
+  drawMiniGameButton(L.undoBtn, '↶ 撤销', 'blue');
+  drawMiniGameButton(L.hintBtn, '💡 提示', 'blue');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.fillText('小青蛙过河', L.margin, L.titleY);
+  ctx.fillStyle = '#fff'; ctx.font = '14px Arial';
+  ctx.fillText('第 ' + gQingwa.level + ' 关 / 共 3 关', L.margin + 150, L.titleY);
   const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
   drawScoreBox(L.margin, L.rowB, scoreW, 32, '步数', gQingwa.moves);
-  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '最佳', gQingwaBest);
+  const qwBest = gQingwaBest[gQingwa.level - 1];
+  drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 32, '本关最佳', qwBest > 0 ? qwBest : '—');
 
-  const slotW = L.boardW / QW_SLOTS;
+  const N = gQingwa.slots.length;
+  const slotW = L.boardW / N;
   const frogY = L.boardY + L.boardH * 0.5;
-  const r = Math.min(slotW * 0.36, 30);
+  const r = Math.min(slotW * 0.34, 30);
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  for (let i = 0; i < QW_SLOTS; i++) { ctx.beginPath(); ctx.arc(gQingwaSlotX(i), frogY, r + 6, 0, Math.PI * 2); ctx.fill(); }
-
-  for (let i = 0; i < QW_SLOTS; i++) {
+  for (let i = 0; i < N; i++) { ctx.beginPath(); ctx.arc(gQingwaSlotX(i), frogY, r + 6, 0, Math.PI * 2); ctx.fill(); }
+  // 提示：高亮最优解下一步的目标格
+  if (gQingwa.hint > 0 && gQingwa.hintTo >= 0) {
+    const hx = gQingwaSlotX(gQingwa.hintTo);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,215,0,' + (0.45 + 0.45 * Math.sin(now / 120)) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(hx, frogY, r + 12 + 4 * Math.sin(now / 150), 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  for (let i = 0; i < N; i++) {
     let cx = gQingwaSlotX(i), cy = frogY, frog = gQingwa.slots[i];
     if (gQingwa.anim && gQingwa.anim.from === i) { frog = 0; }
     if (gQingwa.anim && gQingwa.anim.to === i && gQingwa.anim.t < 1) {
@@ -8126,9 +8203,23 @@ function drawMiniGameQingwa() {
       frog = gQingwa.anim.frog;
     }
     if (frog === 'L' || frog === 'R') {
-      ctx.fillStyle = '#3fbf3f';
+      const canMove = gQingwaCanMoveTarget(i) >= 0;
+      const isHint = gQingwa.hint > 0 && i === gQingwa.hintFrom;
+      ctx.save();
+      if (!canMove) {
+        ctx.globalAlpha = 0.38;
+        ctx.fillStyle = '#5a7a5a';
+      } else if (isHint) {
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 18 + 8 * Math.sin(now / 100);
+        ctx.fillStyle = '#3fbf3f';
+      } else {
+        ctx.shadowColor = 'rgba(255,215,0,0.8)'; ctx.shadowBlur = 10;
+        ctx.fillStyle = '#3fbf3f';
+      }
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#1f7a1f'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = canMove ? '#ffd700' : 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = 2; ctx.stroke();
       ctx.fillStyle = '#fff';
       ctx.beginPath(); ctx.arc(cx - r * 0.35, cy - r * 0.4, r * 0.28, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(cx + r * 0.35, cy - r * 0.4, r * 0.28, 0, Math.PI * 2); ctx.fill();
@@ -8142,35 +8233,64 @@ function drawMiniGameQingwa() {
       ctx.lineTo(cx + dir * r * 0.5, cy - r * 0.1);
       ctx.lineTo(cx + dir * r * 0.5, cy + r * 0.3);
       ctx.closePath(); ctx.fill();
+      ctx.restore();
     }
   }
   ctx.fillStyle = '#fff'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (gQingwa.win) {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
-    ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial'; ctx.textBaseline = 'middle';
-    ctx.fillText('🎉 过河成功！', screenWidth / 2, screenHeight / 2 - 40);
-    ctx.fillStyle = '#fff'; ctx.font = '20px Arial';
-    ctx.fillText('用了 ' + gQingwa.moves + ' 步 / ' + gQingwa.time.toFixed(1) + ' 秒', screenWidth / 2, screenHeight / 2);
-    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
-    ctx.fillText('点「↻ 新游戏」再挑战', screenWidth / 2, screenHeight / 2 + 34);
+    const wb = gQingwaWinButton();
+    ctx.fillStyle = 'rgba(15,27,45,0.86)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
+    ctx.fillStyle = '#7fffa0'; ctx.font = 'bold 26px Arial';
+    ctx.fillText('🎉 第 ' + gQingwa.level + ' 关通过！', screenWidth / 2, screenHeight / 2 - 50);
+    ctx.fillStyle = '#fff'; ctx.font = '18px Arial';
+    ctx.fillText('用了 ' + gQingwa.moves + ' 步 / ' + gQingwa.time.toFixed(1) + ' 秒', screenWidth / 2, screenHeight / 2 - 16);
+    if (gQingwa.level < 3) {
+      drawMiniGameButton(wb, '下一关 ›', 'green');
+    } else {
+      ctx.fillStyle = '#ffd700'; ctx.font = 'bold 19px Arial';
+      ctx.fillText('🏆 三关全部通关！', screenWidth / 2, screenHeight / 2 + 12);
+      drawMiniGameButton(wb, '↻ 从第一关重玩', 'green');
+    }
   } else if (gQingwa.stuck) {
-    ctx.fillStyle = 'rgba(15,27,45,0.82)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
-    ctx.fillStyle = '#ff9b9b'; ctx.font = 'bold 24px Arial'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(15,27,45,0.86)'; ctx.fillRect(0, 0, screenWidth, btnTop - 8);
+    ctx.fillStyle = '#ff9b9b'; ctx.font = 'bold 24px Arial';
     ctx.fillText('卡住了～', screenWidth / 2, screenHeight / 2 - 30);
-    ctx.fillStyle = '#fff'; ctx.font = '16px Arial';
-    ctx.fillText('所有青蛙都跳不动了', screenWidth / 2, screenHeight / 2 + 4);
-    ctx.fillStyle = '#ffd700'; ctx.font = '14px Arial';
-    ctx.fillText('点击屏幕重新开始', screenWidth / 2, screenHeight / 2 + 34);
+    ctx.fillStyle = '#fff'; ctx.font = '15px Arial';
+    ctx.fillText('所有青蛙都跳不动了', screenWidth / 2, screenHeight / 2 + 2);
+    ctx.fillStyle = '#ffd700'; ctx.font = '13px Arial';
+    const tip = gQingwa.history.length ? '可「撤销」退回一步，或点屏幕重来' : '点屏幕重新开始';
+    ctx.fillText(tip, screenWidth / 2, screenHeight / 2 + 30);
   } else {
-    ctx.fillText('点青蛙跳过空位或隔一蛙，让左右互换', screenWidth / 2, L.boardY + 24);
+    ctx.fillText('绿圈=可动，灰=不可动。点青蛙跳过空位或隔一蛙', screenWidth / 2, L.boardY + 24);
   }
 }
 function handleMiniGameQingwaInput(x, y) {
   if (!gQingwa) return;
   const L = gQingwaLayout();
   if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
-  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gQingwaInit(); return; }
-  if (gQingwa.win || gQingwa.stuck) { gQingwaInit(); return; }
+  const g = gQingwa;
+  if (g.win) {
+    const wb = gQingwaWinButton();
+    if (inRect(x, y, wb)) {
+      if (wb.action === 'next') gQingwaInit(g.level + 1);
+      else gQingwaInit(1);
+      return;
+    }
+    // 否则落到下方，让底部按钮（重玩/撤销/提示）继续生效
+  }
+  if (g.stuck) {
+    if (inRect(x, y, L.undoBtn) && g.history.length) { gQingwaUndo(); return; }
+    if (inRect(x, y, L.restartBtn)) { gQingwaInit(g.level); return; }
+    if (g.history.length) gQingwaUndo(); else gQingwaInit(g.level);
+    return;
+  }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); gQingwaInit(g.level); return; }
+  if (inRect(x, y, L.undoBtn)) { gQingwaUndo(); return; }
+  if (inRect(x, y, L.hintBtn)) {
+    const sol = gQingwaSolve();
+    if (sol && sol.first) { g.hint = 2.2; g.hintFrom = sol.first.from; g.hintTo = sol.first.to; }
+    return;
+  }
   gQingwaTap(x, y);
 }
 
