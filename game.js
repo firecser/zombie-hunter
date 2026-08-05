@@ -5722,8 +5722,8 @@ function computeOtherGamesLayout() {
         (groupsRaw[key] = groupsRaw[key] || []).push(g);
     });
     const groupLetters = Object.keys(groupsRaw).sort((a, b) => {
-        const ka = a === '0' ? 'zzz' : a;
-        const kb = b === '0' ? 'zzz' : b;
+        const ka = a === '0' ? ' ' : a;
+        const kb = b === '0' ? ' ' : b;
         return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
     const groups = [];
