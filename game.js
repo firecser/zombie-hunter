@@ -8752,8 +8752,8 @@ function drawMiniGameDlsq() {
   ctx.fillRect(L.boardX, groundY, L.boardW, L.boardY + L.boardH - groundY);
   ctx.fillStyle = '#6cc24a';
   ctx.fillRect(L.boardX, groundY, L.boardW, 4);
-  // 弹弓（固定在起点，球落回时归位）：两叉 + 立柱
-  const sx = g.startBall.x, sy = g.startBall.y;
+  // 弹弓（固定在起点的"世界坐标"，随镜头 camX 滚动，不跟着飞行中的球移动）
+  const sx = g.startBall.x - camX, sy = g.startBall.y;
   ctx.strokeStyle = '#7a4a1e'; ctx.lineWidth = 7; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(sx, sy + 12); ctx.lineTo(sx - 15, sy - 26); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(sx, sy + 12); ctx.lineTo(sx + 15, sy - 26); ctx.stroke();
