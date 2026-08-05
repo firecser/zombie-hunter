@@ -7136,7 +7136,7 @@ function gFeidegenggaoUpdate(dt) {
 }
 
 function drawMiniGameFeidegenggao() {
-    drawRoyaleBackground();
+    drawBackground();
     const L = gFeidegenggaoLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
     drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
