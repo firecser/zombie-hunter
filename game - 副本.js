@@ -8197,7 +8197,7 @@ function gSqsdTier(score) {
 }
 function gSqsdInit() {
   loadSqsdMoneyImg();
-  gSqsd = { state: 'ready', score: 0, timeLeft: SQSD_TIME, lastTap: 0, msg: '', msgT: 0, lastTick: Date.now() };
+  gSqsd = { state: 'ready', score: 0, timeLeft: SQSD_TIME, lastTap: 0, popups: [], lastTick: Date.now() };
   try { gSqsdBest = (wx.getStorageSync && wx.getStorageSync('gSqsdBest')) || 0; } catch (e) { gSqsdBest = 0; }
 }
 function gSqsdUpdate(dt) {
@@ -8206,7 +8206,12 @@ function gSqsdUpdate(dt) {
     g.timeLeft -= dt;
     if (g.timeLeft <= 0) { g.timeLeft = 0; g.state = 'over'; gSqsdSaveBest(); }
   }
-  if (g.msgT > 0) g.msgT -= dt;
+  // 钞票打击特效更新
+  for (const p of g.popups) {
+    p.t += dt;
+    for (const c of p.coins) { c.t += dt; c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 620 * dt; c.rot += c.vr * dt; }
+  }
+  g.popups = g.popups.filter(p => p.t < p.life);
 }
 function gSqsdTap(x, y) {
   const g = gSqsd;
@@ -8220,7 +8225,18 @@ function gSqsdTap(x, y) {
   if (now - g.lastTap < 50) return;
   g.lastTap = now;
   g.score += 100;
-  g.msg = '+' + 100; g.msgT = 0.4;
+  gSqsdSpawnHit(x, y);
+}
+
+// 数钱打击特效：金色「¥+100」弹跳 + 飞溅金币粒子，出现在点击位置
+function gSqsdSpawnHit(x, y) {
+  const coins = [];
+  for (let i = 0; i < 7; i++) {
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.7;
+    const sp = 130 + Math.random() * 180;
+    coins.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.283, vr: (Math.random() - 0.5) * 12, t: 0, life: 0.5 + Math.random() * 0.35 });
+  }
+  gSqsd.popups.push({ x, y, t: 0, life: 0.7, coins });
 }
 function drawMiniGameSqsd() {
   const L = gSqsdLayout();
@@ -8268,12 +8284,41 @@ function drawMiniGameSqsd() {
   }
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   ctx.fillText('身份：' + gSqsdTier(gSqsd.score), cx, moneyTop + mh + 24);
-  if (gSqsd.msgT > 0) {
-    ctx.globalAlpha = Math.min(1, gSqsd.msgT * 3);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(gSqsd.msg, cx, moneyTop - 12);
-    ctx.globalAlpha = 1;
+
+  // 数钱打击特效：金色「¥+100」弹跳 + 飞溅金币粒子
+  for (const p of gSqsd.popups) {
+    const prog = p.t / p.life;
+    const rise = 48 * prog;
+    const alpha = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.3);
+    let scale = prog < 0.28 ? 0.3 + (1.5 - 0.3) * (prog / 0.28) : 1.5 - (1.5 - 1.0) * ((prog - 0.28) / 0.72);
+    const py = p.y - rise;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(p.x, py);
+    ctx.scale(scale, scale);
+    ctx.shadowColor = 'rgba(255,200,0,0.95)'; ctx.shadowBlur = 18;
+    ctx.font = 'bold 40px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4; ctx.strokeStyle = '#7a3b00'; ctx.strokeText('¥+100', 0, 0);
+    const grad = ctx.createLinearGradient(0, -22, 0, 22);
+    grad.addColorStop(0, '#fff6c0'); grad.addColorStop(0.5, '#ffd000'); grad.addColorStop(1, '#ff9b00');
+    ctx.fillStyle = grad; ctx.fillText('¥+100', 0, 0);
+    ctx.restore();
+    for (const c of p.coins) {
+      const ca = c.t < c.life ? Math.max(0, 1 - c.t / c.life) : 0;
+      if (ca <= 0) continue;
+      ctx.save();
+      ctx.globalAlpha = ca;
+      ctx.translate(c.x, c.y); ctx.rotate(c.rot);
+      const r = 7, cg = ctx.createLinearGradient(-r, -r, r, r);
+      cg.addColorStop(0, '#fff3b0'); cg.addColorStop(1, '#ffb300');
+      ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = '#c8881a'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = '#c8881a'; ctx.font = 'bold 9px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('¥', 0, 0);
+      ctx.restore();
+    }
   }
+  ctx.globalAlpha = 1;
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (gSqsd.state === 'ready') ctx.fillText('点屏幕开始数钱，30 秒狂点！', screenWidth / 2, L.boardY + 26);
   else if (gSqsd.state === 'over') {
