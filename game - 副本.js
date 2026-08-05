@@ -7865,16 +7865,39 @@ function gZqylInit() {
   gZqyl.coinSlot = Math.floor(Math.random() * ZQYL_CUPS);
   gZqyl.cups[gZqyl.coinSlot].hasCoin = true;
 }
-function gZqylBuildShuffle() {
-  const n = 3 + gZqyl.level;
-  gZqyl.swapQueue = [];
-  let prev = -1;
-  for (let i = 0; i < n; i++) {
-    let a = Math.floor(Math.random() * (ZQYL_CUPS - 1));
-    if (a === prev) a = (a + 1) % (ZQYL_CUPS - 1);
-    gZqyl.swapQueue.push([a, a + 1]);
-    prev = a;
+// 模拟洗牌序列下「装币杯子」的轨迹，统计在中间位置(slot 1)发生掉头的次数
+function gZqylSimulateTurns(swaps, startSlot) {
+  let cur = startSlot, dir = 0, turns = 0;
+  for (const ab of swaps) {
+    const a = ab[0], b = ab[1];
+    let next = cur;
+    if (cur === a) next = b;
+    else if (cur === b) next = a;
+    if (next !== cur) {
+      const nd = next > cur ? 1 : -1;
+      if (cur === 1 && dir !== 0 && nd !== dir) turns++; // 在中间掉头
+      dir = nd;
+      cur = next;
+    }
   }
+  return turns;
+}
+function gZqylBuildShuffle() {
+  const n = 7 + gZqyl.level * 2;                 // 洗牌步数随关卡递增
+  const targetTurns = Math.min(6, gZqyl.level);  // 中间位置掉头次数随关卡递增（封顶 6）
+  const startSlot = gZqyl.cups[gZqyl.coinSlot].slot;
+  let best = null, bestTurns = -1;
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const swaps = [];
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor(Math.random() * 2); // 0→交换左邻接(0,1)，1→交换右邻接(1,2)，自由随机
+      swaps.push([a, a + 1]);
+    }
+    const t = gZqylSimulateTurns(swaps, startSlot);
+    if (t >= targetTurns) { best = swaps; bestTurns = t; break; }
+    if (t > bestTurns) { best = swaps; bestTurns = t; }
+  }
+  gZqyl.swapQueue = best;
   gZqyl.swapT = 0;
 }
 function gZqylUpdate(dt) {
@@ -7884,7 +7907,7 @@ function gZqylUpdate(dt) {
     if (g.showT >= 1.4) { g.state = 'shuffle'; gZqylBuildShuffle(); g.swapT = 0; }
   } else if (g.state === 'shuffle') {
     g.swapT += dt;
-    const dur = Math.max(0.18, 0.42 - g.level * 0.02);
+    const dur = Math.max(0.12, 0.5 - g.level * 0.03);
     const t = Math.min(1, g.swapT / dur);
     if (g.swapQueue.length) {
       // 队列里存的是「位置(slot)」，按 slot 找杯子来动画，金币跟着杯子走（不能交换 hasCoin，
