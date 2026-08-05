@@ -8197,7 +8197,7 @@ function gSqsdTier(score) {
 }
 function gSqsdInit() {
   loadSqsdMoneyImg();
-  gSqsd = { state: 'ready', score: 0, timeLeft: SQSD_TIME, lastTap: 0, popups: [], lastTick: Date.now() };
+  gSqsd = { state: 'ready', score: 0, timeLeft: SQSD_TIME, lastTap: 0, pulse: 0, popups: [], lastTick: Date.now() };
   try { gSqsdBest = (wx.getStorageSync && wx.getStorageSync('gSqsdBest')) || 0; } catch (e) { gSqsdBest = 0; }
 }
 function gSqsdUpdate(dt) {
@@ -8212,6 +8212,7 @@ function gSqsdUpdate(dt) {
     for (const c of p.coins) { c.t += dt; c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 620 * dt; c.rot += c.vr * dt; }
   }
   g.popups = g.popups.filter(p => p.t < p.life);
+  if (g.pulse > 0) g.pulse = Math.max(0, g.pulse - dt * 5);  // 约 0.2s 衰减完
 }
 function gSqsdTap(x, y) {
   const g = gSqsd;
@@ -8225,6 +8226,7 @@ function gSqsdTap(x, y) {
   if (now - g.lastTap < 50) return;
   g.lastTap = now;
   g.score += 100;
+  g.pulse = 1;            // 触发钞票缩放/抖动脉冲
   gSqsdSpawnHit(x, y);
 }
 
@@ -8264,24 +8266,33 @@ function drawMiniGameSqsd() {
   ctx.fillStyle = '#fff'; ctx.font = '12px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   ctx.fillText(Math.ceil(gSqsd.timeLeft) + 's', screenWidth - L.margin, barY + 5);
 
-  // 绘制红色钞票（原游戏 m0.png），放大并靠下
+  // 绘制红色钞票（原游戏 m0.png），放大并靠下；点击时缩放 + 抖动
   const cx = screenWidth / 2;
   const moneyCenterY = L.boardY + L.boardH * 0.58;
   let mw = Math.min(240, L.boardW * 0.72);
   let mh = mw * (759 / 371);
   if (mh > L.boardH * 0.78) { mh = L.boardH * 0.78; mw = mh * (371 / 759); }
   const moneyTop = moneyCenterY - mh / 2;
+  const pulse = gSqsd.pulse || 0;
+  const ps = 1 + pulse * 0.16;                       // 点击瞬间放大到 116%
+  const shakeX = Math.sin(gSqsd.lastTick * 0.05) * pulse * 6;  // 水平抖动
+  const shakeRot = Math.sin(gSqsd.lastTick * 0.08) * pulse * 0.05; // 轻微旋转抖动
+  ctx.save();
+  ctx.translate(cx + shakeX, moneyCenterY);
+  ctx.rotate(shakeRot);
+  ctx.scale(ps, ps);
   if (sqsdMoneyImg && sqsdMoneyImg.width) {
-    ctx.drawImage(sqsdMoneyImg, cx - mw / 2, moneyTop, mw, mh);
+    ctx.drawImage(sqsdMoneyImg, -mw / 2, -mh / 2, mw, mh);
   } else {
     ctx.fillStyle = '#7bd24a';
-    roundRect(ctx, cx - mw / 2, moneyTop, mw, mh, 12); ctx.fill();
-    ctx.strokeStyle = '#3a8f1f'; ctx.lineWidth = 3; roundRect(ctx, cx - mw / 2, moneyTop, mw, mh, 12); ctx.stroke();
+    roundRect(ctx, -mw / 2, -mh / 2, mw, mh, 12); ctx.fill();
+    ctx.strokeStyle = '#3a8f1f'; ctx.lineWidth = 3; roundRect(ctx, -mw / 2, -mh / 2, mw, mh, 12); ctx.stroke();
     ctx.fillStyle = '#3a8f1f'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('¥', cx, moneyCenterY - 24);
-    ctx.font = 'bold 22px Arial'; ctx.fillText('100', cx, moneyCenterY + 18);
-    ctx.font = '12px Arial'; ctx.fillText('人民币', cx, moneyCenterY + 46);
+    ctx.fillText('¥', 0, -24);
+    ctx.font = 'bold 22px Arial'; ctx.fillText('100', 0, 18);
+    ctx.font = '12px Arial'; ctx.fillText('人民币', 0, 46);
   }
+  ctx.restore();
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   ctx.fillText('身份：' + gSqsdTier(gSqsd.score), cx, moneyTop + mh + 24);
 
