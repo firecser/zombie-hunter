@@ -2913,6 +2913,7 @@ let miniGameTouchStartY = 0;
 let qmxz = null;                 // qmxz 游戏状态
 let qmxzBest = 0;                // 最高分（找到房祖名次数，持久化到本地）
 let qmxzTrueImg = null, qmxzFalseImg = null, qmxzImgsLoaded = false; // 游戏内图片
+let sqsdMoneyImg = null, sqsdMoneyLoaded = false; // 数钱数到手抽筋钞票图
 
 // 暴打神经猫（内嵌）
 let bdsjm = null;
@@ -6372,6 +6373,11 @@ function loadQmxzImgs() {
     qmxzFalseImg = wx.createImage(); qmxzFalseImg.src = 'images/qmxz_false.png';
     qmxzImgsLoaded = true;
 }
+function loadSqsdMoneyImg() {
+    if (sqsdMoneyLoaded) return;
+    sqsdMoneyImg = wx.createImage(); sqsdMoneyImg.src = 'images/sqsdscj_money.png';
+    sqsdMoneyLoaded = true;
+}
 
 function gQmxzColor(max) {
     const r = Math.round(Math.random() * max);
@@ -8190,6 +8196,7 @@ function gSqsdTier(score) {
   return '资本家';
 }
 function gSqsdInit() {
+  loadSqsdMoneyImg();
   gSqsd = { state: 'ready', score: 0, timeLeft: SQSD_TIME, lastTap: 0, msg: '', msgT: 0, lastTick: Date.now() };
   try { gSqsdBest = (wx.getStorageSync && wx.getStorageSync('gSqsdBest')) || 0; } catch (e) { gSqsdBest = 0; }
 }
@@ -8241,20 +8248,30 @@ function drawMiniGameSqsd() {
   ctx.fillStyle = '#fff'; ctx.font = '12px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   ctx.fillText(Math.ceil(gSqsd.timeLeft) + 's', screenWidth - L.margin, barY + 5);
 
-  const cx = screenWidth / 2, cy = L.boardY + L.boardH * 0.5;
-  ctx.fillStyle = '#7bd24a';
-  roundRect(ctx, cx - 70, cy - 80, 140, 160, 12); ctx.fill();
-  ctx.strokeStyle = '#3a8f1f'; ctx.lineWidth = 3; roundRect(ctx, cx - 70, cy - 80, 140, 160, 12); ctx.stroke();
-  ctx.fillStyle = '#3a8f1f'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('¥', cx, cy - 24);
-  ctx.font = 'bold 22px Arial'; ctx.fillText('100', cx, cy + 18);
-  ctx.font = '12px Arial'; ctx.fillText('人民币', cx, cy + 46);
-  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 18px Arial';
-  ctx.fillText('身份：' + gSqsdTier(gSqsd.score), cx, cy + 110);
+  // 绘制红色钞票（原游戏 m0.png），放大并靠下
+  const cx = screenWidth / 2;
+  const moneyCenterY = L.boardY + L.boardH * 0.58;
+  let mw = Math.min(240, L.boardW * 0.72);
+  let mh = mw * (759 / 371);
+  if (mh > L.boardH * 0.78) { mh = L.boardH * 0.78; mw = mh * (371 / 759); }
+  const moneyTop = moneyCenterY - mh / 2;
+  if (sqsdMoneyImg && sqsdMoneyImg.width) {
+    ctx.drawImage(sqsdMoneyImg, cx - mw / 2, moneyTop, mw, mh);
+  } else {
+    ctx.fillStyle = '#7bd24a';
+    roundRect(ctx, cx - mw / 2, moneyTop, mw, mh, 12); ctx.fill();
+    ctx.strokeStyle = '#3a8f1f'; ctx.lineWidth = 3; roundRect(ctx, cx - mw / 2, moneyTop, mw, mh, 12); ctx.stroke();
+    ctx.fillStyle = '#3a8f1f'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('¥', cx, moneyCenterY - 24);
+    ctx.font = 'bold 22px Arial'; ctx.fillText('100', cx, moneyCenterY + 18);
+    ctx.font = '12px Arial'; ctx.fillText('人民币', cx, moneyCenterY + 46);
+  }
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('身份：' + gSqsdTier(gSqsd.score), cx, moneyTop + mh + 24);
   if (gSqsd.msgT > 0) {
     ctx.globalAlpha = Math.min(1, gSqsd.msgT * 3);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Arial';
-    ctx.fillText(gSqsd.msg, cx, cy - 110);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(gSqsd.msg, cx, moneyTop - 12);
     ctx.globalAlpha = 1;
   }
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
