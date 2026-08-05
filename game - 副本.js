@@ -6916,7 +6916,7 @@ function gQiexiguaLayout() {
 }
 
 function drawMiniGameQiexigua() {
-    drawRoyaleBackground();
+    drawBackground();
     const L = gQiexiguaLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
     drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
