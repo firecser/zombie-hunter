@@ -7857,13 +7857,13 @@ function gZqylSlotX(slot) {
   return L.boardX + L.boardW * (slot + 0.5) / ZQYL_CUPS;
 }
 function gZqylInit() {
-  gZqyl = { state: 'shuffle', level: 1, lives: 3, cups: [], coinSlot: 0, swapQueue: [], swapT: 0, msg: '', msgT: 0, lastTick: Date.now() };
+  gZqyl = { state: 'show', level: 1, lives: 3, cups: [], coinSlot: 0, swapQueue: [], swapT: 0, showT: 0, msg: '', msgT: 0, lastTick: Date.now() };
   try { gZqylBest = (wx.getStorageSync && wx.getStorageSync('gZqylBest')) || 0; } catch (e) { gZqylBest = 0; }
-  const colors = ['#4cc9f0', '#f72585', '#ffd166'];
-  for (let i = 0; i < ZQYL_CUPS; i++) gZqyl.cups.push({ slot: i, x: gZqylSlotX(i), hasCoin: false, color: colors[i] });
+  // 三只杯子外观完全一致，避免靠颜色锁定、必须靠观察移动来追踪
+  const cupColor = '#c97b4a';
+  for (let i = 0; i < ZQYL_CUPS; i++) gZqyl.cups.push({ slot: i, x: gZqylSlotX(i), hasCoin: false, color: cupColor });
   gZqyl.coinSlot = Math.floor(Math.random() * ZQYL_CUPS);
   gZqyl.cups[gZqyl.coinSlot].hasCoin = true;
-  gZqylBuildShuffle();
 }
 function gZqylBuildShuffle() {
   const n = 3 + gZqyl.level;
@@ -7879,7 +7879,10 @@ function gZqylBuildShuffle() {
 }
 function gZqylUpdate(dt) {
   const g = gZqyl;
-  if (g.state === 'shuffle') {
+  if (g.state === 'show') {
+    g.showT += dt;
+    if (g.showT >= 1.4) { g.state = 'shuffle'; gZqylBuildShuffle(); g.swapT = 0; }
+  } else if (g.state === 'shuffle') {
     g.swapT += dt;
     const dur = Math.max(0.18, 0.42 - g.level * 0.02);
     const t = Math.min(1, g.swapT / dur);
@@ -7975,21 +7978,33 @@ function drawMiniGameZqyl() {
 
   const cupW = Math.min(86, (L.boardW / ZQYL_CUPS) * 0.6);
   const cupH = 92;
-  if (gZqyl.state === 'reveal') {
-    const coinCup = gZqyl.cups[gZqyl.coinSlot];
+  // 放硬币展示阶段：抬起藏币的杯子露出金币，让玩家先记住位置
+  let showLift = 0;
+  if (gZqyl.state === 'show') {
+    const t = gZqyl.showT / 1.4;
+    const env = (t < 0.12 || t > 0.88) ? 0 : (t < 0.4 ? (t - 0.12) / 0.28 : (t < 0.7 ? 1 : (0.88 - t) / 0.18));
+    showLift = 72 * env;
+  }
+  const coinCup = gZqyl.cups[gZqyl.coinSlot];
+  if (gZqyl.state === 'show' || gZqyl.state === 'reveal') {
     ctx.fillStyle = '#ffd700'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(coinCup.x, deskY - 10, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#b8860b'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('¥', coinCup.x, deskY - 10);
   }
   for (const cup of gZqyl.cups) {
-    const lift = (gZqyl.state === 'reveal' && cup.hasCoin) ? 36 : 0;
+    let lift = 0;
+    if (gZqyl.state === 'reveal' && cup.hasCoin) lift = 36;
+    else if (gZqyl.state === 'show' && cup.hasCoin) lift = showLift;
     gZqylDrawCup(cup.x, deskY, cupW, cupH, cup.color, lift);
   }
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  if (gZqyl.state === 'shuffle') {
+  if (gZqyl.state === 'show') {
+    ctx.fillStyle = '#ffd700'; ctx.font = 'bold 17px Arial';
+    ctx.fillText('记住金币藏在哪只杯子下！', screenWidth / 2, L.boardY + 30);
+  } else if (gZqyl.state === 'shuffle') {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial';
-    ctx.fillText('盯紧金币在哪只杯子下…', screenWidth / 2, L.boardY + 30);
+    ctx.fillText('盯紧杯子怎么移动…', screenWidth / 2, L.boardY + 30);
   } else if (gZqyl.state === 'guess') {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Arial';
     ctx.fillText('点中藏有金币的杯子！', screenWidth / 2, L.boardY + 30);
