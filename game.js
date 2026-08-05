@@ -6214,8 +6214,8 @@ function drawMiniGameOverlay(title, subtitle) {
 }
 
 function drawMiniGame2048() {
-    // 皇室战争风深蓝背景
-    drawRoyaleBackground();
+    // 主游戏战场背景（夜空+远山+微光）
+    drawBackground();
 
     const L = g2048Layout();
 
@@ -6453,8 +6453,8 @@ function drawQmxzCell(cx, cy, size, isTarget, baseColor, targetColor, img) {
 }
 
 function drawMiniGameQmxz() {
-    // 皇室战争风深蓝背景
-    drawRoyaleBackground();
+    // 主游戏战场背景（夜空+远山+微光）
+    drawBackground();
 
     const L = gQmxzLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
@@ -6616,7 +6616,7 @@ function gBdsjmCatImg() {
 }
 
 function drawMiniGameBdsjm() {
-    drawRoyaleBackground();
+    drawBackground();
     const L = gBdsjmLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
     drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
@@ -7369,7 +7369,7 @@ function gBunengsiTap(x, y) {
 }
 
 function drawMiniGameBunengsi() {
-    drawRoyaleBackground();
+    drawBackground();
     const L = gBunengsiLayout();
     drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
     drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
@@ -7954,7 +7954,7 @@ function drawMiniGameZqyl() {
   gZqyl.lastTick = now;
   if (gZqyl.state !== 'over') gZqylUpdate(dt);
 
-  drawRoyaleBackground();
+  drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
   drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -8102,7 +8102,7 @@ function drawMiniGameQingwa() {
   gQingwa.lastTick = now;
   if (!gQingwa.win) gQingwaUpdate(dt);
 
-  drawRoyaleBackground();
+  drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
   drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -8248,7 +8248,7 @@ function drawMiniGameSqsd() {
   gSqsd.lastTick = now;
   gSqsdUpdate(dt);
 
-  drawRoyaleBackground();
+  drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
   drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -8477,7 +8477,7 @@ function drawMiniGameSjmao() {
   const L = gSjmaoLayout();
   const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   gSjmao.lastTick = Date.now();
-  drawRoyaleBackground();
+  drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
   drawMiniGameButton(L.restartBtn, '↻ 新游戏', 'green');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -8672,7 +8672,7 @@ function drawMiniGameYbh() {
   const L = gYbhLayout();
   const btnTop = Math.min(L.backBtn.y, L.restartBtn.y);
   gYbh.lastTick = Date.now();
-  drawRoyaleBackground();
+  drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
   drawMiniGameButton(L.restartBtn, '↻ 重玩', 'green');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
