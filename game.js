@@ -8672,7 +8672,9 @@ function gDlsqSaveBest() {
 function gDlsqLayout() { return gMiniCommonLayout(); }
 function gDlsqBallPos() {
   const L = gDlsqLayout();
-  return { x: L.boardX + L.boardW * 0.22, y: L.boardY + L.boardH - 40 };
+  // 球抬到棋盘中部偏左：原来贴底(y=boardH-40)导致向下/向左"拉弓"空间不足、蓄不满力。
+  // 现在抬到 0.50*boardH 处，下方留约半屏、左侧留约 1/4 屏，可拉满 180px 蓄力。
+  return { x: L.boardX + L.boardW * 0.26, y: L.boardY + L.boardH * 0.50 };
 }
 function gDlsqInit() {
   gDlsq = { state: 'aim', vx: 0, vy: 0, ball: gDlsqBallPos(), startBall: gDlsqBallPos(), drag: null, dist: 0, lastTick: Date.now() };
@@ -8728,7 +8730,8 @@ function drawMiniGameDlsq() {
   gDlsq.lastTick = now;
   gDlsqUpdate(dt);
 
-  drawRoyaleBackground();
+  // 复用主游戏战场背景（天空+远山+微光），避免内嵌小游戏背景过于单一
+  drawBackground();
   drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
   drawMiniGameButton(L.restartBtn, '↻ 再来', 'green');
   ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -8742,10 +8745,19 @@ function drawMiniGameDlsq() {
   // 镜头跟随：球最远能飞 1500px，远超屏宽，不跟随就"射出去看不见了"
   const camX = Math.max(0, g.ball.x - (L.boardX + L.boardW * 0.45));
   const bx = g.ball.x - camX;
-  ctx.fillStyle = '#3a7d34';
+  // 地面：草地渐变 + 顶部高光，增强纵深（上方露出主游戏天空背景）
+  const gg = ctx.createLinearGradient(0, groundY, 0, L.boardY + L.boardH);
+  gg.addColorStop(0, '#4a9e3f'); gg.addColorStop(1, '#1f5418');
+  ctx.fillStyle = gg;
   ctx.fillRect(L.boardX, groundY, L.boardW, L.boardY + L.boardH - groundY);
-  ctx.fillStyle = '#2f6b2a';
-  ctx.fillRect(L.boardX, groundY, L.boardW, 6);
+  ctx.fillStyle = '#6cc24a';
+  ctx.fillRect(L.boardX, groundY, L.boardW, 4);
+  // 弹弓（固定在起点，球落回时归位）：两叉 + 立柱
+  const sx = g.startBall.x, sy = g.startBall.y;
+  ctx.strokeStyle = '#7a4a1e'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(sx, sy + 12); ctx.lineTo(sx - 15, sy - 26); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sx, sy + 12); ctx.lineTo(sx + 15, sy - 26); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sx, sy + 12); ctx.lineTo(sx, sy + 24); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   for (let km = 1; km * 12 - camX < L.boardW; km++) {
     const mx = L.boardX + km * 12 - camX;
@@ -8774,6 +8786,12 @@ function drawMiniGameDlsq() {
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(bx, drawY, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   ctx.globalAlpha = 1;
+  // 拉弓时画两根皮筋连到弹弓叉口
+  if (g.state === 'aim' && g.drag) {
+    ctx.strokeStyle = '#3a2410'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(sx - 15, sy - 26); ctx.lineTo(bx, drawY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + 15, sy - 26); ctx.lineTo(bx, drawY); ctx.stroke();
+  }
   if (g.ball.y < topY) {
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('▲', bx, topY - 6);
