@@ -2876,11 +2876,11 @@ const OTHER_GAMES = [
     { id: 'qmxzfzm', name: '全民寻找房祖名', emoji: '🔍', icon: 'images/qmxzfzmicon.png', appId: '', mode: 'ingame', alpha: 'Q' },
     { id: 'bdsjm', name: '暴打神经猫', emoji: '🐱', icon: 'images/bdsjmicon.png', appId: '', mode: 'ingame', alpha: 'B' },
     { id: 'zuiqiangyanli', name: '最强眼力', emoji: '👀', icon: 'images/zuiqiangyanliicon.png', appId: '', mode: 'ingame', alpha: 'Z' },
-    { id: 'qingwa', name: '小青蛙过河', emoji: '🐸', icon: 'images/qingwaicon.png', appId: '', mode: 'ingame', alpha: 'F' },
+    { id: 'qingwa', name: '小青蛙过河', emoji: '🐸', icon: 'images/qingwaicon.png', appId: '', mode: 'ingame', alpha: 'X' },
     { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: 'images/sqsdscjicon.png', appId: '', mode: 'ingame', alpha: 'S' },
-    { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: 'images/shenjingmaoicon.png', appId: '', mode: 'ingame', alpha: 'N' },
-    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.png', appId: '', mode: 'ingame', alpha: 'H' },
-    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'L' }
+    { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: 'images/shenjingmaoicon.png', appId: '', mode: 'ingame', alpha: 'W' },
+    { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.png', appId: '', mode: 'ingame', alpha: 'Y' },
+    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'D' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
