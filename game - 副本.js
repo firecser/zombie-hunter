@@ -689,6 +689,8 @@ let goldOrbs = [];
 let damageNumbers = [];
 let lightningEffects = [];
 let bombExplosionEffects = [];
+let deathRayEffects = [];           // 死亡射线特效
+let immortalCooldownUntil = 0;      // 不朽之身复活后的短无敌截止时间
 
 // ==================== 僵尸类型 ====================
 const zombieTypes = {
@@ -718,6 +720,7 @@ let selectedUpgrade = -1;
 let bombCount = 0;
 let bombCooldown = 0;
 const BOMB_MAX_COUNT = 3;
+let bombMaxCount = BOMB_MAX_COUNT;    // 实际炸弹上限（含天赋加成），战斗中由 startGame 重算
 const BOMB_COOLDOWN_TIME = 30000;
 let justGotBomb = false; // 刚获得炸弹的标志
 let bombFull = false; // 炸弹已满标志
@@ -1082,6 +1085,35 @@ function drawLightnings() {
         lightning.life -= 16;
         if (lightning.life <= 0) {
             lightningEffects.splice(i, 1);
+        }
+    }
+}
+
+// 绘制死亡射线（天赋）特效：从玩家射出的竖向光束 + 全屏扫光
+function drawDeathRays() {
+    for (let i = deathRayEffects.length - 1; i >= 0; i--) {
+        const r = deathRayEffects[i];
+        const alpha = r.life / 400;
+
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 6;
+        ctx.shadowColor = '#7df9ff';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.moveTo(r.x, r.y);
+        ctx.lineTo(r.x, 0);
+        ctx.stroke();
+
+        ctx.globalAlpha = alpha * 0.22;
+        ctx.fillStyle = '#7df9ff';
+        ctx.fillRect(0, 0, screenWidth, screenHeight);
+        ctx.restore();
+
+        r.life -= 16;
+        if (r.life <= 0) {
+            deathRayEffects.splice(i, 1);
         }
     }
 }
@@ -2146,9 +2178,15 @@ function updateBullets() {
             
             if (dist < bullet.radius + zombie.radius) {
                 bullet.hitZombies.push(zombie);
-                
+
                 let damage = bullet.damage;
-                
+                let isCrit = false;
+                // 暴击（天赋）
+                if (talentMods.critChance > 0 && Math.random() < talentMods.critChance) {
+                    damage *= talentMods.critDamageMult;
+                    isCrit = true;
+                }
+
                 // 爆炸伤害
                 if (skills.explosive.level > 0) {
                     const explosionRadius = 40 + skills.explosive.level * 20;
@@ -2195,8 +2233,17 @@ function updateBullets() {
                     }
                 }
                 
-                damageZombie(zombie, damage);
-                
+                damageZombie(zombie, damage, isCrit);
+
+                // 命中附带：冰冻 / 减速（仅主目标结算，避免多段叠加过强）
+                if (talentMods.freezeChance > 0 && Math.random() < talentMods.freezeChance) {
+                    zombie.frozenUntil = Date.now() + 1200;
+                }
+                if (talentMods.slowChance > 0 && Math.random() < talentMods.slowChance) {
+                    zombie.slowUntil = Date.now() + 2000;
+                    zombie.slowFactor = 0.5;
+                }
+
                 if (bullet.hitZombies.length >= bullet.piercing) {
                     bullets.splice(i, 1);
                     break;
@@ -2207,16 +2254,16 @@ function updateBullets() {
 }
 
 // 伤害僵尸
-function damageZombie(zombie, damage) {
+function damageZombie(zombie, damage, isCrit) {
     zombie.health -= damage;
-    
+
     damageNumbers.push({
         x: zombie.x,
         y: zombie.y - zombie.radius,
         text: Math.round(damage).toString(),
         life: 800,
         vy: -2.5,
-        color: damage > player.damage ? '#ffff00' : '#ffffff'
+        color: isCrit ? '#ff3b3b' : (damage > player.damage ? '#ffff00' : '#ffffff')
     });
     
     // 粒子效果
@@ -2234,6 +2281,11 @@ function damageZombie(zombie, damage) {
     
     if (zombie.health <= 0) {
         player.kills++;
+
+        // 吞噬万物（天赋）：击杀回血
+        if (talentMods.lifestealPerKill > 0) {
+            player.health = Math.min(player.maxHealth, player.health + talentMods.lifestealPerKill);
+        }
         
         // 播放僵尸死亡音效
         AudioSystem.playZombieDeath();
@@ -2316,31 +2368,53 @@ function createLightning(x1, y1, x2, y2) {
 
 // 更新僵尸
 function updateZombies() {
+    const now = Date.now();
     for (const zombie of zombies) {
+        // 冰冻 / 减速（天赋）
+        let sp = zombie.speed;
+        if (zombie.frozenUntil > now) {
+            sp = 0;
+        } else if (zombie.slowUntil > now) {
+            sp *= (zombie.slowFactor || 0.5);
+        }
         const angle = Math.atan2(player.y - zombie.y, player.x - zombie.x);
-        zombie.x += Math.cos(angle) * zombie.speed;
-        zombie.y += Math.sin(angle) * zombie.speed;
-        
+        zombie.x += Math.cos(angle) * sp;
+        zombie.y += Math.sin(angle) * sp;
+
         const dist = Math.hypot(player.x - zombie.x, player.y - zombie.y);
         if (dist < player.radius + zombie.radius) {
             let damage = zombie.damage;
-            
-            if (skills.shield.level > 0) {
-                damage *= (1 - skills.shield.level * 0.1);
+
+            // 护盾减伤（技能 + 天赋护盾等级）
+            const shieldLv = skills.shield.level + talentMods.shieldLevel;
+            if (shieldLv > 0) {
+                damage *= (1 - shieldLv * 0.1);
             }
-            
+
             player.health -= damage * 0.03;
-            player.hurtTime = Date.now();
-            
+            player.hurtTime = now;
+
             // 播放受伤音效（限制频率，避免连续播放）
             AudioSystem.playHurt();
-            
+
             // 击退
             const pushAngle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
             zombie.x += Math.cos(pushAngle) * 8;
             zombie.y += Math.sin(pushAngle) * 8;
-            
-            if (player.health <= 0) {
+
+            // 不朽之身（天赋）：复活，短无敌避免瞬间再次触发
+            if (player.health <= 0 && talentMods.immortalCharges > 0 && now >= immortalCooldownUntil) {
+                talentMods.immortalCharges--;
+                player.health = player.maxHealth * 0.5;
+                immortalCooldownUntil = now + 1500;
+                for (let i = 0; i < 16; i++) {
+                    particles.push({
+                        x: player.x, y: player.y,
+                        vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+                        radius: Math.random() * 5 + 3, life: 500, color: '#a06bff'
+                    });
+                }
+            } else if (player.health <= 0) {
                 gameOver();
             }
         }
@@ -2375,7 +2449,7 @@ function updateOrbs() {
         }
         
         if (dist < player.radius + orb.radius) {
-            player.exp += orb.exp;
+            player.exp += orb.exp * talentMods.expMult;
             expOrbs.splice(i, 1);
             
             // 播放拾取音效
@@ -2398,7 +2472,7 @@ function updateOrbs() {
         }
         
         if (dist < player.radius + orb.radius) {
-            player.gold += 5;
+            player.gold += Math.round(5 * talentMods.goldMult);
             goldOrbs.splice(i, 1);
             
             // 播放拾取音效
@@ -2475,7 +2549,10 @@ function spawnZombies(dt) {
                 color: template.color,
                 exp: template.exp,
                 gold: template.gold || 5,
-                type: type
+                type: type,
+                frozenUntil: 0,
+                slowUntil: 0,
+                slowFactor: 0.5
             });
         }
     }
@@ -2496,7 +2573,7 @@ function levelUp() {
     justGotBomb = false;
     bombFull = false;
     if (player.level % 5 === 0) {
-        if (bombCount < BOMB_MAX_COUNT) {
+        if (bombCount < bombMaxCount) {
             bombCount++;
             justGotBomb = true;
         } else {
@@ -2592,8 +2669,8 @@ function useBomb() {
     
     // 清除所有僵尸
     for (const zombie of zombies) {
-        player.exp += zombie.exp;
-        player.gold += zombie.gold || 5;
+        player.exp += zombie.exp * talentMods.expMult;
+        player.gold += Math.round((zombie.gold || 5) * talentMods.goldMult);
         player.kills++;
         
         for (let i = 0; i < 8; i++) {
@@ -2696,7 +2773,22 @@ function startGame() {
     }
     skills.damage.level = 1;
     acquiredSkills = ['damage'];
-    
+
+    // 应用永久天赋到本场战斗（在基础属性重置之后折入）
+    applyTalentsToBattle();
+    player.damage += talentMods.damageBonus;
+    player.maxHealth += talentMods.healthBonus;
+    player.health = player.maxHealth;
+    player.fireRate = Math.max(120, player.fireRate + talentMods.fireRateBonus);
+    player.bulletPiercing += talentMods.piercingBonus;
+    player.bulletCount += talentMods.bulletCountBonus;
+    skills.shield.level += talentMods.shieldLevel;
+    skills.explosive.level += talentMods.explosiveLevel;
+    skills.lightning.level += talentMods.lightningLevel;
+    bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
+    talentMods.deathrayTimer = 0;
+    immortalCooldownUntil = 0;
+
     // 清空对象
     bullets = [];
     zombies = [];
@@ -2706,6 +2798,7 @@ function startGame() {
     damageNumbers = [];
     lightningEffects = [];
     bombExplosionEffects = [];
+    deathRayEffects = [];
     
     // 重置炸弹
     bombCount = 0;
@@ -2762,6 +2855,9 @@ function spawnInitialAdZombies() {
             exp: template.exp,
             gold: template.gold || 5,
             type: type,
+            frozenUntil: 0,
+            slowUntil: 0,
+            slowFactor: 0.5,
             isAdZombie: true  // 标记为素材演示僵尸（不掉经验）
         });
     }
@@ -2859,7 +2955,21 @@ function update(dt) {
         shoot();
         player.lastShot = now;
     }
-    
+
+    // 死亡射线（天赋）：每 8 秒对全场僵尸造成一次巨额伤害
+    if (talentMods.deathrayLevel > 0 && zombies.length > 0) {
+        talentMods.deathrayTimer += dt;
+        if (talentMods.deathrayTimer >= 8000) {
+            talentMods.deathrayTimer = 0;
+            const dmg = player.damage * (2 + talentMods.deathrayLevel);
+            for (const z of zombies) damageZombie(z, dmg);
+            deathRayEffects.push({ x: player.x, y: player.y, life: 400 });
+            AudioSystem.playShoot();
+        }
+    } else {
+        talentMods.deathrayTimer = 0;
+    }
+
     updateBullets();
     updateZombies();
     updateParticles();
@@ -3160,26 +3270,79 @@ let wechatAvatarImage = null; // 加载后的 Image 对象
 
 // 天赋数据（按章节解锁）
 // prerequisite: { id: 'talent_id', level: N } - 前置天赋及其等级要求
+// 天赋设计说明（v1.0.55 重做）：
+// 前期基础属性类天赋（core/damage/health/attackspeed）由“百分比”改为“直接加数值”，
+// 让玩家升级时能立刻感觉到数值变化。金币/经验类保留百分比（经济概念），攻速改为直接减 ms。
+// 所有天赋在 startGame 时通过 applyTalentsToBattle() 折入本场战斗（player / skills / 机制标记）。
 let talentData = {
-    'core': { name: '怪物之心', icon: '👾', level: 0, max: 20, cost: 2000, perLevelPower: 200, effect: '全体属性+2%', chapter: 1, prerequisite: null },
-    'damage': { name: '攻击力', icon: '⚔️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '攻击力+3%', chapter: 2, prerequisite: { id: 'core', level: 5 } },
-    'health': { name: '生命', icon: '❤️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '生命+30', chapter: 2, prerequisite: { id: 'core', level: 5 } },
-    'goldearn': { name: '金币获取', icon: '🪙', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '金币+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
-    'expearn': { name: '经验获取', icon: '⭐', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '经验+8%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
-    'attackspeed': { name: '攻击速度', icon: '⚡', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '攻速+2%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'crit': { name: '暴击率', icon: '💥', level: 0, max: 25, cost: 500, perLevelPower: 50, effect: '暴击+1.5%', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, perLevelPower: 80, effect: '穿透+1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '护盾+20', chapter: 4, prerequisite: { id: 'health', level: 10 } },
-    'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, perLevelPower: 100, effect: '范围+10%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '冰冻+1.5%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '减速+2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, perLevelPower: 120, effect: '上限+1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
-    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, perLevelPower: 150, effect: '弹射+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
-    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, perLevelPower: 150, effect: '子弹+1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
-    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '全屏伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, perLevelPower: 800, effect: '复活1次', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '吸收伤害', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
+    'core': { name: '怪物之心', icon: '👾', level: 0, max: 20, cost: 2000, perLevelPower: 200, effect: '攻击 +1，生命 +2', chapter: 1, prerequisite: null },
+    'damage': { name: '攻击力', icon: '⚔️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '攻击 +1', chapter: 2, prerequisite: { id: 'core', level: 5 } },
+    'health': { name: '生命', icon: '❤️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '生命 +6', chapter: 2, prerequisite: { id: 'core', level: 5 } },
+    'goldearn': { name: '金币获取', icon: '🪙', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '金币 +5%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
+    'expearn': { name: '经验获取', icon: '⭐', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '经验 +5%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
+    'attackspeed': { name: '攻击速度', icon: '⚡', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '攻速 −10ms', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'crit': { name: '暴击率', icon: '💥', level: 0, max: 25, cost: 500, perLevelPower: 50, effect: '暴击率 +1%（暴击×2）', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, perLevelPower: 80, effect: '穿透 +1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
+    'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '受伤 −2%', chapter: 4, prerequisite: { id: 'health', level: 10 } },
+    'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, perLevelPower: 100, effect: '爆炸范围 +1级', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中冰冻 +1.5%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中减速 +2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, perLevelPower: 120, effect: '炸弹上限 +1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
+    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, perLevelPower: 150, effect: '闪电链 +1级', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
+    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, perLevelPower: 150, effect: '子弹 +1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
+    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '全屏射线（每8秒）', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, perLevelPower: 800, effect: '复活 +1次', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '击杀回血 +1', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
 };
+
+// 本场战斗的天赋修正集合（startGame 时由 applyTalentsToBattle 计算填充）
+let talentMods = {
+    damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
+    critChance: 0, critDamageMult: 2,
+    piercingBonus: 0, shieldLevel: 0,
+    explosiveLevel: 0, lightningLevel: 0,
+    freezeChance: 0, slowChance: 0,
+    bulletCountBonus: 0, bombMaxBonus: 0,
+    goldMult: 1, expMult: 1,
+    deathrayLevel: 0, deathrayTimer: 0,
+    immortalCharges: 0, lifestealPerKill: 0
+};
+
+// 根据已加点天赋，计算本场战斗的全部修正
+function applyTalentsToBattle() {
+    const t = talentData;
+    const m = {
+        damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
+        critChance: 0, critDamageMult: 2,
+        piercingBonus: 0, shieldLevel: 0,
+        explosiveLevel: 0, lightningLevel: 0,
+        freezeChance: 0, slowChance: 0,
+        bulletCountBonus: 0, bombMaxBonus: 0,
+        goldMult: 1, expMult: 1,
+        deathrayLevel: 0, deathrayTimer: 0,
+        immortalCharges: 0, lifestealPerKill: 0
+    };
+    // 基础属性：直接加数值
+    m.damageBonus += t.core.level * 1 + t.damage.level * 1;
+    m.healthBonus += t.core.level * 2 + t.health.level * 6;
+    m.fireRateBonus -= t.attackspeed.level * 10;            // 攻速：每级 −10ms
+    // 机制类
+    m.critChance += t.crit.level * 0.01;                    // 暴击率：每级 +1%
+    m.piercingBonus += t.piercing.level;                    // 穿透：每级 +1
+    m.shieldLevel += t.shield.level;                        // 护盾：每级受伤 −2%（叠加技能护盾）
+    m.explosiveLevel += t.explosive.level;                  // 爆炸：每级 +1 级范围
+    m.lightningLevel += t.lightning.level;                  // 闪电链：每级 +1 级
+    m.freezeChance += t.freeze.level * 0.015;               // 命中冰冻：每级 +1.5%
+    m.slowChance += t.slow.level * 0.02;                    // 命中减速：每级 +2%
+    m.bulletCountBonus += t.multishot.level;                // 连射：每级 +1 子弹
+    m.bombMaxBonus += t.bombcount.level;                    // 炸弹上限：每级 +1
+    m.goldMult *= (1 + t.goldearn.level * 0.05);            // 金币：每级 +5%
+    m.expMult *= (1 + t.expearn.level * 0.05);              // 经验：每级 +5%
+    m.deathrayLevel += t.deathray.level;                    // 死亡射线：每级 +1 级（每8秒全屏伤害）
+    m.immortalCharges += t.immortal.level;                  // 不朽之身：每级 +1 次复活
+    m.lifestealPerKill += t.devour.level;                   // 吞噬万物：每级击杀回血 +1
+    talentMods = m;
+}
 
 // 检查天赋是否满足前置条件
 function isTalentUnlocked(talentId) {
@@ -9349,6 +9512,7 @@ function gameLoop() {
         drawBullets();
         drawParticles();
         drawLightnings();
+        drawDeathRays();
         drawBombExplosions();
         
         for (const zombie of zombies) {

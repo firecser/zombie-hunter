@@ -37,7 +37,7 @@
 - 1.0.3 → 1.0.4 → 1.0.5：迭代版本
 
 ## 版本号规则（重要）
-- **当前版本：1.0.21**（内嵌 qmxzfzm + 小游戏风格统一，已提交并打 tag，未推送）
+- **已推送至 v1.0.54**（2026-08-05 推送）。下一个版本：**v1.0.55**（天赋系统重做，本地已提交未推送）。
 - 每次推送前必须先读取远程标签确定下一个版本号
 - 命令：`git tag -l --sort=-v:refname` 查看远程标签
 - 版本号命名格式：主版本.次版本.修订号（如1.0.5）
@@ -49,9 +49,23 @@
 - `game.js.map` 是 source map，勿当源码、勿提交。仓库提交的是可读 game.js。
 - 内嵌小游戏（mode:'ingame'）统一接线点：`OTHER_GAMES` 配置、`startMiniGame`、`gameLoop`（activeMiniGame 分支）、`touchEnd`（activeMiniGame 分支）。已移植三款：2048（滑动合成）、qmxzfzm（点图找目标）、bdsjm（4列下落式打猫）；新增一款照搬 2048/gQmxz*/gBdsjm* 这套 ingame 模板。
 
+## 天赋系统（v1.0.55 重做，已接入战斗）
+- 设计原则：前期基础属性天赋（怪物之心/攻击力/生命/攻速）由「百分比」改为「直接加数值」，升级即时可见；金币/经验保留百分比。
+- 单一数据源 = `game - 副本.js` 的 `talentData`（显示文案 effect）+ `applyTalentsToBattle()`（实际计算 `talentMods`）。改数值只需调这两处，战斗主逻辑无需动。
+- 战斗接入：`startGame()` 调 `applyTalentsToBattle()` 后折入 `player`/`skills`/`bombMaxCount`；机制类（暴击/冰冻/减速/护盾/金币经验倍率/死亡射线/不朽/吞噬）在 `updateBullets`/`updateZombies`/`updateOrbs`/`update`/`damageZombie` 中读取 `talentMods`。
+- 原未实现、本次新接入的天赋：暴击、冰冻、减速、炸弹上限、爆炸、闪电链、连射、护盾、死亡射线、不朽之身、吞噬万物。
+
 ## 提交与上传约定（重要）
 - **每次本地 git 提交（及打 tag）完成后，必须主动询问用户：「要不要上传（提交审核）？」** 不要默认推送或默认不上传，等用户决定。
 - 若用户决定上传：上传前**必须先加固**——当前 `game.js` 是可读明文，不能直接传。在 DevTools 右键 `game.js` → 已在加固列表则直接「全部加固」（选「高」混淆 + 水印）；未加过则先「添加到加固文件列表」再加固。加固后 `game.js` 变混淆产物即可上传/提审。
 - 插件若勾选「上传时自动加固」，直接上传也会自动加固，效果等同。
 - 上传完成后：把 `game - 副本.js` 拷回 `game.js` 恢复可读源码（仅影响本地工作区，不影响已上传的加固包）。
 - `game.js.map`（source map）随包提审但勿提交到 git；仓库永远存可读 game.js。
+
+## Git 推送鉴权（PAT，用户要求记住）
+- 用途：本机 Git Credential Manager 缓存的旧凭据已失效，推送 `firecser/zombie-hunter` 时用此 Classic PAT 内联鉴权。
+- 推送命令（内联 URL，避免写入 git config）：
+  `git push https://<PAT>@github.com/firecser/zombie-hunter.git main --tags`
+- **PAT（明文，妥善保管）**：`[REDACTED_PAT]`
+- ⚠️ 安全提醒：这是一枚**实时有效的 GitHub Classic PAT（repo 权限）**，以明文存于本地记忆文件。若你（在 GitHub 后台）撤销/轮换/过期它，请同步更新本处。建议仅限本仓库 scope 并设置过期时间；不要提交到 git 或外泄。
+- 备注：本机 `C:\Windows\System32\drivers\etc\hosts` 被代理/VPN 写入 `127.0.0.1 github.com` 等映射，推送前需开启能访问 GitHub 的代理/VPN（否则解析到 127.0.0.1 导致连接失败）。
