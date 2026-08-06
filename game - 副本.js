@@ -674,7 +674,10 @@ const skills = {
     health: { level: 0, name: '生命强化', icon: '❤️', desc: '生命 +20' },
     explosive: { level: 0, name: '爆炸弹', icon: '💥', desc: '范围伤害' },
     lightning: { level: 0, name: '闪电链', icon: '⚡', desc: '弹射攻击' },
-    shield: { level: 0, name: '护盾', icon: '🛡️', desc: '减伤能力' }
+    shield: { level: 0, name: '护盾', icon: '🛡️', desc: '减伤能力' },
+    crit: { level: 0, name: '致命暴击', icon: '💢', desc: '暴击率 +5%' },
+    freeze: { level: 0, name: '冰霜弹', icon: '❄️', desc: '冰冻几率 +6%' },
+    slow: { level: 0, name: '缓速弹', icon: '🐌', desc: '减速几率 +8%' }
 };
 
 const MAX_SKILLS = 5;
@@ -690,7 +693,9 @@ let damageNumbers = [];
 let lightningEffects = [];
 let bombExplosionEffects = [];
 let deathRayEffects = [];           // 死亡射线特效
-let immortalCooldownUntil = 0;      // 不朽之身复活后的短无敌截止时间
+let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
+let invincibleUntil = 0;            // 不朽之身复活后的「真无敌」截止时间
+const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 
 // ==================== 僵尸类型 ====================
 const zombieTypes = {
@@ -710,11 +715,41 @@ const upgradePool = [
     { type: 'health', name: '生命强化', icon: '❤️', desc: '最大生命 +20' },
     { type: 'explosive', name: '爆炸弹', icon: '💥', desc: '范围伤害' },
     { type: 'lightning', name: '闪电链', icon: '⚡', desc: '弹射攻击' },
-    { type: 'shield', name: '护盾', icon: '🛡️', desc: '减伤能力' }
+    { type: 'shield', name: '护盾', icon: '🛡️', desc: '减伤能力' },
+    { type: 'crit', name: '致命暴击', icon: '💢', desc: '暴击率 +5%' },
+    { type: 'freeze', name: '冰霜弹', icon: '❄️', desc: '冰冻几率 +6%' },
+    { type: 'slow', name: '缓速弹', icon: '🐌', desc: '减速几率 +8%' }
 ];
 
 let upgradeOptions = [];
 let selectedUpgrade = -1;
+
+// ==================== 弹药效果统一结算 ====================
+// 天赋提供长线基础值（每级小幅），局内三选一技能提供当场高成长值（每级大幅），二者相加后封顶。
+// 所有子弹相关效果都必须走这里，保证「天赋」与「三选一」表现完全一致。
+function getCritChance() {
+    return Math.min(0.6, talentMods.critChance + skills.crit.level * 0.05);
+}
+function getCritMult() {
+    return talentMods.critDamageMult + skills.crit.level * 0.1;
+}
+function getFreezeChance() {
+    return Math.min(0.5, talentMods.freezeChance + skills.freeze.level * 0.06);
+}
+function getFreezeDuration() {
+    return Math.min(2600, 1000 + talentMods.freezeLevel * 40 + skills.freeze.level * 120);
+}
+function getSlowChance() {
+    return Math.min(0.6, talentMods.slowChance + skills.slow.level * 0.08);
+}
+function getSlowFactor() {
+    // 数值越小移动越慢
+    return Math.max(0.3, 0.7 - talentMods.slowLevel * 0.01 - skills.slow.level * 0.04);
+}
+function getShieldReduce() {
+    // 技能护盾每级 −10%，天赋护盾每级 −2%，总减伤封顶 80%（防止负伤害回血）
+    return Math.min(0.8, skills.shield.level * 0.1 + talentMods.shieldLevel * 0.02);
+}
 
 // ==================== 炸弹系统 ====================
 let bombCount = 0;
@@ -849,6 +884,60 @@ function drawPlayer() {
     ctx.fillRect(-1, -40, 2, 6);
     
     ctx.restore();
+
+    // 不朽之身：复活后的无敌护罩
+    if (Date.now() < invincibleUntil) {
+        drawInvincibleShield(x, y, r);
+    }
+}
+
+// 不朽之身触发后的无敌护罩表现（紫色能量球 + 旋转六边形线框 + 剩余秒数）
+function drawInvincibleShield(x, y, r) {
+    const now = Date.now();
+    const remain = Math.max(0, invincibleUntil - now);
+    const pulse = 0.65 + Math.sin(now * 0.008) * 0.25;
+    const R = r * 1.9;
+
+    ctx.save();
+    const g = ctx.createRadialGradient(x, y, R * 0.35, x, y, R);
+    g.addColorStop(0, 'rgba(160, 107, 255, 0.05)');
+    g.addColorStop(0.75, `rgba(160, 107, 255, ${0.18 * pulse})`);
+    g.addColorStop(1, `rgba(210, 170, 255, ${0.42 * pulse})`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.translate(x, y);
+    ctx.rotate(now * 0.0012);
+    ctx.strokeStyle = `rgba(215, 180, 255, ${0.85 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3;
+        const px = Math.cos(a) * R;
+        const py = Math.sin(a) * R;
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = '#e6d2ff';
+    for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * R, Math.sin(a) * R, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // 剩余无敌秒数
+    ctx.save();
+    ctx.fillStyle = '#e6d2ff';
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`🔮 无敌 ${Math.ceil(remain / 1000)}s`, x, y - R - 10);
+    ctx.restore();
 }
 
 // 绘制僵尸（冰雪风格）
@@ -931,6 +1020,62 @@ function drawZombie(zombie) {
     ctx.ellipse(x + r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
     
+    // ========== 状态表现：冰冻 / 减速 ==========
+    const nowZ = Date.now();
+    if (zombie.frozenUntil > nowZ) {
+        // 冰壳：半透明冰蓝覆盖 + 内部冰晶棱线 + 边缘冰锥
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#8fe3ff';
+        ctx.beginPath();
+        ctx.arc(x, y, r * 1.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        for (let k = 0; k < 6; k++) {
+            const a = k * Math.PI / 3 + nowZ * 0.0005;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.cos(a) * r * 0.25, y + Math.sin(a) * r * 0.25);
+            ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#dff6ff';
+        for (let k = 0; k < 5; k++) {
+            const a = k * (Math.PI * 2 / 5) - 0.4;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+            ctx.lineTo(x + Math.cos(a + 0.22) * r * 1.05, y + Math.sin(a + 0.22) * r * 1.05);
+            ctx.lineTo(x + Math.cos(a + 0.11) * r * 1.38, y + Math.sin(a + 0.11) * r * 1.38);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.restore();
+    } else if (zombie.slowUntil > nowZ) {
+        // 减速：脚下紫色黏液 + 上浮气泡 + 身上薄雾
+        ctx.save();
+        ctx.fillStyle = 'rgba(160, 107, 255, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.72, r * 0.95, r * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(200, 170, 255, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(210, 185, 255, 0.8)';
+        for (let k = 0; k < 3; k++) {
+            const ph = ((nowZ * 0.002) + k * 0.7) % 1;
+            ctx.beginPath();
+            ctx.arc(x + (k - 1) * r * 0.4, y + r * 0.7 - ph * r * 0.9, 2.2 * (1 - ph * 0.6), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#a06bff';
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.95, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
     // 血条
     if (zombie.health < zombie.maxHealth) {
         const barWidth = r * 2.2;
@@ -945,15 +1090,53 @@ function drawZombie(zombie) {
     }
 }
 
-// 绘制子弹（红色能量弹：细长条状 + 白热核心 + 红光晕，与金色/青色掉落物强区分）
+// 当前子弹应叠加哪些视觉元素（天赋与局内技能同源，弹体外观即玩家 build 的直观反馈）
+function getBulletVisual() {
+    return {
+        crit: getCritChance() > 0,           // 暴击：金色描边
+        freeze: getFreezeChance() > 0,       // 冰霜弹：霜环 + 冰晶
+        slow: getSlowChance() > 0,           // 缓速弹：紫色黏稠尾迹
+        pierce: player.bulletPiercing > 1,   // 穿透弹：拉长 + 尖锐弹头
+        fast: skills.bulletSpeed.level > 0,  // 高速子弹：残影
+        boom: skills.explosive.level > 0,    // 爆炸弹：尾部火花
+        bolt: skills.lightning.level > 0     // 闪电链：弹身电弧
+    };
+}
+
+// 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
 function drawBullets() {
+    const v = getBulletVisual();
+    const t = Date.now();
     for (const bullet of bullets) {
         const ang = Math.atan2(bullet.vy, bullet.vx);
-        const len = bullet.radius * 4;   // 子弹拉成细长条，明显区别于圆形掉落物
+        const len = bullet.radius * (v.pierce ? 5.2 : 4);   // 子弹拉成细长条，明显区别于圆形掉落物
         const w = bullet.radius * 1.5;
         ctx.save();
         ctx.translate(bullet.x, bullet.y);
         ctx.rotate(ang);
+
+        // 高速子弹：后方残影
+        if (v.fast) {
+            for (let k = 1; k <= 3; k++) {
+                ctx.globalAlpha = 0.24 / k;
+                ctx.fillStyle = '#ff6b6b';
+                ctx.beginPath();
+                ctx.ellipse(-k * len * 0.42, 0, (len / 2) * (1 - k * 0.18), (w / 2) * (1 - k * 0.18), 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // 缓速弹：紫色黏稠尾迹
+        if (v.slow) {
+            ctx.fillStyle = 'rgba(160, 107, 255, 0.55)';
+            for (let k = 1; k <= 3; k++) {
+                ctx.beginPath();
+                ctx.arc(-len * 0.32 * k, Math.sin(t * 0.02 + k) * 1.5, w * 0.34 * (1 - k * 0.2), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
         // 红色光晕
         const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, bullet.radius * 3);
         glow.addColorStop(0, 'rgba(255, 70, 70, 0.55)');
@@ -962,16 +1145,85 @@ function drawBullets() {
         ctx.beginPath();
         ctx.arc(0, 0, bullet.radius * 3, 0, Math.PI * 2);
         ctx.fill();
+
+        // 冰霜弹：外层霜环（保持弹体红色，避免与青色经验球混淆）
+        if (v.freeze) {
+            ctx.strokeStyle = 'rgba(180, 240, 255, 0.85)';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, len * 0.62, w * 0.85, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
         // 红色弹体（细长椭圆，沿运动方向）
         ctx.fillStyle = '#ff4d4d';
         ctx.beginPath();
         ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
         ctx.fill();
+
+        // 致命暴击：金色描边
+        if (v.crit) {
+            ctx.strokeStyle = '#ffd24a';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
         // 白热核心
         ctx.fillStyle = '#fff0f0';
         ctx.beginPath();
         ctx.ellipse(-len * 0.05, 0, len * 0.22, w * 0.32, 0, 0, Math.PI * 2);
         ctx.fill();
+
+        // 穿透弹：尖锐弹头
+        if (v.pierce) {
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(len * 0.5, 0);
+            ctx.lineTo(len * 0.28, -w * 0.42);
+            ctx.lineTo(len * 0.28, w * 0.42);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // 冰霜弹：两侧小冰晶
+        if (v.freeze) {
+            ctx.strokeStyle = '#eaffff';
+            ctx.lineWidth = 1.4;
+            for (const sgn of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-len * 0.1, sgn * w * 0.35);
+                ctx.lineTo(-len * 0.1, sgn * w * 0.95);
+                ctx.moveTo(-len * 0.1, sgn * w * 0.7);
+                ctx.lineTo(-len * 0.3, sgn * w * 0.92);
+                ctx.stroke();
+            }
+        }
+
+        // 爆炸弹：尾部橙色火花
+        if (v.boom) {
+            ctx.fillStyle = '#ffa73a';
+            for (let k = 0; k < 2; k++) {
+                ctx.beginPath();
+                ctx.arc(-len * (0.55 + k * 0.2), Math.sin(t * 0.03 + k * 2) * w * 0.35, w * 0.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 闪电链：弹身两侧电弧
+        if (v.bolt) {
+            ctx.strokeStyle = '#8fe3ff';
+            ctx.lineWidth = 1.2;
+            for (const sgn of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-len * 0.3, sgn * w * 0.5);
+                ctx.lineTo(-len * 0.05, sgn * w * 0.95);
+                ctx.lineTo(len * 0.2, sgn * w * 0.45);
+                ctx.stroke();
+            }
+        }
+
         ctx.restore();
     }
 }
@@ -1255,6 +1507,32 @@ function drawPlayerHealthBar() {
     ctx.font = 'bold 9px Arial';
     ctx.textAlign = 'center';
     ctx.fillText(`${Math.floor(player.health)}`, barX + barW - 12, barY + 5);
+
+    // 不朽之身：剩余复活次数（血条右侧紫色宝珠）
+    if (talentMods.immortalCharges > 0) {
+        const oX = Math.min(screenWidth - 28, barX + barW + 14);
+        const oY = barY + 3;
+        const pulse = 0.7 + Math.sin(Date.now() * 0.005) * 0.3;
+        ctx.save();
+        const og = ctx.createRadialGradient(oX, oY, 0, oX, oY, 8);
+        og.addColorStop(0, `rgba(230, 210, 255, ${pulse})`);
+        og.addColorStop(1, 'rgba(160, 107, 255, 0.15)');
+        ctx.fillStyle = og;
+        ctx.beginPath();
+        ctx.arc(oX, oY, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#c9a4ff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(oX, oY, 6.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 9px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`×${talentMods.immortalCharges}`, oX + 10, oY);
+        ctx.restore();
+    }
 }
 
 // 绘制炸弹按钮（圆形）
@@ -2181,10 +2459,12 @@ function updateBullets() {
 
                 let damage = bullet.damage;
                 let isCrit = false;
-                // 暴击（天赋）
-                if (talentMods.critChance > 0 && Math.random() < talentMods.critChance) {
-                    damage *= talentMods.critDamageMult;
+                // 暴击（天赋基础值 + 局内「致命暴击」）
+                const critChance = getCritChance();
+                if (critChance > 0 && Math.random() < critChance) {
+                    damage *= getCritMult();
                     isCrit = true;
+                    createCritEffect(zombie.x, zombie.y);
                 }
 
                 // 爆炸伤害
@@ -2235,13 +2515,18 @@ function updateBullets() {
                 
                 damageZombie(zombie, damage, isCrit);
 
-                // 命中附带：冰冻 / 减速（仅主目标结算，避免多段叠加过强）
-                if (talentMods.freezeChance > 0 && Math.random() < talentMods.freezeChance) {
-                    zombie.frozenUntil = Date.now() + 1200;
+                // 命中附带：冰冻 / 减速（天赋基础值 + 局内「冰霜弹 / 缓速弹」，仅主目标结算）
+                const nowHit = Date.now();
+                const freezeChance = getFreezeChance();
+                if (freezeChance > 0 && Math.random() < freezeChance) {
+                    zombie.frozenUntil = nowHit + getFreezeDuration();
+                    createFreezeEffect(zombie.x, zombie.y);
                 }
-                if (talentMods.slowChance > 0 && Math.random() < talentMods.slowChance) {
-                    zombie.slowUntil = Date.now() + 2000;
-                    zombie.slowFactor = 0.5;
+                const slowChance = getSlowChance();
+                if (slowChance > 0 && Math.random() < slowChance) {
+                    zombie.slowUntil = nowHit + 2200;
+                    zombie.slowFactor = getSlowFactor();
+                    createSlowEffect(zombie.x, zombie.y);
                 }
 
                 if (bullet.hitZombies.length >= bullet.piercing) {
@@ -2329,6 +2614,127 @@ function damageZombie(zombie, damage, isCrit) {
     }
 }
 
+// ==================== 命中特效：暴击 / 冰冻 / 减速 / 复活 ====================
+function createCritEffect(x, y) {
+    hitEffects.push({ x, y, type: 'crit', life: 320, maxLife: 320, rot: Math.random() * Math.PI });
+    for (let i = 0; i < 8; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 3 + Math.random() * 4;
+        particles.push({
+            x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            radius: Math.random() * 3 + 2, life: 260,
+            color: i % 2 ? '#ffd24a' : '#ff4d4d'
+        });
+    }
+}
+
+function createFreezeEffect(x, y) {
+    hitEffects.push({ x, y, type: 'freeze', life: 420, maxLife: 420, rot: Math.random() * Math.PI });
+    for (let i = 0; i < 7; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 1.5 + Math.random() * 2.5;
+        particles.push({
+            x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1,
+            radius: Math.random() * 2.5 + 1.5, life: 380,
+            color: i % 2 ? '#bff2ff' : '#5fd0ff'
+        });
+    }
+}
+
+function createSlowEffect(x, y) {
+    hitEffects.push({ x, y, type: 'slow', life: 380, maxLife: 380, rot: 0 });
+    for (let i = 0; i < 6; i++) {
+        const a = Math.random() * Math.PI * 2;
+        particles.push({
+            x, y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2 + 1,
+            radius: Math.random() * 3 + 2, life: 340, color: '#a06bff'
+        });
+    }
+}
+
+function updateHitEffects() {
+    for (let i = hitEffects.length - 1; i >= 0; i--) {
+        hitEffects[i].life -= 16;
+        if (hitEffects[i].life <= 0) hitEffects.splice(i, 1);
+    }
+}
+
+function drawHitEffects() {
+    for (const e of hitEffects) {
+        const p = Math.max(0, e.life / e.maxLife);   // 1 → 0
+        const grow = 1 + (1 - p) * 1.2;
+        ctx.save();
+        ctx.globalAlpha = p;
+        ctx.translate(e.x, e.y);
+
+        if (e.type === 'crit') {
+            // 暴击：红色冲击环 + 金色十字星光
+            ctx.rotate(e.rot);
+            ctx.strokeStyle = '#ff3b3b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, 16 * grow, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = '#ffd24a';
+            ctx.lineWidth = 4;
+            const L = 22 * grow;
+            for (let k = 0; k < 4; k++) {
+                ctx.save();
+                ctx.rotate(k * Math.PI / 2);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(L, 0);
+                ctx.stroke();
+                ctx.restore();
+            }
+        } else if (e.type === 'freeze') {
+            // 冰冻：六角冰晶炸开
+            ctx.rotate(e.rot + (1 - p) * 0.8);
+            ctx.strokeStyle = '#bff2ff';
+            ctx.lineWidth = 2.5;
+            const R = 18 * grow;
+            for (let k = 0; k < 6; k++) {
+                ctx.save();
+                ctx.rotate(k * Math.PI / 3);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(0, -R);
+                ctx.moveTo(0, -R * 0.6);
+                ctx.lineTo(-R * 0.22, -R * 0.82);
+                ctx.moveTo(0, -R * 0.6);
+                ctx.lineTo(R * 0.22, -R * 0.82);
+                ctx.stroke();
+                ctx.restore();
+            }
+        } else if (e.type === 'revive') {
+            // 不朽之身复活：紫色冲击波 + 上升符文环
+            ctx.strokeStyle = '#c9a4ff';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(0, 0, 30 * grow * 1.6, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(230, 210, 255, 0.85)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(0, 12 * (1 - p) - 6, 34 * grow, 12 * grow, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            // 减速：紫色黏滞波纹
+            ctx.strokeStyle = '#a06bff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(0, 6, 20 * grow, 9 * grow, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(160, 107, 255, 0.25)';
+            ctx.beginPath();
+            ctx.ellipse(0, 6, 20 * grow, 9 * grow, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
 // 创建爆炸效果
 function createExplosion(x, y, radius) {
     for (let i = 0; i < 18; i++) {
@@ -2383,13 +2789,18 @@ function updateZombies() {
 
         const dist = Math.hypot(player.x - zombie.x, player.y - zombie.y);
         if (dist < player.radius + zombie.radius) {
+            // 击退（无敌期同样生效，避免僵尸糊在车上）
+            const pushAngle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
+            zombie.x += Math.cos(pushAngle) * 8;
+            zombie.y += Math.sin(pushAngle) * 8;
+
+            // 不朽之身无敌期：完全免伤
+            if (now < invincibleUntil) continue;
+
             let damage = zombie.damage;
 
-            // 护盾减伤（技能 + 天赋护盾等级）
-            const shieldLv = skills.shield.level + talentMods.shieldLevel;
-            if (shieldLv > 0) {
-                damage *= (1 - shieldLv * 0.1);
-            }
+            // 护盾减伤（技能 −10%/级 + 天赋 −2%/级，封顶 80%）
+            damage *= (1 - getShieldReduce());
 
             player.health -= damage * 0.03;
             player.hurtTime = now;
@@ -2397,25 +2808,26 @@ function updateZombies() {
             // 播放受伤音效（限制频率，避免连续播放）
             AudioSystem.playHurt();
 
-            // 击退
-            const pushAngle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
-            zombie.x += Math.cos(pushAngle) * 8;
-            zombie.y += Math.sin(pushAngle) * 8;
-
-            // 不朽之身（天赋）：复活，短无敌避免瞬间再次触发
-            if (player.health <= 0 && talentMods.immortalCharges > 0 && now >= immortalCooldownUntil) {
-                talentMods.immortalCharges--;
-                player.health = player.maxHealth * 0.5;
-                immortalCooldownUntil = now + 1500;
-                for (let i = 0; i < 16; i++) {
-                    particles.push({
-                        x: player.x, y: player.y,
-                        vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
-                        radius: Math.random() * 5 + 3, life: 500, color: '#a06bff'
-                    });
+            if (player.health <= 0) {
+                // 不朽之身（天赋）：消耗 1 次复活，回半血 + 10 秒真无敌
+                if (talentMods.immortalCharges > 0) {
+                    talentMods.immortalCharges--;
+                    player.health = player.maxHealth * 0.5;
+                    invincibleUntil = now + IMMORTAL_INVINCIBLE_TIME;
+                    hitEffects.push({ x: player.x, y: player.y, type: 'revive', life: 700, maxLife: 700, rot: 0 });
+                    for (let i = 0; i < 26; i++) {
+                        const a = Math.random() * Math.PI * 2;
+                        const sp = 3 + Math.random() * 6;
+                        particles.push({
+                            x: player.x, y: player.y,
+                            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                            radius: Math.random() * 5 + 3, life: 620,
+                            color: i % 2 ? '#a06bff' : '#e6d2ff'
+                        });
+                    }
+                } else {
+                    gameOver();
                 }
-            } else if (player.health <= 0) {
-                gameOver();
             }
         }
     }
@@ -2608,7 +3020,9 @@ function showUpgradePanel() {
 
 // 应用升级
 function applyUpgrade(upgrade) {
-    if (skills[upgrade.type].level === 0) {
+    // 注意：天赋会预先抬高部分技能等级（爆炸/闪电链等），
+    // 因此这里必须用 acquiredSkills 判断是否首次获得，否则会绕过 MAX_SKILLS 槽位限制。
+    if (!acquiredSkills.includes(upgrade.type)) {
         acquiredSkills.push(upgrade.type);
     }
     
@@ -2782,12 +3196,12 @@ function startGame() {
     player.fireRate = Math.max(120, player.fireRate + talentMods.fireRateBonus);
     player.bulletPiercing += talentMods.piercingBonus;
     player.bulletCount += talentMods.bulletCountBonus;
-    skills.shield.level += talentMods.shieldLevel;
+    // 护盾不折入技能等级（技能 −10%/级 与 天赋 −2%/级 权重不同，由 getShieldReduce 分别结算）
     skills.explosive.level += talentMods.explosiveLevel;
     skills.lightning.level += talentMods.lightningLevel;
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     talentMods.deathrayTimer = 0;
-    immortalCooldownUntil = 0;
+    invincibleUntil = 0;
 
     // 清空对象
     bullets = [];
@@ -2799,6 +3213,7 @@ function startGame() {
     lightningEffects = [];
     bombExplosionEffects = [];
     deathRayEffects = [];
+    hitEffects = [];
     
     // 重置炸弹
     bombCount = 0;
@@ -2973,6 +3388,7 @@ function update(dt) {
     updateBullets();
     updateZombies();
     updateParticles();
+    updateHitEffects();
     updateOrbs();
     updateDamageNumbers();
     spawnZombies(dt);
@@ -3291,17 +3707,17 @@ let talentData = {
     'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, perLevelPower: 150, effect: '闪电链 +1级', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
     'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, perLevelPower: 150, effect: '子弹 +1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
     'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '全屏射线（每8秒）', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, perLevelPower: 800, effect: '复活 +1次', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
+    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, perLevelPower: 800, effect: '复活 +1次（无敌10秒）', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
     'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '击杀回血 +1', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
 };
 
 // 本场战斗的天赋修正集合（startGame 时由 applyTalentsToBattle 计算填充）
 let talentMods = {
     damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
-    critChance: 0, critDamageMult: 2,
+    critChance: 0, critDamageMult: 2, critLevel: 0,
     piercingBonus: 0, shieldLevel: 0,
     explosiveLevel: 0, lightningLevel: 0,
-    freezeChance: 0, slowChance: 0,
+    freezeChance: 0, slowChance: 0, freezeLevel: 0, slowLevel: 0,
     bulletCountBonus: 0, bombMaxBonus: 0,
     goldMult: 1, expMult: 1,
     deathrayLevel: 0, deathrayTimer: 0,
@@ -3313,10 +3729,10 @@ function applyTalentsToBattle() {
     const t = talentData;
     const m = {
         damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
-        critChance: 0, critDamageMult: 2,
+        critChance: 0, critDamageMult: 2, critLevel: 0,
         piercingBonus: 0, shieldLevel: 0,
         explosiveLevel: 0, lightningLevel: 0,
-        freezeChance: 0, slowChance: 0,
+        freezeChance: 0, slowChance: 0, freezeLevel: 0, slowLevel: 0,
         bulletCountBonus: 0, bombMaxBonus: 0,
         goldMult: 1, expMult: 1,
         deathrayLevel: 0, deathrayTimer: 0,
@@ -3327,13 +3743,16 @@ function applyTalentsToBattle() {
     m.healthBonus += t.core.level * 2 + t.health.level * 6;
     m.fireRateBonus -= t.attackspeed.level * 10;            // 攻速：每级 −10ms
     // 机制类
-    m.critChance += t.crit.level * 0.01;                    // 暴击率：每级 +1%
+    m.critChance += t.crit.level * 0.01;                    // 暴击率：每级 +1%（局内「致命暴击」每级 +5%）
+    m.critLevel = t.crit.level;
     m.piercingBonus += t.piercing.level;                    // 穿透：每级 +1
-    m.shieldLevel += t.shield.level;                        // 护盾：每级受伤 −2%（叠加技能护盾）
+    m.shieldLevel += t.shield.level;                        // 护盾：每级受伤 −2%（叠加技能护盾 −10%/级）
     m.explosiveLevel += t.explosive.level;                  // 爆炸：每级 +1 级范围
     m.lightningLevel += t.lightning.level;                  // 闪电链：每级 +1 级
-    m.freezeChance += t.freeze.level * 0.015;               // 命中冰冻：每级 +1.5%
-    m.slowChance += t.slow.level * 0.02;                    // 命中减速：每级 +2%
+    m.freezeChance += t.freeze.level * 0.015;               // 命中冰冻：每级 +1.5%（局内「冰霜弹」每级 +6%）
+    m.slowChance += t.slow.level * 0.02;                    // 命中减速：每级 +2%（局内「缓速弹」每级 +8%）
+    m.freezeLevel = t.freeze.level;
+    m.slowLevel = t.slow.level;
     m.bulletCountBonus += t.multishot.level;                // 连射：每级 +1 子弹
     m.bombMaxBonus += t.bombcount.level;                    // 炸弹上限：每级 +1
     m.goldMult *= (1 + t.goldearn.level * 0.05);            // 金币：每级 +5%
@@ -9511,6 +9930,7 @@ function gameLoop() {
         drawOrbs();
         drawBullets();
         drawParticles();
+        drawHitEffects();
         drawLightnings();
         drawDeathRays();
         drawBombExplosions();

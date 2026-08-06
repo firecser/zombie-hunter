@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>v1.0.56 战斗美术预览</title>
+<style>
+  body { margin:0; background:#0a1a30; color:#e8eef4; font-family:"PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:24px 20px 60px; }
+  h1 { font-size:22px; color:#ffd24a; margin:0 0 6px; }
+  .sub { font-size:13px; color:#8fb0d0; margin-bottom:22px; }
+  h2 { font-size:16px; color:#ffd24a; margin:28px 0 10px; border-left:4px solid #ffd24a; padding-left:8px; }
+  .note { font-size:12px; color:#8fb0d0; margin:0 0 10px; }
+  canvas { background:linear-gradient(180deg,#0a1a30,#16385e); border:1px solid rgba(255,210,74,.25); border-radius:10px; display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>v1.0.56 战斗美术预览</h1>
+  <div class="sub">绘制代码直接从 <code>game - 副本.js</code> 抽取，与游戏内表现一致。</div>
+
+  <h2>1. 子弹外观（效果叠加）</h2>
+  <p class="note">每行左侧为该效果单独生效时的弹体，最后一行为全部叠加。子弹主体始终保持红色，避免与金币/经验球混淆。</p>
+  <canvas id="c1" width="1040" height="470"></canvas>
+
+  <h2>2. 僵尸状态：冰冻 / 减速</h2>
+  <p class="note">冰冻 = 冰壳 + 棱线 + 边缘冰锥（完全停止移动）；减速 = 脚下紫色黏液 + 上浮气泡 + 身上薄雾。</p>
+  <canvas id="c2" width="1040" height="220"></canvas>
+
+  <h2>3. 命中特效</h2>
+  <p class="note">循环播放：暴击（红环 + 金十字星）／冰冻（六角冰晶）／减速（紫色黏滞波纹）／不朽复活（紫色冲击波）。</p>
+  <canvas id="c3" width="1040" height="220"></canvas>
+
+  <h2>4. 不朽之身：10 秒无敌护罩</h2>
+  <p class="note">紫色能量球 + 旋转六边形线框 + 顶点光点，头顶显示剩余秒数。</p>
+  <canvas id="c4" width="1040" height="240"></canvas>
+</div>
+
+<script>
+// ===== 运行环境桩 =====
+let ctx;
+const screenWidth = 1040, screenHeight = 470;
+const player = { x: 0, y: 0, radius: 20, bulletPiercing: 1, gunAngle: -Math.PI/2 };
+const skills = {
+  damage:{level:1}, fireRate:{level:0}, bulletCount:{level:0}, bulletSpeed:{level:0},
+  piercing:{level:0}, health:{level:0}, explosive:{level:0}, lightning:{level:0},
+  shield:{level:0}, crit:{level:0}, freeze:{level:0}, slow:{level:0}
+};
+let talentMods = {
+  damageBonus:0, healthBonus:0, fireRateBonus:0,
+  critChance:0, critDamageMult:2, critLevel:0,
+  piercingBonus:0, shieldLevel:0, explosiveLevel:0, lightningLevel:0,
+  freezeChance:0, slowChance:0, freezeLevel:0, slowLevel:0,
+  bulletCountBonus:0, bombMaxBonus:0, goldMult:1, expMult:1,
+  deathrayLevel:0, deathrayTimer:0, immortalCharges:0, lifestealPerKill:0
+};
+let bullets = [], hitEffects = [], invincibleUntil = 0;
+
+function getCritChance() {
+    return Math.min(0.6, talentMods.critChance + skills.crit.level * 0.05);
+}
+
+function getCritMult() {
+    return talentMods.critDamageMult + skills.crit.level * 0.1;
+}
+
+function getFreezeChance() {
+    return Math.min(0.5, talentMods.freezeChance + skills.freeze.level * 0.06);
+}
+
+function getFreezeDuration() {
+    return Math.min(2600, 1000 + talentMods.freezeLevel * 40 + skills.freeze.level * 120);
+}
+
+function getSlowChance() {
+    return Math.min(0.6, talentMods.slowChance + skills.slow.level * 0.08);
+}
+
+function getSlowFactor() {
+    // 数值越小移动越慢
+    return Math.max(0.3, 0.7 - talentMods.slowLevel * 0.01 - skills.slow.level * 0.04);
+}
+
+function getShieldReduce() {
+    // 技能护盾每级 −10%，天赋护盾每级 −2%，总减伤封顶 80%（防止负伤害回血）
+    return Math.min(0.8, skills.shield.level * 0.1 + talentMods.shieldLevel * 0.02);
+}
+
+function getBulletVisual() {
+    return {
+        crit: getCritChance() > 0,           // 暴击：金色描边
+        freeze: getFreezeChance() > 0,       // 冰霜弹：霜环 + 冰晶
+        slow: getSlowChance() > 0,           // 缓速弹：紫色黏稠尾迹
+        pierce: player.bulletPiercing > 1,   // 穿透弹：拉长 + 尖锐弹头
+        fast: skills.bulletSpeed.level > 0,  // 高速子弹：残影
+        boom: skills.explosive.level > 0,    // 爆炸弹：尾部火花
+        bolt: skills.lightning.level > 0     // 闪电链：弹身电弧
+    };
+}
+
+function drawBullets() {
+    const v = getBulletVisual();
+    const t = Date.now();
+    for (const bullet of bullets) {
+        const ang = Math.atan2(bullet.vy, bullet.vx);
+        const len = bullet.radius * (v.pierce ? 5.2 : 4);   // 子弹拉成细长条，明显区别于圆形掉落物
+        const w = bullet.radius * 1.5;
+        ctx.save();
+        ctx.translate(bullet.x, bullet.y);
+        ctx.rotate(ang);
+
+        // 高速子弹：后方残影
+        if (v.fast) {
+            for (let k = 1; k <= 3; k++) {
+                ctx.globalAlpha = 0.24 / k;
+                ctx.fillStyle = '#ff6b6b';
+                ctx.beginPath();
+                ctx.ellipse(-k * len * 0.42, 0, (len / 2) * (1 - k * 0.18), (w / 2) * (1 - k * 0.18), 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // 缓速弹：紫色黏稠尾迹
+        if (v.slow) {
+            ctx.fillStyle = 'rgba(160, 107, 255, 0.55)';
+            for (let k = 1; k <= 3; k++) {
+                ctx.beginPath();
+                ctx.arc(-len * 0.32 * k, Math.sin(t * 0.02 + k) * 1.5, w * 0.34 * (1 - k * 0.2), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 红色光晕
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, bullet.radius * 3);
+        glow.addColorStop(0, 'rgba(255, 70, 70, 0.55)');
+        glow.addColorStop(1, 'rgba(255, 70, 70, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, bullet.radius * 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 冰霜弹：外层霜环（保持弹体红色，避免与青色经验球混淆）
+        if (v.freeze) {
+            ctx.strokeStyle = 'rgba(180, 240, 255, 0.85)';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, len * 0.62, w * 0.85, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // 红色弹体（细长椭圆，沿运动方向）
+        ctx.fillStyle = '#ff4d4d';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 致命暴击：金色描边
+        if (v.crit) {
+            ctx.strokeStyle = '#ffd24a';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // 白热核心
+        ctx.fillStyle = '#fff0f0';
+        ctx.beginPath();
+        ctx.ellipse(-len * 0.05, 0, len * 0.22, w * 0.32, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 穿透弹：尖锐弹头
+        if (v.pierce) {
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(len * 0.5, 0);
+            ctx.lineTo(len * 0.28, -w * 0.42);
+            ctx.lineTo(len * 0.28, w * 0.42);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // 冰霜弹：两侧小冰晶
+        if (v.freeze) {
+            ctx.strokeStyle = '#eaffff';
+            ctx.lineWidth = 1.4;
+            for (const sgn of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-len * 0.1, sgn * w * 0.35);
+                ctx.lineTo(-len * 0.1, sgn * w * 0.95);
+                ctx.moveTo(-len * 0.1, sgn * w * 0.7);
+                ctx.lineTo(-len * 0.3, sgn * w * 0.92);
+                ctx.stroke();
+            }
+        }
+
+        // 爆炸弹：尾部橙色火花
+        if (v.boom) {
+            ctx.fillStyle = '#ffa73a';
+            for (let k = 0; k < 2; k++) {
+                ctx.beginPath();
+                ctx.arc(-len * (0.55 + k * 0.2), Math.sin(t * 0.03 + k * 2) * w * 0.35, w * 0.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 闪电链：弹身两侧电弧
+        if (v.bolt) {
+            ctx.strokeStyle = '#8fe3ff';
+            ctx.lineWidth = 1.2;
+            for (const sgn of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-len * 0.3, sgn * w * 0.5);
+                ctx.lineTo(-len * 0.05, sgn * w * 0.95);
+                ctx.lineTo(len * 0.2, sgn * w * 0.45);
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+    }
+}
+
+function drawZombie(zombie) {
+    const x = zombie.x;
+    const y = zombie.y;
+    const r = zombie.radius;
+    
+    // 阴影
+    ctx.beginPath();
+    ctx.ellipse(x, y + r * 0.7, r * 0.9, r * 0.25, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(100, 150, 180, 0.3)';
+    ctx.fill();
+    
+    // 身体颜色（高饱和 + 强描边，暗背景上高对比）
+    const bodyColors = {
+        normal: { body: '#3fa34d', coat: '#5cc04f', outline: '#1f5e26' },
+        fast: { body: '#e8932e', coat: '#ffb347', outline: '#9a5a10' },
+        tank: { body: '#7a45d6', coat: '#a06bff', outline: '#4a2589' },
+        boss: { body: '#d63b40', coat: '#ff5a5f', outline: '#8a1f24' }
+    };
+    const colors = bodyColors[zombie.type] || bodyColors.normal;
+    
+    // 身体主体
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.95, 0, Math.PI * 2);
+    ctx.fillStyle = colors.coat;
+    ctx.fill();
+    ctx.strokeStyle = colors.outline;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    // 外套
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.8, 0, Math.PI * 2);
+    ctx.fillStyle = colors.body;
+    ctx.fill();
+    
+    // 头顶
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.15, r * 0.55, 0, Math.PI * 2);
+    ctx.fillStyle = colors.outline;
+    ctx.fill();
+    ctx.strokeStyle = colors.outline;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // 脸部
+    ctx.fillStyle = '#e8eef4';
+    ctx.beginPath();
+    ctx.ellipse(x, y - r * 0.2, r * 0.4, r * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 眼睛（红色发光）
+    const eyeSize = r * 0.12;
+    
+    // 左眼
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 右眼
+    ctx.beginPath();
+    ctx.arc(x + r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 嘴巴
+    ctx.fillStyle = '#2a1a1a';
+    ctx.beginPath();
+    ctx.ellipse(x, y - r * 0.1, r * 0.15, r * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 手臂
+    ctx.fillStyle = colors.coat;
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, Math.PI / 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, -Math.PI / 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // ========== 状态表现：冰冻 / 减速 ==========
+    const nowZ = Date.now();
+    if (zombie.frozenUntil > nowZ) {
+        // 冰壳：半透明冰蓝覆盖 + 内部冰晶棱线 + 边缘冰锥
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#8fe3ff';
+        ctx.beginPath();
+        ctx.arc(x, y, r * 1.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        for (let k = 0; k < 6; k++) {
+            const a = k * Math.PI / 3 + nowZ * 0.0005;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.cos(a) * r * 0.25, y + Math.sin(a) * r * 0.25);
+            ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#dff6ff';
+        for (let k = 0; k < 5; k++) {
+            const a = k * (Math.PI * 2 / 5) - 0.4;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+            ctx.lineTo(x + Math.cos(a + 0.22) * r * 1.05, y + Math.sin(a + 0.22) * r * 1.05);
+            ctx.lineTo(x + Math.cos(a + 0.11) * r * 1.38, y + Math.sin(a + 0.11) * r * 1.38);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.restore();
+    } else if (zombie.slowUntil > nowZ) {
+        // 减速：脚下紫色黏液 + 上浮气泡 + 身上薄雾
+        ctx.save();
+        ctx.fillStyle = 'rgba(160, 107, 255, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.72, r * 0.95, r * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(200, 170, 255, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(210, 185, 255, 0.8)';
+        for (let k = 0; k < 3; k++) {
+            const ph = ((nowZ * 0.002) + k * 0.7) % 1;
+            ctx.beginPath();
+            ctx.arc(x + (k - 1) * r * 0.4, y + r * 0.7 - ph * r * 0.9, 2.2 * (1 - ph * 0.6), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#a06bff';
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.95, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // 血条
+    if (zombie.health < zombie.maxHealth) {
+        const barWidth = r * 2.2;
+        const barHeight = 5;
+        const barY = y - r - 15;
+        
+        ctx.fillStyle = '#1a2a3a';
+        ctx.fillRect(x - barWidth / 2, barY, barWidth, barHeight);
+        
+        ctx.fillStyle = '#ff4444';
+        ctx.fillRect(x - barWidth / 2, barY, barWidth * (zombie.health / zombie.maxHealth), barHeight);
+    }
+}
+
+function drawHitEffects() {
+    for (const e of hitEffects) {
+        const p = Math.max(0, e.life / e.maxLife);   // 1 → 0
+        const grow = 1 + (1 - p) * 1.2;
+        ctx.save();
+        ctx.globalAlpha = p;
+        ctx.translate(e.x, e.y);
+
+        if (e.type === 'crit') {
+            // 暴击：红色冲击环 + 金色十字星光
+            ctx.rotate(e.rot);
+            ctx.strokeStyle = '#ff3b3b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, 16 * grow, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = '#ffd24a';
+            ctx.lineWidth = 4;
+            const L = 22 * grow;
+            for (let k = 0; k < 4; k++) {
+                ctx.save();
+                ctx.rotate(k * Math.PI / 2);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(L, 0);
+                ctx.stroke();
+                ctx.restore();
+            }
+        } else if (e.type === 'freeze') {
+            // 冰冻：六角冰晶炸开
+            ctx.rotate(e.rot + (1 - p) * 0.8);
+            ctx.strokeStyle = '#bff2ff';
+            ctx.lineWidth = 2.5;
+            const R = 18 * grow;
+            for (let k = 0; k < 6; k++) {
+                ctx.save();
+                ctx.rotate(k * Math.PI / 3);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(0, -R);
+                ctx.moveTo(0, -R * 0.6);
+                ctx.lineTo(-R * 0.22, -R * 0.82);
+                ctx.moveTo(0, -R * 0.6);
+                ctx.lineTo(R * 0.22, -R * 0.82);
+                ctx.stroke();
+                ctx.restore();
+            }
+        } else if (e.type === 'revive') {
+            // 不朽之身复活：紫色冲击波 + 上升符文环
+            ctx.strokeStyle = '#c9a4ff';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(0, 0, 30 * grow * 1.6, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(230, 210, 255, 0.85)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(0, 12 * (1 - p) - 6, 34 * grow, 12 * grow, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            // 减速：紫色黏滞波纹
+            ctx.strokeStyle = '#a06bff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(0, 6, 20 * grow, 9 * grow, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(160, 107, 255, 0.25)';
+            ctx.beginPath();
+            ctx.ellipse(0, 6, 20 * grow, 9 * grow, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+function drawInvincibleShield(x, y, r) {
+    const now = Date.now();
+    const remain = Math.max(0, invincibleUntil - now);
+    const pulse = 0.65 + Math.sin(now * 0.008) * 0.25;
+    const R = r * 1.9;
+
+    ctx.save();
+    const g = ctx.createRadialGradient(x, y, R * 0.35, x, y, R);
+    g.addColorStop(0, 'rgba(160, 107, 255, 0.05)');
+    g.addColorStop(0.75, `rgba(160, 107, 255, ${0.18 * pulse})`);
+    g.addColorStop(1, `rgba(210, 170, 255, ${0.42 * pulse})`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.translate(x, y);
+    ctx.rotate(now * 0.0012);
+    ctx.strokeStyle = `rgba(215, 180, 255, ${0.85 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3;
+        const px = Math.cos(a) * R;
+        const py = Math.sin(a) * R;
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = '#e6d2ff';
+    for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * R, Math.sin(a) * R, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // 剩余无敌秒数
+    ctx.save();
+    ctx.fillStyle = '#e6d2ff';
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`🔮 无敌 ${Math.ceil(remain / 1000)}s`, x, y - R - 10);
+    ctx.restore();
+}
+
+// ===== 预览渲染 =====
+function resetSkills() {
+  for (const k in skills) skills[k].level = 0;
+  skills.damage.level = 1;
+  player.bulletPiercing = 1;
+}
+function label(c, text, x, y, color) {
+  c.save(); c.fillStyle = color || '#cfe2f5'; c.font = '13px sans-serif';
+  c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, x, y); c.restore();
+}
+
+const cases = [
+  ['基础弹（无附加）', () => {}],
+  ['致命暴击 → 金色描边', () => { skills.crit.level = 1; }],
+  ['冰霜弹 → 霜环 + 冰晶', () => { skills.freeze.level = 1; }],
+  ['缓速弹 → 紫色黏稠尾迹', () => { skills.slow.level = 1; }],
+  ['穿透弹 → 拉长 + 尖锐弹头', () => { player.bulletPiercing = 2; }],
+  ['高速子弹 → 三段残影', () => { skills.bulletSpeed.level = 1; }],
+  ['爆炸弹 → 尾部橙色火花', () => { skills.explosive.level = 1; }],
+  ['闪电链 → 弹身电弧', () => { skills.lightning.level = 1; }],
+  ['全部叠加', () => {
+    skills.crit.level = 1; skills.freeze.level = 1; skills.slow.level = 1;
+    skills.bulletSpeed.level = 1; skills.explosive.level = 1; skills.lightning.level = 1;
+    player.bulletPiercing = 3;
+  }]
+];
+
+const c1 = document.getElementById('c1').getContext('2d');
+const c2 = document.getElementById('c2').getContext('2d');
+const c3 = document.getElementById('c3').getContext('2d');
+const c4 = document.getElementById('c4').getContext('2d');
+
+const zombiesPreview = [
+  { x: 150, y: 110, radius: 30, type: 'normal', health: 30, maxHealth: 30, frozenUntil: 0, slowUntil: 0, slowFactor: .5 },
+  { x: 430, y: 110, radius: 30, type: 'tank',   health: 60, maxHealth: 80, frozenUntil: 0, slowUntil: 0, slowFactor: .5 },
+  { x: 710, y: 110, radius: 30, type: 'boss',   health: 150, maxHealth: 200, frozenUntil: 0, slowUntil: 0, slowFactor: .5 }
+];
+
+function frame() {
+  const t = Date.now();
+
+  // ---- 1. 子弹 ----
+  ctx = c1;
+  c1.clearRect(0, 0, 1040, 470);
+  cases.forEach((cs, i) => {
+    resetSkills(); cs[1]();
+    const y = 34 + i * 48;
+    label(c1, cs[0], 20, y);
+    bullets = [];
+    for (let k = 0; k < 4; k++) {
+      bullets.push({ x: 340 + k * 160 + ((t / 12) % 160), y: y, vx: 10, vy: 0, radius: 6 });
+    }
+    drawBullets();
+  });
+  resetSkills();
+
+  // ---- 2. 僵尸状态 ----
+  ctx = c2;
+  c2.clearRect(0, 0, 1040, 220);
+  zombiesPreview[0].frozenUntil = 0; zombiesPreview[0].slowUntil = 0;
+  zombiesPreview[1].frozenUntil = t + 9999; zombiesPreview[1].slowUntil = 0;
+  zombiesPreview[2].frozenUntil = 0; zombiesPreview[2].slowUntil = t + 9999;
+  zombiesPreview.forEach(z => drawZombie(z));
+  label(c2, '正常', 128, 180); label(c2, '冰冻中', 402, 180, '#bff2ff'); label(c2, '减速中', 682, 180, '#c9a4ff');
+
+  // ---- 3. 命中特效 ----
+  ctx = c3;
+  c3.clearRect(0, 0, 1040, 220);
+  const period = 1000;
+  const ph = (t % period) / period;
+  const kinds = [['crit', 160, '暴击'], ['freeze', 420, '冰冻'], ['slow', 680, '减速'], ['revive', 900, '不朽复活']];
+  hitEffects = kinds.map(k => ({ x: k[1], y: 100, type: k[0], life: (1 - ph) * 600, maxLife: 600, rot: 0.4 }));
+  drawHitEffects();
+  kinds.forEach(k => label(c3, k[2], k[1] - 18, 185));
+
+  // ---- 4. 无敌护罩 ----
+  ctx = c4;
+  c4.clearRect(0, 0, 1040, 240);
+  invincibleUntil = t + 10000 - (t % 10000);
+  c4.save();
+  c4.fillStyle = '#3a4a5a'; c4.fillRect(520 - 22, 130 - 16, 44, 32);
+  c4.fillStyle = '#5fd0ff'; c4.fillRect(520 - 6, 130 - 6, 4, 8);
+  c4.fillStyle = '#2a2a2a';
+  c4.fillRect(520 - 20, 130 - 16, 6, 6); c4.fillRect(520 + 14, 130 - 16, 6, 6);
+  c4.fillRect(520 - 20, 130 + 10, 6, 6); c4.fillRect(520 + 14, 130 + 10, 6, 6);
+  c4.restore();
+  drawInvincibleShield(520, 130, 20);
+
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
