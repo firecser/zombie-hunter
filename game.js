@@ -11,8 +11,12 @@ const screenHeight = canvas.height;
 // 获取微信状态栏高度（安全区域）
 let statusBarHeight = 20;
 try {
-    const systemInfo = wx.getSystemInfoSync();
-    statusBarHeight = systemInfo.statusBarHeight || 20;
+    // 新基础库用 wx.getWindowInfo（同步，含 statusBarHeight）；旧库回退 getSystemInfoSync
+    if (wx.getWindowInfo) {
+        statusBarHeight = wx.getWindowInfo().statusBarHeight || 20;
+    } else {
+        statusBarHeight = wx.getSystemInfoSync().statusBarHeight || 20;
+    }
 } catch (e) {
     statusBarHeight = 20;
 }
