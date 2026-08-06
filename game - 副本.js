@@ -8173,6 +8173,29 @@ function gQingwaSolve() {
   }
   return null;
 }
+// 通用 BFS：从任意局面求到目标的最短步数（用于判断是否偏离最优路径）
+function gQingwaMinMoves(start, n) {
+  const goal = gQingwaGoal(n);
+  const key = a => a.map(x => x === 0 ? '.' : x).join('');
+  if (key(start) === key(goal)) return 0;
+  const q = [{ s: start.slice(), d: 0 }];
+  const seen = new Set([key(start)]);
+  while (q.length) {
+    const { s, d } = q.shift();
+    const N = s.length;
+    for (let i = 0; i < N; i++) {
+      const to = gQingwaMoveTo(i, s);
+      if (to < 0) continue;
+      const ns = s.slice(); ns[to] = ns[i]; ns[i] = 0;
+      const k = key(ns);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (key(ns) === key(goal)) return d + 1;
+      q.push({ s: ns, d: d + 1 });
+    }
+  }
+  return -1;
+}
 function gQingwaSaveBest() {
   const lv = gQingwa.level;
   if (gQingwaBest[lv - 1] === 0 || gQingwa.moves < gQingwaBest[lv - 1]) {
@@ -8200,6 +8223,7 @@ function gQingwaInit(level) {
   const lv = (typeof level === 'number') ? level : (gQingwa ? gQingwa.level : 1);
   const n = QW_LEVELS[lv - 1];
   gQingwa = { level: lv, n: n, slots: gQingwaBuildSlots(n), moves: 0, time: 0, win: false, stuck: false, anim: null, history: [], hint: 0, hintFrom: -1, hintTo: -1, lastTick: Date.now() };
+  gQingwa.optimalMoves = gQingwaMinMoves(gQingwa.slots, n);
   try { gQingwaBest = JSON.parse((wx.getStorageSync && wx.getStorageSync('gQingwaBest')) || '[0,0,0]'); if (!Array.isArray(gQingwaBest)) gQingwaBest = [0, 0, 0]; } catch (e) { gQingwaBest = [0, 0, 0]; }
 }
 function gQingwaUndo() {
@@ -8373,7 +8397,11 @@ function drawMiniGameQingwa() {
   } else {
     if (gQingwa.hint > 0) {
       ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px Arial';
-      ctx.fillText('💡 提示：走这只金光青蛙到高亮格子', screenWidth / 2, L.boardY + 24);
+      if (gQingwa.hintFrom >= 0) {
+        ctx.fillText('💡 提示：走这只金光青蛙到高亮格子', screenWidth / 2, L.boardY + 24);
+      } else {
+        ctx.fillText('💡 走错了！点「撤销 ↶」退回一步重走', screenWidth / 2, L.boardY + 24);
+      }
     } else {
       ctx.fillText('绿圈=可动，灰=不可动。点青蛙跳过空位或隔一蛙', screenWidth / 2, L.boardY + 24);
     }
@@ -8404,7 +8432,10 @@ function handleMiniGameQingwaInput(x, y) {
   if (inRect(x, y, L.undoBtn)) { gQingwaUndo(); return; }
   if (inRect(x, y, L.hintBtn)) {
     const sol = gQingwaSolve();
-    if (sol && sol.first) { g.hint = 2.2; g.hintFrom = sol.first.from; g.hintTo = sol.first.to; }
+    // 偏离最优路径（走错）则提示撤销；仍在最优路径上才给金色箭头
+    const onOptimal = sol && sol.first && sol.moves <= (gQingwa.optimalMoves - gQingwa.moves);
+    if (onOptimal) { g.hint = 2.2; g.hintFrom = sol.first.from; g.hintTo = sol.first.to; }
+    else { g.hint = 2.6; g.hintFrom = -1; g.hintTo = -1; }
     return;
   }
   gQingwaTap(x, y);
