@@ -37,9 +37,9 @@
 - 1.0.3 → 1.0.4 → 1.0.5：迭代版本
 
 ## 版本号规则（重要）
-- **已推送至 v1.0.59**（2026-08-06 推送，含 v1.0.55→v1.0.59 全部）。
-- v1.0.55 天赋系统重做；v1.0.56 战斗体验修复+子弹天赋进三选一+全套美术；v1.0.57 暴击数字放大加粗/去十字星+跳级三选一覆盖修复；v1.0.58 微信编译告警修复（getSystemInfo 弃用换 getWindowInfo）+ 关 sourceMap 上传 ENOENT 报错；v1.0.59 关闭 useCompilerModule 彻底规避 SummerCompiler.getFile(undefined) 编译报错。
-- 本地最新标签 v1.0.59；下一个版本：**v1.0.60**。
+- **已推送至 v1.0.60**（2026-08-06 推送，含 v1.0.55→v1.0.60 全部）。
+- v1.0.55 天赋系统重做；v1.0.56 战斗体验修复+子弹天赋进三选一+全套美术；v1.0.57 暴击数字放大加粗/去十字星+跳级三选一覆盖修复；v1.0.58 微信编译告警修复（getSystemInfo 弃用换 getWindowInfo）+ 关 sourceMap 上传 ENOENT 报错；v1.0.59 关闭 useCompilerModule 规避 SummerCompiler.getFile(undefined) 编译报错；v1.0.60 清理 Apr16 废弃快照目录（含嵌套第二个 project.config.json）结构性根治 undefined 报错。
+- 本地最新标签 v1.0.60；下一个版本：**v1.0.61**。
 - 每次推送前必须先读取远程标签确定下一个版本号
 - 命令：`git tag -l --sort=-v:refname` 查看远程标签
 - 版本号命名格式：主版本.次版本.修订号（如1.0.5）
