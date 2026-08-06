@@ -1300,10 +1300,20 @@ function drawParticles() {
 function drawDamageNumbers() {
     for (const dn of damageNumbers) {
         ctx.fillStyle = dn.color || '#ffffff';
-        ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'center';
         ctx.globalAlpha = dn.life / 800;
-        ctx.fillText(dn.text, dn.x, dn.y);
+        if (dn.isCrit) {
+            // 暴击：放大加粗 + 深色描边，强化视觉冲击
+            ctx.font = 'bold 24px Arial';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(110, 0, 0, 0.95)';
+            ctx.strokeText(dn.text, dn.x, dn.y);
+            ctx.fillText(dn.text, dn.x, dn.y);
+        } else {
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText(dn.text, dn.x, dn.y);
+        }
     }
     ctx.globalAlpha = 1;
 }
@@ -2548,7 +2558,8 @@ function damageZombie(zombie, damage, isCrit) {
         text: Math.round(damage).toString(),
         life: 800,
         vy: -2.5,
-        color: isCrit ? '#ff3b3b' : (damage > player.damage ? '#ffff00' : '#ffffff')
+        color: isCrit ? '#ff3b3b' : (damage > player.damage ? '#ffff00' : '#ffffff'),
+        isCrit: isCrit
     });
     
     // 粒子效果
@@ -2668,25 +2679,13 @@ function drawHitEffects() {
         ctx.translate(e.x, e.y);
 
         if (e.type === 'crit') {
-            // 暴击：红色冲击环 + 金色十字星光
+            // 暴击：红色冲击环（十字星光已按需求移除）
             ctx.rotate(e.rot);
             ctx.strokeStyle = '#ff3b3b';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.arc(0, 0, 16 * grow, 0, Math.PI * 2);
             ctx.stroke();
-            ctx.strokeStyle = '#ffd24a';
-            ctx.lineWidth = 4;
-            const L = 22 * grow;
-            for (let k = 0; k < 4; k++) {
-                ctx.save();
-                ctx.rotate(k * Math.PI / 2);
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(L, 0);
-                ctx.stroke();
-                ctx.restore();
-            }
         } else if (e.type === 'freeze') {
             // 冰冻：六角冰晶炸开
             ctx.rotate(e.rot + (1 - p) * 0.8);
@@ -2972,10 +2971,14 @@ function spawnZombies(dt) {
 
 // 升级
 function levelUp() {
+    // 面板已显示时不再弹出/覆盖，避免「跳级」时第二次把第一次的三选一覆盖掉
+    if (gameState === 'upgrade') return;
     if (player.level >= MAX_LEVEL) {
         player.exp = 0;
         return;
     }
+    // 经验不足时不强行升级（可能已被前面的升级/连锁升级消耗），避免炸弹延迟回调误升
+    if (player.exp < player.expToLevel) return;
     
     player.level++;
     player.exp -= player.expToLevel;
@@ -3057,6 +3060,11 @@ function applyUpgrade(upgrade) {
     // 重置炸弹获得标志
     justGotBomb = false;
     bombFull = false;
+
+    // 连锁升级：本次经验溢出跨多级（如炸弹清屏）时，继续弹出下一级三选一，让玩家逐级都选
+    if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
+        levelUp();
+    }
 }
 
 // 使用炸弹

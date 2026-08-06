@@ -27,7 +27,7 @@
   <canvas id="c2" width="1040" height="220"></canvas>
 
   <h2>3. 命中特效</h2>
-  <p class="note">循环播放：暴击（红环 + 金十字星）／冰冻（六角冰晶）／减速（紫色黏滞波纹）／不朽复活（紫色冲击波）。</p>
+  <p class="note">循环播放：暴击（红环）／冰冻（六角冰晶）／减速（紫色黏滞波纹）／不朽复活（紫色冲击波）。</p>
   <canvas id="c3" width="1040" height="220"></canvas>
 
   <h2>4. 不朽之身：10 秒无敌护罩</h2>
@@ -379,25 +379,13 @@ function drawHitEffects() {
         ctx.translate(e.x, e.y);
 
         if (e.type === 'crit') {
-            // 暴击：红色冲击环 + 金色十字星光
+            // 暴击：红色冲击环（十字星光已移除）
             ctx.rotate(e.rot);
             ctx.strokeStyle = '#ff3b3b';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.arc(0, 0, 16 * grow, 0, Math.PI * 2);
             ctx.stroke();
-            ctx.strokeStyle = '#ffd24a';
-            ctx.lineWidth = 4;
-            const L = 22 * grow;
-            for (let k = 0; k < 4; k++) {
-                ctx.save();
-                ctx.rotate(k * Math.PI / 2);
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(L, 0);
-                ctx.stroke();
-                ctx.restore();
-            }
         } else if (e.type === 'freeze') {
             // 冰冻：六角冰晶炸开
             ctx.rotate(e.rot + (1 - p) * 0.8);
