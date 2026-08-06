@@ -942,51 +942,68 @@ function drawZombie(zombie) {
     }
 }
 
-// 绘制子弹（高对比：近白核心 + 金描边 + 亮黄光晕）
+// 绘制子弹（红色能量弹：细长条状 + 白热核心 + 红光晕，与金色/青色掉落物强区分）
 function drawBullets() {
     for (const bullet of bullets) {
-        // 发光（亮黄橙）
-        const gradient = ctx.createRadialGradient(bullet.x, bullet.y, 0, bullet.x, bullet.y, bullet.radius * 4);
-        gradient.addColorStop(0, 'rgba(255, 230, 120, 0.85)');
-        gradient.addColorStop(0.5, 'rgba(255, 170, 40, 0.4)');
-        gradient.addColorStop(1, 'rgba(255, 120, 0, 0)');
-        ctx.fillStyle = gradient;
+        const ang = Math.atan2(bullet.vy, bullet.vx);
+        const len = bullet.radius * 4;   // 子弹拉成细长条，明显区别于圆形掉落物
+        const w = bullet.radius * 1.5;
+        ctx.save();
+        ctx.translate(bullet.x, bullet.y);
+        ctx.rotate(ang);
+        // 红色光晕
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, bullet.radius * 3);
+        glow.addColorStop(0, 'rgba(255, 70, 70, 0.55)');
+        glow.addColorStop(1, 'rgba(255, 70, 70, 0)');
+        ctx.fillStyle = glow;
         ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, bullet.radius * 4, 0, Math.PI * 2);
+        ctx.arc(0, 0, bullet.radius * 3, 0, Math.PI * 2);
         ctx.fill();
-
-        // 核心（近白高亮 + 金描边，暗背景上极跳）
-        ctx.fillStyle = '#fff7e0';
+        // 红色弹体（细长椭圆，沿运动方向）
+        ctx.fillStyle = '#ff4d4d';
         ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = '#ffb300';
-        ctx.lineWidth = 2;
+        // 白热核心
+        ctx.fillStyle = '#fff0f0';
         ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.ellipse(-len * 0.05, 0, len * 0.22, w * 0.32, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
     }
 }
 
-// 绘制经验球和金币
+// 绘制经验球和金币（青蓝经验 + 金色硬币，与红色子弹强区分）
 function drawOrbs() {
-    // 经验球
+    // 经验球（青蓝 + 白色「＋」，强调经验）
     for (const orb of expOrbs) {
         const glow = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius * 2);
-        glow.addColorStop(0, 'rgba(100, 180, 255, 0.5)');
-        glow.addColorStop(1, 'rgba(100, 180, 255, 0)');
+        glow.addColorStop(0, 'rgba(80, 200, 255, 0.55)');
+        glow.addColorStop(1, 'rgba(80, 200, 255, 0)');
         ctx.fillStyle = glow;
         ctx.beginPath();
         ctx.arc(orb.x, orb.y, orb.radius * 2, 0, Math.PI * 2);
         ctx.fill();
-        
+
         ctx.beginPath();
         ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#00bfff';
+        ctx.fillStyle = '#19c3ff';
         ctx.fill();
+        ctx.strokeStyle = '#bff0ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // 中心「＋」号
+        ctx.strokeStyle = '#eaffff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(orb.x - orb.radius * 0.4, orb.y);
+        ctx.lineTo(orb.x + orb.radius * 0.4, orb.y);
+        ctx.moveTo(orb.x, orb.y - orb.radius * 0.4);
+        ctx.lineTo(orb.x, orb.y + orb.radius * 0.4);
+        ctx.stroke();
     }
-    
-    // 金币
+
+    // 金币（金色圆饼 + ¥ 符号 + 深金描边，强调硬币）
     for (const orb of goldOrbs) {
         const glow = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius * 2);
         glow.addColorStop(0, 'rgba(255, 215, 0, 0.5)');
@@ -995,11 +1012,20 @@ function drawOrbs() {
         ctx.beginPath();
         ctx.arc(orb.x, orb.y, orb.radius * 2, 0, Math.PI * 2);
         ctx.fill();
-        
+
         ctx.beginPath();
         ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
         ctx.fillStyle = '#ffd700';
         ctx.fill();
+        ctx.strokeStyle = '#b8860b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // ¥ 符号
+        ctx.fillStyle = '#b8860b';
+        ctx.font = 'bold ' + Math.round(orb.radius * 1.3) + 'px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('¥', orb.x, orb.y + 1);
     }
 }
 
