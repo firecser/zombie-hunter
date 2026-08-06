@@ -71,3 +71,9 @@
 - **PAT（明文，妥善保管）**：`[REDACTED_PAT]`
 - ⚠️ 安全提醒：这是一枚**实时有效的 GitHub Classic PAT（repo 权限）**，以明文存于本地记忆文件。若你（在 GitHub 后台）撤销/轮换/过期它，请同步更新本处。建议仅限本仓库 scope 并设置过期时间；不要提交到 git 或外泄。
 - 备注：本机 `C:\Windows\System32\drivers\etc\hosts` 被代理/VPN 写入 `127.0.0.1 github.com` 等映射，推送前需开启能访问 GitHub 的代理/VPN（否则解析到 127.0.0.1 导致连接失败）。
+
+## 微信开发者工具报错排查（重要，已确诊）
+- **`[] ENOENT ... open '.../zombie-hunter-game/undefined'`，栈含 `PreCompileProject.getFile → SummerCompiler.getFile`**：这是**微信开发者工具 Stable `2.01.25xxx`（如 2.01.2510290）自身的已知 bug**，**与项目代码/配置/目录结构无关**（社区官方同款帖子栈帧逐字相同，纯 Canvas/H5 项目同样中招）。
+- **唯一确认有效的解决：升级微信开发者工具到最新 nightly 版**（用户实测有效）。`useCompilerModule:false`、`uploadWithSourceMap:false`、删嵌套目录等都**不是根因**，是巧合性"没报"，勿再为此改配置。
+- 报错由 DevTools 文件监听触发增量重编译、走 `SummerCompiler.getFile(undefined)` 偶发 race，故时有时无；不要用 `git push` 当"是否报错"的判定测试（必触发重编译且只是偶发）。
+- 缓解（不保证根除）：DevTools 内关闭"编辑时自动编译"。
