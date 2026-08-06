@@ -8252,6 +8252,7 @@ function drawMiniGameQingwa() {
   const now = Date.now();
   const dt = Math.min(0.05, (now - gQingwa.lastTick) / 1000);
   gQingwa.lastTick = now;
+  if (gQingwa.hint > 0 && !gQingwa.win) gQingwa.hint = Math.max(0, gQingwa.hint - dt);
   if (!gQingwa.win && !gQingwa.stuck) gQingwaUpdate(dt);
 
   drawBackground();
@@ -8281,6 +8282,21 @@ function drawMiniGameQingwa() {
     ctx.strokeStyle = 'rgba(255,215,0,' + (0.45 + 0.45 * Math.sin(now / 120)) + ')';
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(hx, frogY, r + 12 + 4 * Math.sin(now / 150), 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  // 提示：从被推荐的青蛙指向目标格的金色虚线箭头
+  if (gQingwa.hint > 0 && gQingwa.hintFrom >= 0 && gQingwa.hintTo >= 0) {
+    const fx = gQingwaSlotX(gQingwa.hintFrom), tx = gQingwaSlotX(gQingwa.hintTo);
+    const ay = frogY - r - 22;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,215,0,' + (0.65 + 0.3 * Math.sin(now / 120)) + ')';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([7, 4]);
+    ctx.beginPath(); ctx.moveTo(fx, ay); ctx.lineTo(tx, ay); ctx.stroke();
+    ctx.setLineDash([]);
+    const dir = tx > fx ? 1 : -1;
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath(); ctx.moveTo(tx, ay); ctx.lineTo(tx - dir * 9, ay - 6); ctx.lineTo(tx - dir * 9, ay + 6); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
   for (let i = 0; i < N; i++) {
@@ -8347,10 +8363,20 @@ function drawMiniGameQingwa() {
     ctx.fillStyle = '#fff'; ctx.font = '15px Arial';
     ctx.fillText('所有青蛙都跳不动了', screenWidth / 2, screenHeight / 2 + 2);
     ctx.fillStyle = '#ffd700'; ctx.font = '13px Arial';
-    const tip = gQingwa.history.length ? '可「撤销」退回一步，或点屏幕重来' : '点屏幕重新开始';
-    ctx.fillText(tip, screenWidth / 2, screenHeight / 2 + 30);
+    if (gQingwa.hint > 0) {
+      ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px Arial';
+      ctx.fillText('💡 已陷入死局：点「撤销」退一步，或「重玩」', screenWidth / 2, screenHeight / 2 + 30);
+    } else {
+      const tip = gQingwa.history.length ? '可「撤销」退回一步，或点屏幕重来' : '点屏幕重新开始';
+      ctx.fillText(tip, screenWidth / 2, screenHeight / 2 + 30);
+    }
   } else {
-    ctx.fillText('绿圈=可动，灰=不可动。点青蛙跳过空位或隔一蛙', screenWidth / 2, L.boardY + 24);
+    if (gQingwa.hint > 0) {
+      ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px Arial';
+      ctx.fillText('💡 提示：走这只金光青蛙到高亮格子', screenWidth / 2, L.boardY + 24);
+    } else {
+      ctx.fillText('绿圈=可动，灰=不可动。点青蛙跳过空位或隔一蛙', screenWidth / 2, L.boardY + 24);
+    }
   }
 }
 function handleMiniGameQingwaInput(x, y) {
@@ -8368,6 +8394,7 @@ function handleMiniGameQingwaInput(x, y) {
     // 否则落到下方，让底部按钮（重玩/撤销/提示）继续生效
   }
   if (g.stuck) {
+    if (inRect(x, y, L.hintBtn)) { g.hint = 2.5; g.hintFrom = -1; g.hintTo = -1; return; }
     if (inRect(x, y, L.undoBtn) && g.history.length) { gQingwaUndo(); return; }
     if (inRect(x, y, L.restartBtn)) { gQingwaInit(g.level); return; }
     if (g.history.length) gQingwaUndo(); else gQingwaInit(g.level);
