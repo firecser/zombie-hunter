@@ -25,3 +25,6 @@ Thumbs.db
 game.js.map
 code.fortify.config.json
 
+# 本地 PAT（GitHub 推送鉴权，明文，勿入库）
+.pat
+
