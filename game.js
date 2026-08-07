@@ -811,22 +811,37 @@ const player = {
 // 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
 // 运行时仅保留 skills[type].level；category: bullet=弹道, buff=增益, field=战场部署, cc=控场
 const SKILL_DEFS = {
-    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +20%',     apply(lv){ player.damage *= 1.2; } },
-    fireRate:   { type:'fireRate',   name:'急速射击', icon:'»',  element:'物理', category:'bullet', maxLevel:99, desc:'射速 +15%',     apply(lv){ player.fireRate *= 0.85; } },
-    bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; } },
-    bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; } },
-    piercing:   { type:'piercing',   name:'穿透弹',   icon:'🗡️', element:'物理', category:'bullet', maxLevel:30, desc:'穿透 +1',       apply(lv){ player.bulletPiercing++; } },
-    health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); } },
-    explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'范围伤害',       apply(lv){} },
-    lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'雷',   category:'bullet', maxLevel:99, desc:'弹射攻击',       apply(lv){} },
-    shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){} },
-    crit:       { type:'crit',       name:'致命暴击', icon:'💢', element:'物理', category:'buff',   maxLevel:12, desc:'暴击率 +5%',     apply(lv){} },
-    freeze:     { type:'freeze',     name:'冰霜弹',   icon:'❄️', element:'冰',   category:'bullet', maxLevel:8,  desc:'冰冻几率 +6%',  apply(lv){} },
-    slow:       { type:'slow',       name:'缓速弹',   icon:'🐌', element:'冰',   category:'cc',     maxLevel:8,  desc:'减速几率 +8%',  apply(lv){} },
+    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +20%',     apply(lv){ player.damage *= 1.2; },
+                  qualNodes:{ 5:{ desc:'贯穿：穿透 +1', apply(){ player.bulletPiercing++; } } } },
+    fireRate:   { type:'fireRate',   name:'急速射击', icon:'»',  element:'物理', category:'bullet', maxLevel:99, desc:'射速 +15%',     apply(lv){ player.fireRate *= 0.85; },
+                  qualNodes:{ 3:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } }, 5:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } } } },
+    bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; },
+                  qualNodes:{ 5:{ desc:'环射：子弹环形散布', apply(){ player._ringShot = true; } } } },
+    bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; },
+                  qualNodes:{ 3:{ desc:'弹速再提升', apply(){ player.bulletSpeed *= 1.1; } }, 5:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } } } },
+    piercing:   { type:'piercing',   name:'穿透弹',   icon:'🗡️', element:'物理', category:'bullet', maxLevel:30, desc:'穿透 +1',       apply(lv){ player.bulletPiercing++; },
+                  qualNodes:{ 3:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } }, 5:{ desc:'穿透溅射小范围', apply(){ skills.piercing._splash = true; } } } },
+    health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); },
+                  qualNodes:{ 3:{ desc:'每级额外生命 +10', apply(){ player.maxHealth += 10; player.health += 10; } } } },
+    explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'范围伤害',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'爆炸留火池(灼烧)', apply(){ skills.explosive._firePool = true; } }, 5:{ desc:'范围+50% & 二次小爆', apply(){ skills.explosive._big = true; } } } },
+    lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'雷',   category:'bullet', maxLevel:99, desc:'弹射攻击',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'链目标 +2', apply(){ skills.lightning._chainBonus = 2; } }, 5:{ desc:'链命中触发导电', apply(){ skills.lightning._conduct = true; } } } },
+    shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
+    crit:       { type:'crit',       name:'致命暴击', icon:'💢', element:'物理', category:'buff',   maxLevel:12, desc:'暴击率 +5%',     apply(lv){},
+                  qualNodes:{ 3:{ desc:'暴击伤害 +20%', apply(){ skills.crit._dmgBonus = 0.2; } }, 5:{ desc:'暴击触发小爆炸', apply(){ skills.crit._explode = true; } } } },
+    freeze:     { type:'freeze',     name:'冰霜弹',   icon:'❄️', element:'冰',   category:'bullet', maxLevel:8,  desc:'冰冻几率 +6%',  apply(lv){},
+                  qualNodes:{ 3:{ desc:'冰冻残留减速', apply(){ skills.freeze._residual = true; } }, 5:{ desc:'20% 几率眩晕', apply(){ skills.freeze._stun = true; } } } },
+    slow:       { type:'slow',       name:'缓速弹',   icon:'🐌', element:'冰',   category:'cc',     maxLevel:8,  desc:'减速几率 +8%',  apply(lv){},
+                  qualNodes:{ 3:{ desc:'减速更强', apply(){ skills.slow._stronger = true; } }, 5:{ desc:'减速标记易感', apply(){ skills.slow._conductive = true; } } } },
     // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
-    mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){} },
-    oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:10, desc:'地面燃油',       apply(lv){} },
-    tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){} }
+    mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
+    oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:10, desc:'地面燃油',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'灼烧 DOT ×2', apply(){ skills.oil._dotBonus = 1; } }, 5:{ desc:'范围+50% & 减速', apply(){ skills.oil._big = true; } } } },
+    tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'牵引力增强', apply(){ skills.tornado._pullBonus = 0.5; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
 };
 
 // 运行时技能实例（仅 level 可变，其余元数据来自 SKILL_DEFS）
@@ -889,7 +904,9 @@ function getCritChance() {
     return Math.min(0.6, talentMods.critChance + skills.crit.level * 0.05);
 }
 function getCritMult() {
-    return talentMods.critDamageMult + skills.crit.level * 0.1;
+    let m = talentMods.critDamageMult + skills.crit.level * 0.1;
+    if (skills.crit._dmgBonus) m += skills.crit._dmgBonus;   // crit Lv3 质变：暴击伤 +20%
+    return m;
 }
 function getFreezeChance() {
     return Math.min(0.5, talentMods.freezeChance + skills.freeze.level * 0.06);
@@ -902,11 +919,91 @@ function getSlowChance() {
 }
 function getSlowFactor() {
     // 数值越小移动越慢
-    return Math.max(0.3, 0.7 - talentMods.slowLevel * 0.01 - skills.slow.level * 0.04);
+    let f = 0.7 - talentMods.slowLevel * 0.01 - skills.slow.level * 0.04;
+    if (skills.slow._stronger) f -= 0.1;   // slow Lv3 质变：减速更强
+    return Math.max(0.3, f);
 }
 function getShieldReduce() {
     // 技能护盾每级 −10%，天赋护盾每级 −2%，总减伤封顶 80%（防止负伤害回血）
-    return Math.min(0.8, skills.shield.level * 0.1 + talentMods.shieldLevel * 0.02);
+    let r = skills.shield.level * 0.1 + talentMods.shieldLevel * 0.02;
+    if (skills.shield._reduceBonus) r += skills.shield._reduceBonus;   // 护盾 Lv3 质变：减伤 +5%
+    return Math.min(0.8, r);
+}
+
+// ==================== Phase 2：异常交互 / 质变节点 / 组合技 / 眩晕 ====================
+
+// 异常状态 × 元素 被动增伤表（命中结算前乘倍率）
+const STATUS_ELEMENT_BONUS = {
+    frozen:  { '火': 1.0 },   // 冰冻中受火伤 +100%（融化蒸发）
+    slow:    { '雷': 0.3 },   // 减速中受雷伤 +30%（导电）
+    burning: { '风': 0.2 }    // 灼烧中受风伤 +20%（风助火势）
+};
+
+// 依据目标当前状态 + 伤害元素返回增伤倍率（默认 1）
+function getElementBonus(z, element) {
+    if (!z || !element) return 1;
+    const now = Date.now();
+    let mult = 1;
+    if (z.frozenUntil > now && STATUS_ELEMENT_BONUS.frozen[element]) mult += STATUS_ELEMENT_BONUS.frozen[element];
+    if (z.slowUntil > now && STATUS_ELEMENT_BONUS.slow[element]) mult += STATUS_ELEMENT_BONUS.slow[element];
+    if (z.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
+    return mult;
+}
+
+// 统一触发质变节点（升级到节点等级时调用一次，去重）
+function fireQualNodes(type) {
+    const def = SKILL_DEFS[type];
+    if (!def || !def.qualNodes) return;
+    const lv = skills[type].level;
+    skills[type].qualified = skills[type].qualified || {};
+    for (const nl in def.qualNodes) {
+        if (lv >= Number(nl) && !skills[type].qualified[nl]) {
+            def.qualNodes[nl].apply();
+            skills[type].qualified[nl] = true;
+        }
+    }
+}
+
+function pushHit(z, type) {
+    hitEffects.push({ x: z.x, y: z.y, type: type, life: 400, maxLife: 400, rot: 0 });
+}
+
+// 闪电链额外弹射（超导组合技）
+function superConduct(from, count, dmg) {
+    let last = from;
+    const chained = [from];
+    for (let c = 0; c < count; c++) {
+        let best = null, bestD = 150;
+        for (const z of zombies) {
+            if (!chained.includes(z)) {
+                const d = Math.hypot(last.x - z.x, last.y - z.y);
+                if (d < bestD) { bestD = d; best = z; }
+            }
+        }
+        if (best) { createLightning(last.x, last.y, best.x, best.y); damageZombie(best, dmg, false, '雷'); chained.push(best); last = best; }
+    }
+}
+
+// 组合技注册表：命中后判定（状态 + 元素 → 离散特效）
+const COMBO_DEFS = [
+    { id:'melt', test:(z,el)=> z.frozenUntil > Date.now() && el === '火',
+      fx(z){ damageZombie(z, z.maxHealth * 0.08, false, '物理'); z.frozenUntil = 0; pushHit(z,'melt'); } },
+    { id:'superconduct', test:(z,el)=> z.frozenUntil > Date.now() && el === '雷',
+      fx(z){ superConduct(z, 2, player.damage * 0.3); pushHit(z,'superconduct'); } },
+    { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '雷',
+      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '雷'); pushHit(z,'conduct'); } },
+    { id:'mire', test:(z,el)=> z.burningUntil > Date.now() && el === '冰',
+      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+600); pushHit(z,'mire'); } },
+    { id:'storm', test:(z,el)=> z._inTornado && el === '风',
+      fx(z){ damageZombie(z, player.damage*0.4, false, '风'); const a=Math.atan2(z.y-player.y, z.x-player.x); z.x+=Math.cos(a)*20; z.y+=Math.sin(a)*20; pushHit(z,'storm'); } }
+];
+
+// 命中后判定组合技（每发伤害调用一次）
+function checkCombos(z, element) {
+    if (!z || z.health <= 0) return;
+    for (const c of COMBO_DEFS) {
+        if (c.test(z, element)) c.fx(z);
+    }
 }
 
 // ==================== 炸弹系统 ====================
@@ -2602,6 +2699,20 @@ function drawUpgradePanel() {
         } else {
             ctx.fillText(desc, x + cardW / 2, y + 76);
         }
+
+        // 质变节点徽标（Phase2）：下一级为质变节点时显示金色「质变」角标
+        const _nx = (skills[opt.type] ? skills[opt.type].level : 0) + 1;
+        const _qn = SKILL_DEFS[opt.type] && SKILL_DEFS[opt.type].qualNodes && SKILL_DEFS[opt.type].qualNodes[_nx];
+        if (_qn) {
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 9px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            roundRect(ctx, x + cardW - 28, y + 3, 24, 14, 4);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillText('质变', x + cardW - 16, y + 10);
+        }
     });
 }
 
@@ -2614,18 +2725,22 @@ function shoot() {
     // 播放射击音效
     AudioSystem.playShoot();
     
-    const angle = player.gunAngle;
-    const spread = 0.15;
+    const baseAngle = player.gunAngle;
     const gunLength = 40;
+    const n = player.bulletCount;
     
-    for (let i = 0; i < player.bulletCount; i++) {
-        let bulletAngle = angle;
-        if (player.bulletCount > 1) {
-            bulletAngle += (i - (player.bulletCount - 1) / 2) * spread;
+    for (let i = 0; i < n; i++) {
+        let bulletAngle;
+        if (player._ringShot) {
+            bulletAngle = (Math.PI * 2 / n) * i;   // 多重射击 Lv5 质变：环形散布
+        } else {
+            const spread = 0.15;
+            bulletAngle = baseAngle;
+            if (n > 1) bulletAngle += (i - (n - 1) / 2) * spread;
         }
         
-        const startX = player.x + Math.cos(angle) * gunLength;
-        const startY = player.y + Math.sin(angle) * gunLength;
+        const startX = player.x + Math.cos(baseAngle) * gunLength;
+        const startY = player.y + Math.sin(baseAngle) * gunLength;
         
         bullets.push({
             x: startX,
@@ -2635,6 +2750,7 @@ function shoot() {
             radius: 6,
             damage: player.damage,
             piercing: player.bulletPiercing,
+            element: '物理',
             hitZombies: []
         });
     }
@@ -2673,15 +2789,21 @@ function updateBullets() {
 
                 // 爆炸伤害
                 if (skills.explosive.level > 0) {
-                    const explosionRadius = 40 + skills.explosive.level * 20;
+                    let explosionRadius = 40 + skills.explosive.level * 20;
+                    if (skills.explosive._big) explosionRadius *= 1.5;   // Lv5 范围 +50%
                     createExplosion(bullet.x, bullet.y, explosionRadius);
+                    if (skills.explosive._firePool) {                    // Lv3 留下火池（灼烧）
+                        oilPatches.push({ x: bullet.x, y: bullet.y, radius: explosionRadius * 0.6, life: 1500, level: skills.explosive.level });
+                    }
                     
                     for (const z of zombies) {
                         if (z !== zombie) {
                             const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
                             if (d < explosionRadius) {
-                                const aoeDamage = damage * (0.3 + skills.explosive.level * 0.1);
-                                damageZombie(z, aoeDamage);
+                                let aoeDamage = damage * (0.3 + skills.explosive.level * 0.1);
+                                if (skills.explosive._big) aoeDamage *= 1.5;
+                                damageZombie(z, aoeDamage, false, '火');
+                                checkCombos(z, '火');
                             }
                         }
                     }
@@ -2689,8 +2811,8 @@ function updateBullets() {
                 
                 // 闪电链
                 if (skills.lightning.level > 0) {
-                    const chainCount = skills.lightning.level + 1;
-                    const chainDamage = damage * 0.4;
+                    const chainCount = skills.lightning.level + 1 + (skills.lightning._chainBonus || 0);  // Lv3 链目标 +2
+                    const chainDamage = damage * 0.4 * (1 + (skills.lightning._conduct || 0));              // Lv5 链伤 +30%
                     let lastTarget = zombie;
                     let chainedTargets = [zombie];
                     
@@ -2710,14 +2832,30 @@ function updateBullets() {
                         
                         if (closestChain) {
                             createLightning(lastTarget.x, lastTarget.y, closestChain.x, closestChain.y);
-                            damageZombie(closestChain, chainDamage);
+                            damageZombie(closestChain, chainDamage, false, '雷');
+                            checkCombos(closestChain, '雷');
                             chainedTargets.push(closestChain);
                             lastTarget = closestChain;
                         }
                     }
                 }
                 
-                damageZombie(zombie, damage, isCrit);
+                damageZombie(zombie, damage, isCrit, '物理');
+                checkCombos(zombie, '物理');
+
+                // 穿透溅射（piercing Lv5 质变）
+                if (skills.piercing._splash) {
+                    for (const z of zombies) {
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '物理');
+                    }
+                }
+                // 暴击小爆炸（crit Lv5 质变）
+                if (isCrit && skills.crit._explode) {
+                    createExplosion(zombie.x, zombie.y, 50);
+                    for (const z of zombies) {
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, player.damage * 0.3, false, '火'); checkCombos(z, '火'); }
+                    }
+                }
 
                 // 命中附带：冰冻 / 减速（天赋基础值 + 局内「冰霜弹 / 缓速弹」，仅主目标结算）
                 const nowHit = Date.now();
@@ -2725,6 +2863,9 @@ function updateBullets() {
                 if (freezeChance > 0 && Math.random() < freezeChance) {
                     zombie.frozenUntil = nowHit + getFreezeDuration();
                     createFreezeEffect(zombie.x, zombie.y);
+                    if (skills.freeze._residual) zombie._residualSlowUntil = zombie.frozenUntil + 1500;  // Lv3 解冻后残留减速
+                    if (skills.freeze._stun && Math.random() < 0.2) zombie.stunUntil = Math.max(zombie.stunUntil || 0, nowHit + 800);  // Lv5 20% 几率眩晕
+                    checkCombos(zombie, '冰');   // 支撑泥沼（灼烧 + 冰）
                 }
                 const slowChance = getSlowChance();
                 if (slowChance > 0 && Math.random() < slowChance) {
@@ -2743,7 +2884,8 @@ function updateBullets() {
 }
 
 // 伤害僵尸
-function damageZombie(zombie, damage, isCrit) {
+function damageZombie(zombie, damage, isCrit, element) {
+    damage *= getElementBonus(zombie, element);   // Phase2 异常交互：状态 × 元素 增伤（element 缺省'物理'→×1）
     zombie.health -= damage;
 
     damageNumbers.push({
@@ -2968,13 +3110,18 @@ function createLightning(x1, y1, x2, y2) {
 // 更新僵尸
 function updateZombies(dt) {
     const now = Date.now();
+    const _reflectTargets = [];   // 护盾反弹目标（循环外统一结算）
     for (const zombie of zombies) {
-        // 冰冻 / 减速（天赋）
+        // 冰冻 / 减速 / 眩晕（Phase2 硬控）
         let sp = zombie.speed;
         if (zombie.frozenUntil > now) {
             sp = 0;
+        } else if (zombie.stunUntil > now) {
+            sp = 0;   // 硬控：完全静止
         } else if (zombie.slowUntil > now) {
             sp *= (zombie.slowFactor || 0.5);
+            // 冰冻残留减速（freeze Lv3 质变）：冰冻刚结束的僵尸继续缓慢移动
+            if (zombie._residualSlowUntil && zombie._residualSlowUntil > now) sp *= 0.6;
         }
         const angle = Math.atan2(player.y - zombie.y, player.x - zombie.x);
         zombie.x += Math.cos(angle) * sp;
@@ -2997,6 +3144,9 @@ function updateZombies(dt) {
 
             player.health -= damage * 0.03;
             player.hurtTime = now;
+
+            // 护盾反弹（shield Lv5 质变）：受击反弹 10% 伤害（循环外统一结算，避免遍历中 splice）
+            if (skills.shield._reflect) _reflectTargets.push({ z: zombie, dmg: damage * 0.1 });
 
             // 播放受伤音效（限制频率，避免连续播放）
             AudioSystem.playHurt();
@@ -3025,6 +3175,9 @@ function updateZombies(dt) {
         }
     }
 
+    // 护盾反弹结算（循环外，避免遍历中 splice 导致跳杀）
+    for (const rt of _reflectTargets) damageZombie(rt.z, rt.dmg, false, '物理');
+
     // 灼烧 DOT（油渍）：节流 500ms 结算一次；逆序遍历，damageZombie 内 splice 安全
     const _now = Date.now();
     for (let j = zombies.length - 1; j >= 0; j--) {
@@ -3033,7 +3186,8 @@ function updateZombies(dt) {
             z._burnTick = (z._burnTick || 0) + (dt || 16);
             if (z._burnTick >= 500) {
                 z._burnTick = 0;
-                damageZombie(z, player.damage * 0.08);
+                const dot = player.damage * 0.08 * (1 + (skills.oil._dotBonus || 0));  // oil Lv3 DOT ×2
+                damageZombie(z, dot, false, '火');   // 火：冰冻中僵尸踩油渍 → 融化 ×2
             }
         }
     }
@@ -3062,9 +3216,13 @@ function updateFields(dt) {
             }
             if (triggered) {
                 createExplosion(m.x, m.y, m.radius);
-                const dmg = player.damage * (0.3 + m.level * 0.1) * 2;
+                let dmg = player.damage * (0.3 + m.level * 0.1) * 2;
+                if (skills.mine._dmgBonus) dmg *= (1 + skills.mine._dmgBonus);   // Lv3 伤害 +50%
                 for (const z of zombies) {
-                    if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) damageZombie(z, dmg);
+                    if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) {
+                        damageZombie(z, dmg, false, '物理');
+                        if (skills.mine._slow) z.slowUntil = Math.max(z.slowUntil || 0, now + 1500);  // Lv5 爆炸附加减速
+                    }
                 }
                 if (typeof AudioSystem !== 'undefined' && AudioSystem.playBombExplosion) AudioSystem.playBombExplosion();
                 mines.splice(i, 1);
@@ -3075,11 +3233,13 @@ function updateFields(dt) {
     // 油渍：地面燃油区域，进入的僵尸持续灼烧（标记 burningUntil，由 updateZombies 结算 DOT）
     if (skills.oil.level > 0) {
         updateFields._oilTimer = (updateFields._oilTimer || 0) + dt;
-        const cap = OIL_MAX_BASE + skills.oil.level;
+        let cap = OIL_MAX_BASE + skills.oil.level;
+        let patchR = 70 + skills.oil.level * 8;
+        if (skills.oil._big) { patchR *= 1.5; cap += 1; }   // Lv5 范围 +50%
         if (updateFields._oilTimer >= OIL_SPAWN_INTERVAL) {
             updateFields._oilTimer = 0;
             if (oilPatches.length < cap) {
-                oilPatches.push({ x: player.x, y: player.y, radius: 70 + skills.oil.level * 8, life: 6000, level: skills.oil.level });
+                oilPatches.push({ x: player.x, y: player.y, radius: patchR, life: 6000, level: skills.oil.level });
             }
         }
         for (let i = oilPatches.length - 1; i >= 0; i--) {
@@ -3089,6 +3249,7 @@ function updateFields(dt) {
             for (const z of zombies) {
                 if (Math.hypot(o.x - z.x, o.y - z.y) < o.radius + z.radius) {
                     z.burningUntil = now + 1000;
+                    if (skills.oil._big) z.slowUntil = Math.max(z.slowUntil || 0, now + 1000);  // Lv5 油渍附加减速
                 }
             }
         }
@@ -3099,16 +3260,29 @@ function updateFields(dt) {
         if (tornadoes.length === 0) {
             tornadoes.push({ x: screenWidth / 2, y: screenHeight / 2, radius: 140 + skills.tornado.level * 20, vx: 0.7, vy: 0.5, level: skills.tornado.level });
         }
+        // 重置牵引标记（每帧）
+        for (const z of zombies) z._inTornado = false;
         for (const t of tornadoes) {
             t.x += t.vx; t.y += t.vy;
             if (t.x < t.radius || t.x > screenWidth - t.radius) t.vx *= -1;
             if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
-            const pull = 0.02 * (1 + t.level * 0.3);
+            let pull = 0.02 * (1 + t.level * 0.3);
+            if (skills.tornado._pullBonus) pull *= (1 + skills.tornado._pullBonus);   // Lv3 牵引增强
             for (const z of zombies) {
                 const d = Math.hypot(t.x - z.x, t.y - z.y);
                 if (d < t.radius && d > 1) {
                     z.x += (t.x - z.x) * pull;
                     z.y += (t.y - z.y) * pull;
+                    z._inTornado = true;
+                    // 龙卷风风系 DPS（tornado Lv5 质变启用；风伤触发灼烧+风/风暴组合技）
+                    if (skills.tornado._wind) {
+                        updateFields._tornadoDpsTimer = (updateFields._tornadoDpsTimer || 0) + dt;
+                        if (updateFields._tornadoDpsTimer >= 500) {
+                            updateFields._tornadoDpsTimer = 0;
+                            damageZombie(z, player.damage * 0.05, false, '风');
+                            checkCombos(z, '风');
+                        }
+                    }
                 }
             }
         }
@@ -3246,6 +3420,9 @@ function spawnZombies(dt) {
                 type: type,
                 frozenUntil: 0,
                 slowUntil: 0,
+                stunUntil: 0,
+                _residualSlowUntil: 0,
+                _inTornado: false,
                 slowFactor: 0.5
             });
         }
@@ -3317,7 +3494,8 @@ function applyUpgrade(upgrade) {
     // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
     const _def = SKILL_DEFS[upgrade.type];
     if (_def && _def.apply) _def.apply(skills[upgrade.type].level);
-    // 质变节点（qualNodes）在 Phase 2 接入：升级到指定等级触发一次性强化
+    // 质变节点（qualNodes）：升级到指定等级触发一次性强化
+    fireQualNodes(upgrade.type);
 
     gameState = 'playing';
     gameRunning = true;
@@ -3474,6 +3652,8 @@ function startGame() {
     skills.explosive.level += talentMods.explosiveLevel;
     skills.lightning.level += talentMods.lightningLevel;
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
+    // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
+    for (const key of Object.keys(skills)) fireQualNodes(key);
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
@@ -3551,6 +3731,9 @@ function spawnInitialAdZombies() {
             type: type,
             frozenUntil: 0,
             slowUntil: 0,
+            stunUntil: 0,
+            _residualSlowUntil: 0,
+            _inTornado: false,
             slowFactor: 0.5,
             isAdZombie: true  // 标记为素材演示僵尸（不掉经验）
         });
