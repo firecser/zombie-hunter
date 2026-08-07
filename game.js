@@ -808,22 +808,35 @@ const player = {
 };
 
 // ==================== 技能系统 ====================
-const skills = {
-    damage: { level: 1, name: '火力强化', icon: '🔫', desc: '伤害 +20%' },
-    fireRate: { level: 0, name: '急速射击', icon: '»', desc: '射速 +15%' },
-    bulletCount: { level: 0, name: '多重射击', icon: '🎯', desc: '子弹数 +1' },
-    bulletSpeed: { level: 0, name: '高速子弹', icon: '💨', desc: '弹速 +20%' },
-    piercing: { level: 0, name: '穿透弹', icon: '🗡️', desc: '穿透 +1' },
-    health: { level: 0, name: '生命强化', icon: '❤️', desc: '生命 +20' },
-    explosive: { level: 0, name: '爆炸弹', icon: '💥', desc: '范围伤害' },
-    lightning: { level: 0, name: '闪电链', icon: '⚡', desc: '弹射攻击' },
-    shield: { level: 0, name: '护盾', icon: '🛡️', desc: '减伤能力' },
-    crit: { level: 0, name: '致命暴击', icon: '💢', desc: '暴击率 +5%' },
-    freeze: { level: 0, name: '冰霜弹', icon: '❄️', desc: '冰冻几率 +6%' },
-    slow: { level: 0, name: '缓速弹', icon: '🐌', desc: '减速几率 +8%' }
+// 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
+// 运行时仅保留 skills[type].level；category: bullet=弹道, buff=增益, field=战场部署, cc=控场
+const SKILL_DEFS = {
+    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +20%',     apply(lv){ player.damage *= 1.2; } },
+    fireRate:   { type:'fireRate',   name:'急速射击', icon:'»',  element:'物理', category:'bullet', maxLevel:99, desc:'射速 +15%',     apply(lv){ player.fireRate *= 0.85; } },
+    bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; } },
+    bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; } },
+    piercing:   { type:'piercing',   name:'穿透弹',   icon:'🗡️', element:'物理', category:'bullet', maxLevel:30, desc:'穿透 +1',       apply(lv){ player.bulletPiercing++; } },
+    health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); } },
+    explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'范围伤害',       apply(lv){} },
+    lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'雷',   category:'bullet', maxLevel:99, desc:'弹射攻击',       apply(lv){} },
+    shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){} },
+    crit:       { type:'crit',       name:'致命暴击', icon:'💢', element:'物理', category:'buff',   maxLevel:12, desc:'暴击率 +5%',     apply(lv){} },
+    freeze:     { type:'freeze',     name:'冰霜弹',   icon:'❄️', element:'冰',   category:'bullet', maxLevel:8,  desc:'冰冻几率 +6%',  apply(lv){} },
+    slow:       { type:'slow',       name:'缓速弹',   icon:'🐌', element:'冰',   category:'cc',     maxLevel:8,  desc:'减速几率 +8%',  apply(lv){} },
+    // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
+    mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){} },
+    oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:10, desc:'地面燃油',       apply(lv){} },
+    tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){} }
 };
 
-const MAX_SKILLS = 5;
+// 运行时技能实例（仅 level 可变，其余元数据来自 SKILL_DEFS）
+const skills = {};
+for (const _t in SKILL_DEFS) {
+    const _d = SKILL_DEFS[_t];
+    skills[_t] = { level: 0, name: _d.name, icon: _d.icon, desc: _d.desc, element: _d.element, category: _d.category, maxLevel: _d.maxLevel };
+}
+
+const MAX_SKILLS = 7;
 let acquiredSkills = ['damage'];
 
 // ==================== 游戏对象 ====================
@@ -849,23 +862,25 @@ const zombieTypes = {
 };
 
 // ==================== 升级选项 ====================
-const upgradePool = [
-    { type: 'damage', name: '火力强化', icon: '🔫', desc: '伤害 +20%' },
-    { type: 'fireRate', name: '急速射击', icon: '»', desc: '射速 +15%' },
-    { type: 'bulletCount', name: '多重射击', icon: '🎯', desc: '子弹数 +1' },
-    { type: 'bulletSpeed', name: '高速子弹', icon: '💨', desc: '弹速 +20%' },
-    { type: 'piercing', name: '穿透弹', icon: '🗡️', desc: '穿透 +1' },
-    { type: 'health', name: '生命强化', icon: '❤️', desc: '最大生命 +20' },
-    { type: 'explosive', name: '爆炸弹', icon: '💥', desc: '范围伤害' },
-    { type: 'lightning', name: '闪电链', icon: '⚡', desc: '弹射攻击' },
-    { type: 'shield', name: '护盾', icon: '🛡️', desc: '减伤能力' },
-    { type: 'crit', name: '致命暴击', icon: '💢', desc: '暴击率 +5%' },
-    { type: 'freeze', name: '冰霜弹', icon: '❄️', desc: '冰冻几率 +6%' },
-    { type: 'slow', name: '缓速弹', icon: '🐌', desc: '减速几率 +8%' }
-];
+// 三选一池由 SKILL_DEFS 派生（含新增的 3 个部署/聚怪技能，共 15 个）
+const upgradePool = Object.keys(SKILL_DEFS).map(type => ({
+    type: type,
+    name: SKILL_DEFS[type].name,
+    icon: SKILL_DEFS[type].icon,
+    desc: SKILL_DEFS[type].desc
+}));
 
 let upgradeOptions = [];
 let selectedUpgrade = -1;
+
+// 战场部署/聚怪技能运行时状态（由 updateFields 维护；startGame 时清空）
+let mines = [];
+let oilPatches = [];
+let tornadoes = [];
+const MINE_SPAWN_INTERVAL = 3500;
+const OIL_SPAWN_INTERVAL = 4000;
+const MINE_MAX_BASE = 2;
+const OIL_MAX_BASE = 1;
 
 // ==================== 弹药效果统一结算 ====================
 // 天赋提供长线基础值（每级小幅），局内三选一技能提供当场高成长值（每级大幅），二者相加后封顶。
@@ -1247,6 +1262,42 @@ function getBulletVisual() {
 }
 
 // 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
+// 战场部署/聚怪技能可视化
+function drawFields() {
+    // 油渍（地面燃油）
+    for (const o of oilPatches) {
+        ctx.globalAlpha = Math.min(0.4, (o.life / 6000) * 0.4);
+        ctx.fillStyle = '#3a2a10';
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+    // 地雷
+    for (const m of mines) {
+        ctx.fillStyle = (m.armTime > Date.now()) ? '#888' : '#c0392b';
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,210,74,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    // 龙卷风
+    for (const t of tornadoes) {
+        ctx.strokeStyle = 'rgba(180,220,255,0.6)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+}
+
 function drawBullets() {
     const v = getBulletVisual();
     const t = Date.now();
@@ -2915,7 +2966,7 @@ function createLightning(x1, y1, x2, y2) {
 }
 
 // 更新僵尸
-function updateZombies() {
+function updateZombies(dt) {
     const now = Date.now();
     for (const zombie of zombies) {
         // 冰冻 / 减速（天赋）
@@ -2969,6 +3020,95 @@ function updateZombies() {
                     }
                 } else {
                     gameOver();
+                }
+            }
+        }
+    }
+
+    // 灼烧 DOT（油渍）：节流 500ms 结算一次；逆序遍历，damageZombie 内 splice 安全
+    const _now = Date.now();
+    for (let j = zombies.length - 1; j >= 0; j--) {
+        const z = zombies[j];
+        if (z.burningUntil > _now) {
+            z._burnTick = (z._burnTick || 0) + (dt || 16);
+            if (z._burnTick >= 500) {
+                z._burnTick = 0;
+                damageZombie(z, player.damage * 0.08);
+            }
+        }
+    }
+}
+
+// 战场部署/聚怪技能：周期性生成与生效（地雷/油渍/龙卷风）
+function updateFields(dt) {
+    const now = Date.now();
+
+    // 地雷：周期性在玩家位置布设，僵尸踩入范围即爆炸（复用爆炸半径逻辑）
+    if (skills.mine.level > 0) {
+        updateFields._mineTimer = (updateFields._mineTimer || 0) + dt;
+        const cap = MINE_MAX_BASE + skills.mine.level;
+        if (updateFields._mineTimer >= MINE_SPAWN_INTERVAL) {
+            updateFields._mineTimer = 0;
+            if (mines.length < cap) {
+                mines.push({ x: player.x, y: player.y, radius: 40 + skills.mine.level * 12, armTime: now + 600, level: skills.mine.level });
+            }
+        }
+        for (let i = mines.length - 1; i >= 0; i--) {
+            const m = mines[i];
+            if (now < m.armTime) continue;
+            let triggered = false;
+            for (const z of zombies) {
+                if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius + z.radius) { triggered = true; break; }
+            }
+            if (triggered) {
+                createExplosion(m.x, m.y, m.radius);
+                const dmg = player.damage * (0.3 + m.level * 0.1) * 2;
+                for (const z of zombies) {
+                    if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) damageZombie(z, dmg);
+                }
+                if (typeof AudioSystem !== 'undefined' && AudioSystem.playBombExplosion) AudioSystem.playBombExplosion();
+                mines.splice(i, 1);
+            }
+        }
+    }
+
+    // 油渍：地面燃油区域，进入的僵尸持续灼烧（标记 burningUntil，由 updateZombies 结算 DOT）
+    if (skills.oil.level > 0) {
+        updateFields._oilTimer = (updateFields._oilTimer || 0) + dt;
+        const cap = OIL_MAX_BASE + skills.oil.level;
+        if (updateFields._oilTimer >= OIL_SPAWN_INTERVAL) {
+            updateFields._oilTimer = 0;
+            if (oilPatches.length < cap) {
+                oilPatches.push({ x: player.x, y: player.y, radius: 70 + skills.oil.level * 8, life: 6000, level: skills.oil.level });
+            }
+        }
+        for (let i = oilPatches.length - 1; i >= 0; i--) {
+            const o = oilPatches[i];
+            o.life -= dt;
+            if (o.life <= 0) { oilPatches.splice(i, 1); continue; }
+            for (const z of zombies) {
+                if (Math.hypot(o.x - z.x, o.y - z.y) < o.radius + z.radius) {
+                    z.burningUntil = now + 1000;
+                }
+            }
+        }
+    }
+
+    // 龙卷风：周期牵引附近僵尸向中心聚拢（配合爆炸/范围技能清场）
+    if (skills.tornado.level > 0) {
+        if (tornadoes.length === 0) {
+            tornadoes.push({ x: screenWidth / 2, y: screenHeight / 2, radius: 140 + skills.tornado.level * 20, vx: 0.7, vy: 0.5, level: skills.tornado.level });
+        }
+        for (const t of tornadoes) {
+            t.x += t.vx; t.y += t.vy;
+            if (t.x < t.radius || t.x > screenWidth - t.radius) t.vx *= -1;
+            if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
+            const pull = 0.02 * (1 + t.level * 0.3);
+            for (const z of zombies) {
+                const d = Math.hypot(t.x - z.x, t.y - z.y);
+                if (d < t.radius && d > 1) {
+                    z.x += (t.x - z.x) * pull;
+                    z.y += (t.y - z.y) * pull;
                 }
             }
         }
@@ -3174,28 +3314,11 @@ function applyUpgrade(upgrade) {
     
     skills[upgrade.type].level++;
     
-    switch (upgrade.type) {
-        case 'damage':
-            player.damage *= 1.2;
-            break;
-        case 'fireRate':
-            player.fireRate *= 0.85;
-            break;
-        case 'bulletCount':
-            player.bulletCount++;
-            break;
-        case 'bulletSpeed':
-            player.bulletSpeed *= 1.2;
-            break;
-        case 'piercing':
-            player.bulletPiercing++;
-            break;
-        case 'health':
-            player.maxHealth += 20;
-            player.health = Math.min(player.health + 20, player.maxHealth);
-            break;
-    }
-    
+    // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
+    const _def = SKILL_DEFS[upgrade.type];
+    if (_def && _def.apply) _def.apply(skills[upgrade.type].level);
+    // 质变节点（qualNodes）在 Phase 2 接入：升级到指定等级触发一次性强化
+
     gameState = 'playing';
     gameRunning = true;
     lastTime = Date.now();
@@ -3365,6 +3488,11 @@ function startGame() {
     bombExplosionEffects = [];
     deathRayEffects = [];
     hitEffects = [];
+
+    // 清空战场部署/聚怪技能状态
+    mines = [];
+    oilPatches = [];
+    tornadoes = [];
     
     // 重置炸弹
     bombCount = 0;
@@ -3537,7 +3665,8 @@ function update(dt) {
     }
 
     updateBullets();
-    updateZombies();
+    updateZombies(dt);
+    updateFields(dt);
     updateParticles();
     updateHitEffects();
     updateOrbs();
@@ -10100,6 +10229,7 @@ function gameLoop() {
         drawLightnings();
         drawDeathRays();
         drawBombExplosions();
+        drawFields();
         
         for (const zombie of zombies) {
             drawZombie(zombie);
@@ -10123,6 +10253,7 @@ function gameLoop() {
             drawZombie(zombie);
         }
         drawPlayer();
+        drawFields();
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
         drawBackground();

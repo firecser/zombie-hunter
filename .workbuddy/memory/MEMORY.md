@@ -68,7 +68,7 @@
 - 用途：本机 Git Credential Manager 缓存的旧凭据已失效，推送 `firecser/zombie-hunter` 时用此 Classic PAT 内联鉴权。
 - 推送命令（内联 URL，避免写入 git config）：
   `git push https://<PAT>@github.com/firecser/zombie-hunter.git main --tags`
-- **PAT（明文，妥善保管）**：`[REDACTED_PAT]`
+- **PAT（明文，妥善保管）**：`<PAT_REDACTED>`
 - ⚠️ 安全提醒：这是一枚**实时有效的 GitHub Classic PAT（repo 权限）**，以明文存于本地记忆文件。若你（在 GitHub 后台）撤销/轮换/过期它，请同步更新本处。建议仅限本仓库 scope 并设置过期时间；不要提交到 git 或外泄。
 - 备注：本机 `C:\Windows\System32\drivers\etc\hosts` 被代理/VPN 写入 `127.0.0.1 github.com` 等映射，推送前需开启能访问 GitHub 的代理/VPN（否则解析到 127.0.0.1 导致连接失败）。
 
