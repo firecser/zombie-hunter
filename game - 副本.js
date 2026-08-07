@@ -851,7 +851,7 @@ for (const _t in SKILL_DEFS) {
     skills[_t] = { level: 0, name: _d.name, icon: _d.icon, desc: _d.desc, element: _d.element, category: _d.category, maxLevel: _d.maxLevel };
 }
 
-const MAX_SKILLS = 7;
+const MAX_SKILLS = 5;
 let acquiredSkills = ['damage'];
 
 // ==================== 游戏对象 ====================
@@ -896,6 +896,20 @@ const MINE_SPAWN_INTERVAL = 3500;
 const OIL_SPAWN_INTERVAL = 4000;
 const MINE_MAX_BASE = 2;
 const OIL_MAX_BASE = 1;
+// 龙卷风：独立释放 CD（到点且无在场龙卷风则重新释放一个）+ 场上存在时长（超时消失）
+const TORNADO_RELEASE_CD = 8000;
+const TORNADO_LIFE = 5000;
+
+// 战场随机散落点：地雷/油渍释放时散落到战场中，而非堆在坦克（玩家）身上
+function randomFieldPos() {
+    const mx = 40;
+    const top = (statusBarHeight || 20) + 70;
+    const bot = screenHeight - 110;
+    return {
+        x: mx + Math.random() * (screenWidth - mx * 2),
+        y: top + Math.random() * Math.max(1, bot - top)
+    };
+}
 
 // ==================== 弹药效果统一结算 ====================
 // 天赋提供长线基础值（每级小幅），局内三选一技能提供当场高成长值（每级大幅），二者相加后封顶。
@@ -3197,14 +3211,15 @@ function updateZombies(dt) {
 function updateFields(dt) {
     const now = Date.now();
 
-    // 地雷：周期性在玩家位置布设，僵尸踩入范围即爆炸（复用爆炸半径逻辑）
+    // 地雷：周期性在战场随机位置布设（独立释放 CD），僵尸踩入范围即爆炸（复用爆炸半径逻辑）
     if (skills.mine.level > 0) {
         updateFields._mineTimer = (updateFields._mineTimer || 0) + dt;
         const cap = MINE_MAX_BASE + skills.mine.level;
         if (updateFields._mineTimer >= MINE_SPAWN_INTERVAL) {
             updateFields._mineTimer = 0;
             if (mines.length < cap) {
-                mines.push({ x: player.x, y: player.y, radius: 40 + skills.mine.level * 12, armTime: now + 600, level: skills.mine.level });
+                const _mp = randomFieldPos();
+                mines.push({ x: _mp.x, y: _mp.y, radius: 40 + skills.mine.level * 12, armTime: now + 600, level: skills.mine.level });
             }
         }
         for (let i = mines.length - 1; i >= 0; i--) {
@@ -3230,7 +3245,7 @@ function updateFields(dt) {
         }
     }
 
-    // 油渍：地面燃油区域，进入的僵尸持续灼烧（标记 burningUntil，由 updateZombies 结算 DOT）
+    // 油渍：地面燃油区域（独立释放 CD，随机散落战场），进入的僵尸持续灼烧（标记 burningUntil，由 updateZombies 结算 DOT）
     if (skills.oil.level > 0) {
         updateFields._oilTimer = (updateFields._oilTimer || 0) + dt;
         let cap = OIL_MAX_BASE + skills.oil.level;
@@ -3239,7 +3254,8 @@ function updateFields(dt) {
         if (updateFields._oilTimer >= OIL_SPAWN_INTERVAL) {
             updateFields._oilTimer = 0;
             if (oilPatches.length < cap) {
-                oilPatches.push({ x: player.x, y: player.y, radius: patchR, life: 6000, level: skills.oil.level });
+                const _op = randomFieldPos();
+                oilPatches.push({ x: _op.x, y: _op.y, radius: patchR, life: 6000, level: skills.oil.level });
             }
         }
         for (let i = oilPatches.length - 1; i >= 0; i--) {
@@ -3255,14 +3271,21 @@ function updateFields(dt) {
         }
     }
 
-    // 龙卷风：周期牵引附近僵尸向中心聚拢（配合爆炸/范围技能清场）
+    // 龙卷风：独立释放 CD，释放后在场上存在一段时长（超时消失），期间牵引附近僵尸聚拢
     if (skills.tornado.level > 0) {
-        if (tornadoes.length === 0) {
-            tornadoes.push({ x: screenWidth / 2, y: screenHeight / 2, radius: 140 + skills.tornado.level * 20, vx: 0.7, vy: 0.5, level: skills.tornado.level });
+        // 独立释放 CD：到点且场上无龙卷风则释放一个（随机位置入场）
+        updateFields._tornadoCd = (updateFields._tornadoCd || 0) + dt;
+        if (updateFields._tornadoCd >= TORNADO_RELEASE_CD && tornadoes.length === 0) {
+            updateFields._tornadoCd = 0;
+            const _tp = randomFieldPos();
+            tornadoes.push({ x: _tp.x, y: _tp.y, radius: 140 + skills.tornado.level * 20, vx: 0.7, vy: 0.5, level: skills.tornado.level, life: TORNADO_LIFE });
         }
         // 重置牵引标记（每帧）
         for (const z of zombies) z._inTornado = false;
-        for (const t of tornadoes) {
+        for (let i = tornadoes.length - 1; i >= 0; i--) {
+            const t = tornadoes[i];
+            t.life -= dt;
+            if (t.life <= 0) { tornadoes.splice(i, 1); continue; }
             t.x += t.vx; t.y += t.vy;
             if (t.x < t.radius || t.x > screenWidth - t.radius) t.vx *= -1;
             if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
