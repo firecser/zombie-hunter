@@ -1382,14 +1382,14 @@ function getBulletVisual() {
 // 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
 // 战场部署/聚怪技能可视化
 function drawFields() {
-    // 油渍（地面熔岩燃油池）：参考“液体熔岩” blob 造型——深色中心 + 橙红发光外缘 + 黄色高光 + 边缘 droplets
+    // 油渍（地面熔岩火池）：柔和羽化边缘，无硬描边；半径随当前油渍等级实时变化（升级即刻放大所有场上火池）
     for (const o of oilPatches) {
         const lifeMax = skills.oil._big ? 9000 : 6000;
         const k = Math.max(0, Math.min(1, o.life / lifeMax));      // 剩余寿命比例（淡出）
         const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);   // 熔岩呼吸
-        const base = o.radius;
+        const base = getOilRadius(skills.oil.level);              // 实时半径：升级油渍即刻放大所有场上火池
         const t = Date.now() / 800;
-        // 生成不规则 blob 顶点（中心 + 5 个方向略有相位差，形成液体飞溅感）
+        // 不规则 blob 顶点（液体飞溅感）
         const blobs = [
             { a: 0.0, r: base * (0.82 + 0.06 * Math.sin(t)) },
             { a: 1.1, r: base * (0.78 + 0.08 * Math.sin(t + 1.3)) },
@@ -1398,12 +1398,21 @@ function drawFields() {
             { a: 4.8, r: base * (0.83 + 0.06 * Math.sin(t + 3.0)) },
             { a: 6.0, r: base * (0.79 + 0.08 * Math.sin(t + 1.8)) }
         ];
-        // 主池发光底色
+        // 外圈柔光晕（羽化边界，替代硬描边）
+        const halo = ctx.createRadialGradient(o.x, o.y, base * 0.55, o.x, o.y, base * 1.45);
+        halo.addColorStop(0, 'rgba(255,110,20,' + (0.30 * k * pulse) + ')');
+        halo.addColorStop(0.5, 'rgba(255,90,15,' + (0.18 * k * pulse) + ')');
+        halo.addColorStop(1, 'rgba(255,90,15,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, base * 1.45, 0, Math.PI * 2);
+        ctx.fill();
+        // 主体：径向渐变，边缘平滑淡出到透明（无硬描边）
         const grad = ctx.createRadialGradient(o.x, o.y, base * 0.12, o.x, o.y, base);
-        grad.addColorStop(0, 'rgba(80,12,0,' + (0.82 * k * pulse) + ')');       // 暗褐中心
-        grad.addColorStop(0.35, 'rgba(160,35,0,' + (0.72 * k * pulse) + ')');   // 红棕
-        grad.addColorStop(0.72, 'rgba(255,100,20,' + (0.55 * k * pulse) + ')'); // 橙红
-        grad.addColorStop(1, 'rgba(255,160,40,0)');                             // 外发光消散
+        grad.addColorStop(0, 'rgba(70,10,0,' + (0.85 * k * pulse) + ')');       // 暗褐中心
+        grad.addColorStop(0.35, 'rgba(150,32,0,' + (0.72 * k * pulse) + ')');   // 红棕
+        grad.addColorStop(0.72, 'rgba(255,100,20,' + (0.5 * k * pulse) + ')');  // 橙红
+        grad.addColorStop(1, 'rgba(255,150,40,0)');                             // 边缘羽化
         ctx.fillStyle = grad;
         ctx.beginPath();
         for (let i = 0; i < blobs.length; i++) {
@@ -1415,44 +1424,31 @@ function drawFields() {
         }
         ctx.closePath();
         ctx.fill();
-        // 外缘明亮描边（模拟 reference 图里的橙黄色外圈）
-        ctx.strokeStyle = 'rgba(255,170,40,' + (0.65 * k * pulse) + ')';
-        ctx.lineWidth = Math.max(2, base * 0.03);
-        ctx.beginPath();
-        for (let i = 0; i < blobs.length; i++) {
-            const b = blobs[i];
-            const bx = o.x + Math.cos(b.a) * b.r;
-            const by = o.y + Math.sin(b.a) * b.r;
-            if (i === 0) ctx.moveTo(bx, by);
-            else ctx.lineTo(bx, by);
-        }
-        ctx.closePath();
-        ctx.stroke();
-        // 底部黄色高光（模拟液体表面反光）
-        ctx.fillStyle = 'rgba(255,230,100,' + (0.45 * k * pulse) + ')';
+        // 底部柔和黄色高光（液体反光，羽化椭圆）
+        const hl = ctx.createRadialGradient(o.x + base * 0.12, o.y + base * 0.28, 0, o.x + base * 0.12, o.y + base * 0.28, base * 0.4);
+        hl.addColorStop(0, 'rgba(255,230,120,' + (0.5 * k * pulse) + ')');
+        hl.addColorStop(1, 'rgba(255,230,120,0)');
+        ctx.fillStyle = hl;
         ctx.beginPath();
         ctx.ellipse(o.x + base * 0.12, o.y + base * 0.28, base * 0.35, base * 0.12, -0.15, 0, Math.PI * 2);
         ctx.fill();
-        // 边缘飞溅 droplets（上/左/右随机分布，避免下方遮挡坦克）
+        // 边缘柔和飞溅点（无硬边，渐隐小光斑）
         const drops = [
-            { a: 0.9, d: base * 1.05, r: base * 0.16 },
-            { a: 2.3, d: base * 0.98, r: base * 0.12 },
-            { a: 3.8, d: base * 1.08, r: base * 0.14 },
-            { a: 5.2, d: base * 0.96, r: base * 0.10 }
+            { a: 0.9, d: base * 1.08, r: base * 0.18 },
+            { a: 2.3, d: base * 1.0, r: base * 0.13 },
+            { a: 3.8, d: base * 1.12, r: base * 0.15 },
+            { a: 5.2, d: base * 0.98, r: base * 0.11 }
         ];
-        ctx.fillStyle = 'rgba(220,60,0,' + (0.75 * k * pulse) + ')';
         for (const d of drops) {
             const dx = o.x + Math.cos(d.a) * d.d;
             const dy = o.y + Math.sin(d.a) * d.d;
+            const dg = ctx.createRadialGradient(dx, dy, 0, dx, dy, d.r);
+            dg.addColorStop(0, 'rgba(255,140,40,' + (0.6 * k * pulse) + ')');
+            dg.addColorStop(1, 'rgba(255,140,40,0)');
+            ctx.fillStyle = dg;
             ctx.beginPath();
             ctx.arc(dx, dy, d.r, 0, Math.PI * 2);
             ctx.fill();
-            // droplet 高光
-            ctx.fillStyle = 'rgba(255,210,90,' + (0.5 * k * pulse) + ')';
-            ctx.beginPath();
-            ctx.arc(dx - d.r * 0.25, dy - d.r * 0.25, d.r * 0.35, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = 'rgba(220,60,0,' + (0.75 * k * pulse) + ')';
         }
     }
     ctx.globalAlpha = 1;
