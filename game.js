@@ -287,11 +287,16 @@ const MAX_AD_ENERGY_PER_DAY = 5;             // 每日最多观看5次
 const AD_ENERGY_RECOVER = 30;                // 观看广告恢复30点体力
 let lastAdEnergyDate = '';                   // 上次重置日期
 
-// 按钮位置（放在左下角）
+// 按钮位置（放在左下角，适度上移避免贴底）
 const soundBtnX = 10;
-const soundBtnY = screenHeight - buttonSize - 10;
+const soundBtnY = screenHeight - buttonSize - 18;
 const pauseBtnX = soundBtnX + buttonSize + buttonGap;
-const pauseBtnY = screenHeight - buttonSize - 10;
+const pauseBtnY = screenHeight - buttonSize - 18;
+
+// 炸弹按钮（右下角，同样适度上移）
+const BOMB_BTN_X = screenWidth - 48;
+const BOMB_BTN_Y = screenHeight - 58;
+const BOMB_BTN_R = 27;
 
 // ==================== 音频系统（Web Audio API）====================
 const AudioSystem = {
@@ -787,7 +792,7 @@ const MiniGameAudio = {
 // ==================== 玩家 ====================
 const player = {
     x: screenWidth / 2,
-    y: screenHeight - 80,
+    y: screenHeight - 70,
     radius: 22,
     maxHealth: 100,
     health: 100,
@@ -859,7 +864,7 @@ let acquiredSkills = ['damage'];
 // 墙体（失败条件）：敌人撞墙单次扣墙血后消失，墙血空 = 战斗失败
 const WALL_MAX_HP = 1500;        // [PLACEHOLDER] 墙总血量，需 playtest 与漏怪率/单怪漏伤对线
 const WALL_LEAK_MULT = 3;        // [PLACEHOLDER] 漏怪伤害倍率：leak = z.damage * WALL_LEAK_MULT
-const WALL_Y_OFFSET = 28;        // 墙线在坦克上方像素（坦克 y - 该值）
+const WALL_Y_OFFSET = 130;       // 墙线在坦克上方像素（坦克 y - 该值）；拉开射击走廊
 let wall = { hp: WALL_MAX_HP, maxHp: WALL_MAX_HP };
 
 let bullets = [];
@@ -1061,7 +1066,7 @@ function drawBackground() {
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
     // 远处暗色山峦
-    const groundY = screenHeight * 0.82;
+    const groundY = screenHeight * 0.78;
     ctx.fillStyle = 'rgba(40, 70, 110, 0.5)';
     for (let i = 0; i < 5; i++) {
         const x = (i / 5) * screenWidth;
@@ -1106,18 +1111,58 @@ function drawPlayer() {
     const r = player.radius;
     const hurtFlash = Date.now() - player.hurtTime < 100;
 
-    // 墙体（失败条件可视化）：坦克前方防御墙 + 低血红闪预警
+    // 墙体（失败条件可视化）：厚实防御墙 + 内置血条 + 低血红闪预警
     const wallY = y - WALL_Y_OFFSET;
-    ctx.fillStyle = '#5a6a8a';
-    ctx.fillRect(0, wallY - 6, screenWidth, 12);
-    ctx.fillStyle = '#8b9bbf';
-    ctx.fillRect(0, wallY - 6, screenWidth, 3);
-    if (wall.hp / wall.maxHp < 0.3) {
-        const _wa = 0.25 + Math.sin(Date.now() * 0.012) * 0.2;
-        ctx.fillStyle = `rgba(255,60,60,${_wa})`;
-        ctx.fillRect(0, wallY - 6, screenWidth, 12);
+    const wallH = 24;
+    const barH = 6;
+    const hpPct = Math.max(0, wall.hp / wall.maxHp);
+
+    // 墙主体：冰岩渐变
+    const wallGrad = ctx.createLinearGradient(0, wallY - wallH / 2, 0, wallY + wallH / 2);
+    wallGrad.addColorStop(0, '#6b7fa3');
+    wallGrad.addColorStop(0.45, '#4a5e82');
+    wallGrad.addColorStop(0.55, '#3a4e72');
+    wallGrad.addColorStop(1, '#2f4262');
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(0, wallY - wallH / 2, screenWidth, wallH);
+
+    // 墙顶冰冠高光
+    ctx.fillStyle = 'rgba(180, 210, 255, 0.35)';
+    ctx.fillRect(0, wallY - wallH / 2, screenWidth, 3);
+
+    // 砖缝纹理（竖线，营造防御工事块面感）
+    ctx.strokeStyle = 'rgba(20, 35, 55, 0.35)';
+    ctx.lineWidth = 2;
+    const brickW = 48;
+    for (let bx = (Date.now() / 50 | 0) % brickW; bx < screenWidth; bx += brickW) {
+        ctx.beginPath();
+        ctx.moveTo(bx, wallY - wallH / 2);
+        ctx.lineTo(bx, wallY + wallH / 2);
+        ctx.stroke();
     }
-    
+
+    // 内置血条：贴在墙顶上方，全屏宽度，清晰可读
+    const barY = wallY - wallH / 2 - barH - 3;
+    ctx.fillStyle = 'rgba(12, 24, 40, 0.85)';
+    ctx.fillRect(0, barY, screenWidth, barH);
+    const hpGrad = ctx.createLinearGradient(0, barY, screenWidth, barY);
+    if (hpPct < 0.3) {
+        hpGrad.addColorStop(0, '#ff5a5f');
+        hpGrad.addColorStop(1, '#ff8a8f');
+    } else {
+        hpGrad.addColorStop(0, '#5dd4e0');
+        hpGrad.addColorStop(1, '#34a3c3');
+    }
+    ctx.fillStyle = hpGrad;
+    ctx.fillRect(0, barY, screenWidth * hpPct, barH);
+
+    // 低血红闪预警（整墙泛红光，叠加不遮挡纹理）
+    if (hpPct < 0.3) {
+        const _wa = 0.15 + Math.sin(Date.now() * 0.012) * 0.12;
+        ctx.fillStyle = `rgba(255,60,60,${_wa})`;
+        ctx.fillRect(0, wallY - wallH / 2, screenWidth, wallH);
+    }
+
     // 阴影
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.beginPath();
@@ -1857,10 +1902,9 @@ function drawUI() {
     // 避开微信胶囊按钮区域（右上角约90像素宽度）
     drawTopRightButtons();
     
-    // ========== 底部血条（小车下方） ==========
-    drawPlayerHealthBar();
+    // 墙血条已整合到 drawPlayer 的墙体上，此处不再单独绘制
     
-    // ========== 技能栏（底部） ==========
+    // ========== 技能栏（射击走廊居中横排） ==========
     drawSkillUI();
     
     // ========== 炸弹按钮（右下角圆形） ==========
@@ -1869,53 +1913,14 @@ function drawUI() {
 
 // 绘制墙血条（小车下方，失败条件可视化；墙血替代坦克血成为失败计）
 function drawPlayerHealthBar() {
-    const barY = screenHeight - 65;
-    const barX = screenWidth / 2 - 45;
-    const barW = 90;
-    const barH = 8;
-
-    // 背景（暗底 + 金边）
-    ctx.fillStyle = 'rgba(8, 20, 36, 0.8)';
-    roundRect(ctx, barX - 4, barY - 2, barW + 8, barH + 10, 6);
-    ctx.fill();
-    ctx.strokeStyle = ROYALE.gold;
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, barX - 4, barY - 2, barW + 8, barH + 10, 6);
-    ctx.stroke();
-
-    // 墙图标
-    ctx.fillStyle = '#7fd4ff';
-    ctx.font = 'bold 10px Arial';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🧱', barX, barY + 2);
-    ctx.textBaseline = 'alphabetic';
-
-    // 墙血背景
-    const healthBarX = barX + 14;
-    ctx.fillStyle = 'rgba(40, 60, 80, 0.9)';
-    ctx.fillRect(healthBarX, barY, barW - 35, 4);
-
-    // 墙血填充（青色，墙血 <30% 转红预警）
-    const hpPercent = Math.max(0, wall.hp / wall.maxHp);
-    const hpGradient = ctx.createLinearGradient(healthBarX, 0, healthBarX + barW - 35, 0);
-    if (hpPercent < 0.3) { hpGradient.addColorStop(0, '#ff5a5f'); hpGradient.addColorStop(1, '#ff8a8f'); }
-    else { hpGradient.addColorStop(0, '#5dd4e0'); hpGradient.addColorStop(1, '#34a3c3'); }
-    ctx.fillStyle = hpGradient;
-    ctx.fillRect(healthBarX, barY, (barW - 35) * hpPercent, 4);
-
-    // 墙血数字
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 9px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${Math.floor(wall.hp)}`, barX + barW - 12, barY + 5);
+    // 墙血条已整合到 drawPlayer 的防御墙上，此处保留函数避免调用点报错
 }
 
 // 绘制炸弹按钮（圆形）
 function drawBombButton() {
-    const btnX = screenWidth - 48;
-    const btnY = screenHeight - 48;
-    const btnR = 27; // 55px直径 / 2
+    const btnX = BOMB_BTN_X;
+    const btnY = BOMB_BTN_Y;
+    const btnR = BOMB_BTN_R; // 55px直径 / 2
     
     // 发光效果（可用时）
     const isAvailable = bombCount > 0 && bombCooldown <= 0;
@@ -1976,8 +1981,8 @@ function drawAdDemoGuide() {
 
     adDemoTimer++;
 
-    const bombBtnX = screenWidth - 48;
-    const bombBtnY = screenHeight - 48;
+    const bombBtnX = BOMB_BTN_X;
+    const bombBtnY = BOMB_BTN_Y;
 
     if (adDemoState === 'guiding') {
         // 炸弹按钮加强闪光边框
@@ -2118,13 +2123,13 @@ function drawSkillUI() {
     
     if (activeSkills.length === 0) return;
     
-    // 计算总宽度，居中显示
+    // 计算总宽度，居中显示；位置放在射击走廊中间（墙下方、坦克上方），避免贴底局促
     const totalWidth = Math.min(activeSkills.length, maxPerRow) * (skillSize + skillGap) - skillGap;
     let skillX = (screenWidth - totalWidth) / 2;
-    let skillY = screenHeight - 38;
-    
+    let skillY = screenHeight - 110;
+
     activeSkills.forEach((skill, index) => {
-        // 换行处理
+        // 换行处理（竖向向上换行，若技能数超过一行）
         if (index > 0 && index % maxPerRow === 0) {
             skillX = (screenWidth - totalWidth) / 2;
             skillY -= skillSize + skillGap + 2;
@@ -3705,7 +3710,7 @@ function startGame() {
     
     // 重置玩家
     player.x = screenWidth / 2;
-    player.y = screenHeight - 80;
+    player.y = screenHeight - 70;
     wall.hp = WALL_MAX_HP; wall.maxHp = WALL_MAX_HP;   // 重置墙血（失败条件）
     player.health = 100;
     player.maxHealth = 100;
@@ -3832,8 +3837,8 @@ function adDemoBombExplosion() {
     if (adBombExploded) return;
     adBombExploded = true;
 
-    const bombX = screenWidth - 48;
-    const bombY = screenHeight - 48;
+    const bombX = BOMB_BTN_X;
+    const bombY = BOMB_BTN_Y;
     const EXPLOSION_RADIUS = Math.max(screenWidth, screenHeight);
 
     // 播放爆炸音效
@@ -10725,8 +10730,8 @@ wx.onTouchStart((e) => {
             }
         } else {
             // 使用炸弹（圆形按钮检测，与drawBombButton一致）
-            const btnX = screenWidth - 48;
-            const btnY = screenHeight - 48;
+            const btnX = BOMB_BTN_X;
+            const btnY = BOMB_BTN_Y;
             const btnR = 30; // 稍微大一点的点击区域
             const dist = Math.hypot(x - btnX, y - btnY);
             
