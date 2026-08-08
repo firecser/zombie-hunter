@@ -839,7 +839,7 @@ const SKILL_DEFS = {
     mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
                   qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
     oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:5,  desc:'地面燃油',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'灼烧 DOT ×2', apply(){ skills.oil._dotBonus = 1; } }, 5:{ desc:'烈焰强化：持续+50% & 减速', apply(){ skills.oil._big = true; } } } },
+                  qualNodes:{ 3:{ desc:'灼烧 DOT ×2', apply(){ skills.oil._dotBonus = 1; } }, 5:{ desc:'烈焰强化：额外火池 & 减速', apply(){ skills.oil._big = true; } } } },
     tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){},
                   qualNodes:{ 3:{ desc:'牵引力增强', apply(){ skills.tornado._pullBonus = 0.5; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
 };
@@ -893,11 +893,10 @@ let mines = [];
 let oilPatches = [];
 let tornadoes = [];
 const MINE_SPAWN_INTERVAL = 3500;
-const OIL_SPAWN_INTERVAL = 4000;
+const OIL_SPAWN_INTERVAL = 10000;   // 油渍释放 CD：10 秒一次
+const OIL_LIFE = 5000;              // 油渍存在时长：5 秒后直接消失
 const MINE_MAX_BASE = 2;
 const OIL_MAX_BASE = 1;
-// 油渍面积：共 5 级，每级面积 +20%（复合），第 5 级达到当前最大区域（半径 110）
-// 反推：A5 = A1 × 1.2^4，π×110² = π×r1² × 2.0736 ⇒ r1 ≈ 76.4
 // 油渍半径：按"直径每级 +10%（复合）"成长；最大直径 = 原初始直径(2×76.4=152.8) → 最大半径 76.4
 const OIL_MAX_RADIUS = 76.4;
 const OIL_DIAM_GROWTH = 1.1;                                       // 每级直径 +10%
@@ -1386,8 +1385,7 @@ function getBulletVisual() {
 function drawFields() {
     // 油渍（地面熔岩火池）：柔和羽化边缘，无硬描边；半径随当前油渍等级实时变化（升级即刻放大所有场上火池）
     for (const o of oilPatches) {
-        const lifeMax = skills.oil._big ? 9000 : 6000;
-        const k = Math.max(0, Math.min(1, o.life / lifeMax));      // 剩余寿命比例（淡出）
+        const k = 1;        // 亮度恒定：不随寿命淡出，寿命结束由 updateFields 直接移除（瞬间消失）
         const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);   // 熔岩呼吸
         const base = getOilRadius(skills.oil.level);              // 实时半径：升级油渍即刻放大所有场上火池
         const t = Date.now() / 800;
@@ -3300,7 +3298,7 @@ function updateZombies(dt) {
             z._burnTick = (z._burnTick || 0) + (dt || 16);
             if (z._burnTick >= 500) {
                 z._burnTick = 0;
-                const dot = player.damage * 0.08 * (1 + (skills.oil._dotBonus || 0));  // oil Lv3 DOT ×2
+                const dot = player.damage * (1 + (skills.oil._dotBonus || 0));  // 油渍每跳伤害 = 子弹单发伤害（Lv3 质变 ×2）；与子弹初始伤害对齐
                 damageZombie(z, dot, false, '火');   // 火：冰冻中僵尸踩油渍 → 融化 ×2
             }
         }
@@ -3331,7 +3329,7 @@ function updateFields(dt) {
             }
             if (triggered) {
                 createExplosion(m.x, m.y, m.radius);
-                let dmg = player.damage * (0.3 + m.level * 0.1) * 2;
+                let dmg = player.damage * (0.5 + m.level * 0.12) * 2;
                 if (skills.mine._dmgBonus) dmg *= (1 + skills.mine._dmgBonus);   // Lv3 伤害 +50%
                 for (const z of zombies) {
                     if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) {
@@ -3345,17 +3343,23 @@ function updateFields(dt) {
         }
     }
 
-    // 油渍：地面燃油区域（独立释放 CD，随机散落战场），进入的僵尸持续灼烧（标记 burningUntil，由 updateZombies 结算 DOT）
+    // 油渍：地面燃油区域（独立释放 CD），释放时锁定离坦克最近的怪物坐标；进入的僵尸持续灼烧（DOT 由 updateZombies 结算）
     if (skills.oil.level > 0) {
         updateFields._oilTimer = (updateFields._oilTimer || 0) + dt;
         let cap = OIL_MAX_BASE + skills.oil.level;
-        let patchR = getOilRadius(skills.oil.level);        // 1~5 级面积按 +20%/级复合增长，第 5 级达当前最大区域
-        if (skills.oil._big) { cap += 1; }                  // Lv5 额外 +1 个火池并延长寿命，不再扩大单池面积
+        let patchR = getOilRadius(skills.oil.level);        // 半径随当前油渍等级实时放大（升级即时可见）
+        if (skills.oil._big) { cap += 1; }                  // Lv5 额外 +1 个火池（不再扩大单池面积）
         if (updateFields._oilTimer >= OIL_SPAWN_INTERVAL) {
             updateFields._oilTimer = 0;
             if (oilPatches.length < cap) {
-                const _op = randomFieldPos();
-                oilPatches.push({ x: _op.x, y: _op.y, radius: patchR, life: skills.oil._big ? 9000 : 6000, level: skills.oil.level });
+                // 目标：离坦克（玩家）最近的怪物坐标；无怪物时回退随机散落
+                let _op = randomFieldPos();
+                let _bestD = Infinity;
+                for (const z of zombies) {
+                    const d = Math.hypot(z.x - player.x, z.y - player.y);
+                    if (d < _bestD) { _bestD = d; _op = { x: z.x, y: z.y }; }
+                }
+                oilPatches.push({ x: _op.x, y: _op.y, radius: patchR, life: OIL_LIFE, level: skills.oil.level });
             }
         }
         for (let i = oilPatches.length - 1; i >= 0; i--) {
@@ -3402,7 +3406,7 @@ function updateFields(dt) {
                         updateFields._tornadoDpsTimer = (updateFields._tornadoDpsTimer || 0) + dt;
                         if (updateFields._tornadoDpsTimer >= 500) {
                             updateFields._tornadoDpsTimer = 0;
-                            damageZombie(z, player.damage * 0.05, false, '风');
+                            damageZombie(z, player.damage * 0.1, false, '风');
                             checkCombos(z, '风');
                         }
                     }
