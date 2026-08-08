@@ -28,16 +28,16 @@ const SAFE_TOP_OFFSET = statusBarHeight + 10;
 const STAGES = [
     { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡', difficulty: 1, descColor: '#88cc88',
       speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 1.0, bossTime: 120, tankChance: 0.18, fastChance: 0.28 },
-    { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '僵尸速度+30%', difficulty: 2, descColor: '#88aacc',
-      speedMult: 1.3, healthMult: 1.0, damageMult: 1.1, spawnMult: 1.1, bossTime: 100, tankChance: 0.22, fastChance: 0.35 },
-    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '僵尸血量+50%', difficulty: 3, descColor: '#66bbcc',
-      speedMult: 1.1, healthMult: 1.5, damageMult: 1.2, spawnMult: 1.2, bossTime: 90, tankChance: 0.25, fastChance: 0.30 },
+    { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '僵尸速度+15%', difficulty: 2, descColor: '#88aacc',
+      speedMult: 1.15, healthMult: 1.05, damageMult: 1.05, spawnMult: 1.05, bossTime: 100, tankChance: 0.22, fastChance: 0.32 },
+    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '僵尸血量+30%', difficulty: 3, descColor: '#66bbcc',
+      speedMult: 1.1, healthMult: 1.25, damageMult: 1.1, spawnMult: 1.1, bossTime: 90, tankChance: 0.25, fastChance: 0.30 },
     { id: 4, name: '冰霜要塞', icon: '🏔️', desc: 'Boss提前出现', difficulty: 4, descColor: '#aaaacc',
-      speedMult: 1.2, healthMult: 1.3, damageMult: 1.3, spawnMult: 1.3, bossTime: 60, tankChance: 0.30, fastChance: 0.32 },
+      speedMult: 1.15, healthMult: 1.35, damageMult: 1.15, spawnMult: 1.15, bossTime: 60, tankChance: 0.28, fastChance: 0.30 },
     { id: 5, name: '永冻之巅', icon: '👑', desc: '全属性增强', difficulty: 5, descColor: '#cc88cc',
-      speedMult: 1.4, healthMult: 1.8, damageMult: 1.5, spawnMult: 1.5, bossTime: 50, tankChance: 0.35, fastChance: 0.35 },
+      speedMult: 1.25, healthMult: 1.55, damageMult: 1.25, spawnMult: 1.25, bossTime: 50, tankChance: 0.30, fastChance: 0.30 },
     { id: 6, name: '极寒地狱', icon: '👾', desc: '究极挑战', difficulty: 6, descColor: '#ff6666',
-      speedMult: 1.6, healthMult: 2.2, damageMult: 1.8, spawnMult: 1.8, bossTime: 40, tankChance: 0.40, fastChance: 0.40 }
+      speedMult: 1.35, healthMult: 1.75, damageMult: 1.35, spawnMult: 1.35, bossTime: 40, tankChance: 0.32, fastChance: 0.30 }
 ];
 
 let currentStage = 1;
@@ -792,8 +792,8 @@ const MiniGameAudio = {
 // ==================== 玩家 ====================
 const player = {
     x: screenWidth / 2,
-    y: screenHeight - 70,
-    radius: 22,
+    y: screenHeight - 105,
+    radius: 33,
     maxHealth: 100,
     health: 100,
     exp: 0,
@@ -862,8 +862,8 @@ let acquiredSkills = ['damage'];
 // ==================== 游戏对象 ====================
 
 // 墙体（失败条件）：敌人撞墙单次扣墙血后消失，墙血空 = 战斗失败
-const WALL_MAX_HP = 1500;        // [PLACEHOLDER] 墙总血量，需 playtest 与漏怪率/单怪漏伤对线
-const WALL_LEAK_MULT = 3;        // [PLACEHOLDER] 漏怪伤害倍率：leak = z.damage * WALL_LEAK_MULT
+const WALL_MAX_HP = 2500;        // [PLACEHOLDER] 墙总血量，竖版射击漏怪率更高，先给宽容值
+const WALL_LEAK_MULT = 2;        // [PLACEHOLDER] 漏怪伤害倍率：leak = z.damage * WALL_LEAK_MULT
 const WALL_Y_OFFSET = 130;       // 墙线在坦克上方像素（坦克 y - 该值）；拉开射击走廊
 let wall = { hp: WALL_MAX_HP, maxHp: WALL_MAX_HP };
 
@@ -882,10 +882,10 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 
 // ==================== 僵尸类型 ====================
 const zombieTypes = {
-    normal: { health: 30, speed: 1.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 10, gold: 5 },
-    fast: { health: 20, speed: 3, damage: 8, radius: 18, color: '#8b7ca3', exp: 15, gold: 8 },
-    tank: { health: 80, speed: 1, damage: 20, radius: 30, color: '#5a6a8a', exp: 25, gold: 15 },
-    boss: { health: 200, speed: 0.8, damage: 30, radius: 42, color: '#8b4a5a', exp: 100, gold: 50 }
+    normal: { health: 18, speed: 1.2, damage: 10, radius: 22, color: '#6b8ca3', exp: 10, gold: 5 },
+    fast: { health: 12, speed: 2.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 15, gold: 8 },
+    tank: { health: 48, speed: 0.8, damage: 20, radius: 30, color: '#5a6a8a', exp: 25, gold: 15 },
+    boss: { health: 120, speed: 0.6, damage: 30, radius: 42, color: '#8b4a5a', exp: 100, gold: 50 }
 };
 
 // ==================== 升级选项 ====================
@@ -1051,7 +1051,7 @@ let bombFull = false; // 炸弹已满标志
 
 // ==================== 生成参数 ====================
 let spawnTimer = 0;
-let spawnInterval = 1500;
+let spawnInterval = 2000;
 
 // ==================== 绘制函数 ====================
 
@@ -2126,7 +2126,7 @@ function drawSkillUI() {
     // 计算总宽度，居中显示；位置放在射击走廊中间（墙下方、坦克上方），避免贴底局促
     const totalWidth = Math.min(activeSkills.length, maxPerRow) * (skillSize + skillGap) - skillGap;
     let skillX = (screenWidth - totalWidth) / 2;
-    let skillY = screenHeight - 110;
+    let skillY = screenHeight - 170;
 
     activeSkills.forEach((skill, index) => {
         // 换行处理（竖向向上换行，若技能数超过一行）
@@ -3472,8 +3472,8 @@ function spawnZombies(dt) {
     
     if (spawnTimer >= spawnInterval / spawnMult) {
         spawnTimer = 0;
-        spawnInterval = Math.max(400, spawnInterval - 8);
-        
+        spawnInterval = Math.max(700, spawnInterval - 5);
+
         for (let s = 0; s < spawnCount; s++) {
             const x = Math.random() * screenWidth;
             const y = -50;
@@ -3495,7 +3495,7 @@ function spawnZombies(dt) {
             }
             
             const template = zombieTypes[type];
-            const healthMult = (1 + gameTimeSec / 50) * stage.healthMult;
+            const healthMult = (1 + gameTimeSec / 80) * stage.healthMult;
             
             zombies.push({
                 x: x,
@@ -3710,7 +3710,7 @@ function startGame() {
     
     // 重置玩家
     player.x = screenWidth / 2;
-    player.y = screenHeight - 70;
+    player.y = screenHeight - 105;
     wall.hp = WALL_MAX_HP; wall.maxHp = WALL_MAX_HP;   // 重置墙血（失败条件）
     player.health = 100;
     player.maxHealth = 100;
@@ -3774,7 +3774,7 @@ function startGame() {
     
     // 重置生成参数
     spawnTimer = 0;
-    spawnInterval = 1500;
+    spawnInterval = 2000;
 
     // 素材演示模式特殊处理
     if (isAdDemoMode) {
