@@ -898,10 +898,12 @@ const MINE_MAX_BASE = 2;
 const OIL_MAX_BASE = 1;
 // 油渍面积：共 5 级，每级面积 +20%（复合），第 5 级达到当前最大区域（半径 110）
 // 反推：A5 = A1 × 1.2^4，π×110² = π×r1² × 2.0736 ⇒ r1 ≈ 76.4
-const OIL_MAX_RADIUS = 110;
-const OIL_BASE_RADIUS = 76.4;
+// 油渍半径：按"直径每级 +10%（复合）"成长；最大直径 = 原初始直径(2×76.4=152.8) → 最大半径 76.4
+const OIL_MAX_RADIUS = 76.4;
+const OIL_DIAM_GROWTH = 1.1;                                       // 每级直径 +10%
+const OIL_BASE_RADIUS = OIL_MAX_RADIUS / Math.pow(OIL_DIAM_GROWTH, 4);  // Lv1 ≈ 52.2
 function getOilRadius(level) {
-    return Math.min(OIL_MAX_RADIUS, OIL_BASE_RADIUS * Math.pow(Math.sqrt(1.2), level - 1));
+    return OIL_BASE_RADIUS * Math.pow(OIL_DIAM_GROWTH, level - 1);
 }
 // 龙卷风：独立释放 CD（到点且无在场龙卷风则重新释放一个）+ 场上存在时长（超时消失）
 const TORNADO_RELEASE_CD = 8000;
