@@ -1375,15 +1375,35 @@ function getBulletVisual() {
 // 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
 // 战场部署/聚怪技能可视化
 function drawFields() {
-    // 油渍（地面燃油）
+    // 油渍（地面燃烧火焰池）：橙黄→橙红径向渐变 + 呼吸脉动 + 中心跳动火苗 + 火光描边
     for (const o of oilPatches) {
-        ctx.globalAlpha = Math.min(0.4, (o.life / 6000) * 0.4);
-        ctx.fillStyle = '#3a2a10';
+        const k = Math.max(0, Math.min(1, o.life / 6000));        // 剩余寿命比例（淡出）
+        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 110);  // 火焰呼吸
+        const grad = ctx.createRadialGradient(o.x, o.y, o.radius * 0.15, o.x, o.y, o.radius);
+        grad.addColorStop(0, 'rgba(255,210,90,' + (0.75 * k * pulse) + ')');
+        grad.addColorStop(0.45, 'rgba(255,120,30,' + (0.6 * k * pulse) + ')');
+        grad.addColorStop(1, 'rgba(140,30,0,0)');
+        ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(o.x, o.y, o.radius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.globalAlpha = 1;
+        // 外圈火光描边
+        ctx.strokeStyle = 'rgba(255,150,50,' + (0.55 * k * pulse) + ')';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        // 中心跳动火苗
+        const fy = o.y - o.radius * 0.15;
+        const fh = o.radius * (0.35 + 0.1 * Math.sin(Date.now() / 80));
+        ctx.fillStyle = 'rgba(255,230,120,' + (0.85 * k) + ')';
+        ctx.beginPath();
+        ctx.moveTo(o.x - o.radius * 0.12, fy);
+        ctx.quadraticCurveTo(o.x, fy - fh, o.x + o.radius * 0.12, fy);
+        ctx.closePath();
+        ctx.fill();
     }
+    ctx.globalAlpha = 1;
     // 地雷
     for (const m of mines) {
         ctx.fillStyle = (m.armTime > Date.now()) ? '#888' : '#c0392b';
@@ -2908,7 +2928,7 @@ function damageZombie(zombie, damage, isCrit, element) {
         text: Math.round(damage).toString(),
         life: 800,
         vy: -2.5,
-        color: isCrit ? '#ff3b3b' : (damage > player.damage ? '#ffff00' : '#ffffff'),
+        color: isCrit ? '#ff3b3b' : (element === '火' ? '#ff7a1a' : (damage > player.damage ? '#ffff00' : '#ffffff')),
         isCrit: isCrit
     });
     
