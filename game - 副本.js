@@ -838,8 +838,8 @@ const SKILL_DEFS = {
     // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
     mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
                   qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
-    oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:10, desc:'地面燃油',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'灼烧 DOT ×2', apply(){ skills.oil._dotBonus = 1; } }, 5:{ desc:'范围+50% & 减速', apply(){ skills.oil._big = true; } } } },
+    oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:5,  desc:'地面燃油',       apply(lv){},
+                  qualNodes:{ 3:{ desc:'灼烧 DOT ×2', apply(){ skills.oil._dotBonus = 1; } }, 5:{ desc:'烈焰强化：持续+50% & 减速', apply(){ skills.oil._big = true; } } } },
     tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){},
                   qualNodes:{ 3:{ desc:'牵引力增强', apply(){ skills.tornado._pullBonus = 0.5; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
 };
@@ -896,6 +896,13 @@ const MINE_SPAWN_INTERVAL = 3500;
 const OIL_SPAWN_INTERVAL = 4000;
 const MINE_MAX_BASE = 2;
 const OIL_MAX_BASE = 1;
+// 油渍面积：共 5 级，每级面积 +20%（复合），第 5 级达到当前最大区域（半径 110）
+// 反推：A5 = A1 × 1.2^4，π×110² = π×r1² × 2.0736 ⇒ r1 ≈ 76.4
+const OIL_MAX_RADIUS = 110;
+const OIL_BASE_RADIUS = 76.4;
+function getOilRadius(level) {
+    return Math.min(OIL_MAX_RADIUS, OIL_BASE_RADIUS * Math.pow(Math.sqrt(1.2), level - 1));
+}
 // 龙卷风：独立释放 CD（到点且无在场龙卷风则重新释放一个）+ 场上存在时长（超时消失）
 const TORNADO_RELEASE_CD = 8000;
 const TORNADO_LIFE = 5000;
@@ -1375,33 +1382,78 @@ function getBulletVisual() {
 // 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
 // 战场部署/聚怪技能可视化
 function drawFields() {
-    // 油渍（地面燃烧火焰池）：橙黄→橙红径向渐变 + 呼吸脉动 + 中心跳动火苗 + 火光描边
+    // 油渍（地面熔岩燃油池）：参考“液体熔岩” blob 造型——深色中心 + 橙红发光外缘 + 黄色高光 + 边缘 droplets
     for (const o of oilPatches) {
-        const k = Math.max(0, Math.min(1, o.life / 6000));        // 剩余寿命比例（淡出）
-        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 110);  // 火焰呼吸
-        const grad = ctx.createRadialGradient(o.x, o.y, o.radius * 0.15, o.x, o.y, o.radius);
-        grad.addColorStop(0, 'rgba(255,210,90,' + (0.75 * k * pulse) + ')');
-        grad.addColorStop(0.45, 'rgba(255,120,30,' + (0.6 * k * pulse) + ')');
-        grad.addColorStop(1, 'rgba(140,30,0,0)');
+        const lifeMax = skills.oil._big ? 9000 : 6000;
+        const k = Math.max(0, Math.min(1, o.life / lifeMax));      // 剩余寿命比例（淡出）
+        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);   // 熔岩呼吸
+        const base = o.radius;
+        const t = Date.now() / 800;
+        // 生成不规则 blob 顶点（中心 + 5 个方向略有相位差，形成液体飞溅感）
+        const blobs = [
+            { a: 0.0, r: base * (0.82 + 0.06 * Math.sin(t)) },
+            { a: 1.1, r: base * (0.78 + 0.08 * Math.sin(t + 1.3)) },
+            { a: 2.4, r: base * (0.85 + 0.05 * Math.sin(t + 2.1)) },
+            { a: 3.6, r: base * (0.80 + 0.07 * Math.sin(t + 0.7)) },
+            { a: 4.8, r: base * (0.83 + 0.06 * Math.sin(t + 3.0)) },
+            { a: 6.0, r: base * (0.79 + 0.08 * Math.sin(t + 1.8)) }
+        ];
+        // 主池发光底色
+        const grad = ctx.createRadialGradient(o.x, o.y, base * 0.12, o.x, o.y, base);
+        grad.addColorStop(0, 'rgba(80,12,0,' + (0.82 * k * pulse) + ')');       // 暗褐中心
+        grad.addColorStop(0.35, 'rgba(160,35,0,' + (0.72 * k * pulse) + ')');   // 红棕
+        grad.addColorStop(0.72, 'rgba(255,100,20,' + (0.55 * k * pulse) + ')'); // 橙红
+        grad.addColorStop(1, 'rgba(255,160,40,0)');                             // 外发光消散
         ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.arc(o.x, o.y, o.radius, 0, Math.PI * 2);
-        ctx.fill();
-        // 外圈火光描边
-        ctx.strokeStyle = 'rgba(255,150,50,' + (0.55 * k * pulse) + ')';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(o.x, o.y, o.radius, 0, Math.PI * 2);
-        ctx.stroke();
-        // 中心跳动火苗
-        const fy = o.y - o.radius * 0.15;
-        const fh = o.radius * (0.35 + 0.1 * Math.sin(Date.now() / 80));
-        ctx.fillStyle = 'rgba(255,230,120,' + (0.85 * k) + ')';
-        ctx.beginPath();
-        ctx.moveTo(o.x - o.radius * 0.12, fy);
-        ctx.quadraticCurveTo(o.x, fy - fh, o.x + o.radius * 0.12, fy);
+        for (let i = 0; i < blobs.length; i++) {
+            const b = blobs[i];
+            const bx = o.x + Math.cos(b.a) * b.r;
+            const by = o.y + Math.sin(b.a) * b.r;
+            if (i === 0) ctx.moveTo(bx, by);
+            else ctx.lineTo(bx, by);
+        }
         ctx.closePath();
         ctx.fill();
+        // 外缘明亮描边（模拟 reference 图里的橙黄色外圈）
+        ctx.strokeStyle = 'rgba(255,170,40,' + (0.65 * k * pulse) + ')';
+        ctx.lineWidth = Math.max(2, base * 0.03);
+        ctx.beginPath();
+        for (let i = 0; i < blobs.length; i++) {
+            const b = blobs[i];
+            const bx = o.x + Math.cos(b.a) * b.r;
+            const by = o.y + Math.sin(b.a) * b.r;
+            if (i === 0) ctx.moveTo(bx, by);
+            else ctx.lineTo(bx, by);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        // 底部黄色高光（模拟液体表面反光）
+        ctx.fillStyle = 'rgba(255,230,100,' + (0.45 * k * pulse) + ')';
+        ctx.beginPath();
+        ctx.ellipse(o.x + base * 0.12, o.y + base * 0.28, base * 0.35, base * 0.12, -0.15, 0, Math.PI * 2);
+        ctx.fill();
+        // 边缘飞溅 droplets（上/左/右随机分布，避免下方遮挡坦克）
+        const drops = [
+            { a: 0.9, d: base * 1.05, r: base * 0.16 },
+            { a: 2.3, d: base * 0.98, r: base * 0.12 },
+            { a: 3.8, d: base * 1.08, r: base * 0.14 },
+            { a: 5.2, d: base * 0.96, r: base * 0.10 }
+        ];
+        ctx.fillStyle = 'rgba(220,60,0,' + (0.75 * k * pulse) + ')';
+        for (const d of drops) {
+            const dx = o.x + Math.cos(d.a) * d.d;
+            const dy = o.y + Math.sin(d.a) * d.d;
+            ctx.beginPath();
+            ctx.arc(dx, dy, d.r, 0, Math.PI * 2);
+            ctx.fill();
+            // droplet 高光
+            ctx.fillStyle = 'rgba(255,210,90,' + (0.5 * k * pulse) + ')';
+            ctx.beginPath();
+            ctx.arc(dx - d.r * 0.25, dy - d.r * 0.25, d.r * 0.35, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(220,60,0,' + (0.75 * k * pulse) + ')';
+        }
     }
     ctx.globalAlpha = 1;
     // 地雷
@@ -2112,9 +2164,39 @@ function drawSkillUI() {
         ctx.fillStyle = ROYALE.gold;
         ctx.font = '7px Arial';
         ctx.fillText(`Lv${skill.level}`, skillX + skillSize / 2, skillY + skillSize - 4);
-        
+
+        // 技能释放 CD 冷却遮罩（地雷/油渍/龙卷风）：参考炸弹，黑色径向扇形 + 剩余秒数
+        const cdInfo = getSkillCooldown(skill.key);
+        if (cdInfo && cdInfo.timer > 0 && cdInfo.timer < cdInfo.interval) {
+            const remain = cdInfo.interval - cdInfo.timer;
+            const cx = skillX + skillSize / 2;
+            const cy = skillY + skillSize / 2;
+            const cr = skillSize / 2 - 1;
+            const startAngle = -Math.PI / 2;
+            const endAngle = startAngle + (remain / cdInfo.interval) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, cr, startAngle, endAngle);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${Math.ceil(remain / 1000)}`, cx, cy);
+        }
+
         skillX += skillSize + skillGap;
     });
+}
+
+// 获取指定技能的释放 CD 进度（timer 从 0 计到 interval，返回剩余时间）
+function getSkillCooldown(key) {
+    if (key === 'mine') return { timer: updateFields._mineTimer || 0, interval: MINE_SPAWN_INTERVAL };
+    if (key === 'oil') return { timer: updateFields._oilTimer || 0, interval: OIL_SPAWN_INTERVAL };
+    if (key === 'tornado') return { timer: updateFields._tornadoCd || 0, interval: TORNADO_RELEASE_CD };
+    return null;
 }
 
 // 圆角矩形辅助函数
@@ -3269,13 +3351,13 @@ function updateFields(dt) {
     if (skills.oil.level > 0) {
         updateFields._oilTimer = (updateFields._oilTimer || 0) + dt;
         let cap = OIL_MAX_BASE + skills.oil.level;
-        let patchR = 70 + skills.oil.level * 8;
-        if (skills.oil._big) { patchR *= 1.5; cap += 1; }   // Lv5 范围 +50%
+        let patchR = getOilRadius(skills.oil.level);        // 1~5 级面积按 +20%/级复合增长，第 5 级达当前最大区域
+        if (skills.oil._big) { cap += 1; }                  // Lv5 额外 +1 个火池并延长寿命，不再扩大单池面积
         if (updateFields._oilTimer >= OIL_SPAWN_INTERVAL) {
             updateFields._oilTimer = 0;
             if (oilPatches.length < cap) {
                 const _op = randomFieldPos();
-                oilPatches.push({ x: _op.x, y: _op.y, radius: patchR, life: 6000, level: skills.oil.level });
+                oilPatches.push({ x: _op.x, y: _op.y, radius: patchR, life: skills.oil._big ? 9000 : 6000, level: skills.oil.level });
             }
         }
         for (let i = oilPatches.length - 1; i >= 0; i--) {
