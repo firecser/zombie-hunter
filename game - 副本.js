@@ -855,6 +855,13 @@ const MAX_SKILLS = 5;
 let acquiredSkills = ['damage'];
 
 // ==================== 游戏对象 ====================
+
+// 墙体（失败条件）：敌人撞墙单次扣墙血后消失，墙血空 = 战斗失败
+const WALL_MAX_HP = 1500;        // [PLACEHOLDER] 墙总血量，需 playtest 与漏怪率/单怪漏伤对线
+const WALL_LEAK_MULT = 3;        // [PLACEHOLDER] 漏怪伤害倍率：leak = z.damage * WALL_LEAK_MULT
+const WALL_Y_OFFSET = 28;        // 墙线在坦克上方像素（坦克 y - 该值）
+let wall = { hp: WALL_MAX_HP, maxHp: WALL_MAX_HP };
+
 let bullets = [];
 let zombies = [];
 let particles = [];
@@ -1098,6 +1105,18 @@ function drawPlayer() {
     const y = player.y;
     const r = player.radius;
     const hurtFlash = Date.now() - player.hurtTime < 100;
+
+    // 墙体（失败条件可视化）：坦克前方防御墙 + 低血红闪预警
+    const wallY = y - WALL_Y_OFFSET;
+    ctx.fillStyle = '#5a6a8a';
+    ctx.fillRect(0, wallY - 6, screenWidth, 12);
+    ctx.fillStyle = '#8b9bbf';
+    ctx.fillRect(0, wallY - 6, screenWidth, 3);
+    if (wall.hp / wall.maxHp < 0.3) {
+        const _wa = 0.25 + Math.sin(Date.now() * 0.012) * 0.2;
+        ctx.fillStyle = `rgba(255,60,60,${_wa})`;
+        ctx.fillRect(0, wallY - 6, screenWidth, 12);
+    }
     
     // 阴影
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
@@ -1848,10 +1867,10 @@ function drawUI() {
     drawBombButton();
 }
 
-// 绘制玩家血条（小车下方）
+// 绘制墙血条（小车下方，失败条件可视化；墙血替代坦克血成为失败计）
 function drawPlayerHealthBar() {
     const barY = screenHeight - 65;
-    const barX = player.x - 45;
+    const barX = screenWidth / 2 - 45;
     const barW = 90;
     const barH = 8;
 
@@ -1864,58 +1883,32 @@ function drawPlayerHealthBar() {
     roundRect(ctx, barX - 4, barY - 2, barW + 8, barH + 10, 6);
     ctx.stroke();
 
-    // 心形图标
-    ctx.fillStyle = '#ff5a5f';
+    // 墙图标
+    ctx.fillStyle = '#7fd4ff';
     ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('❤', barX, barY + 2);
+    ctx.fillText('🧱', barX, barY + 2);
     ctx.textBaseline = 'alphabetic';
 
-    // 血条背景
+    // 墙血背景
     const healthBarX = barX + 14;
     ctx.fillStyle = 'rgba(40, 60, 80, 0.9)';
     ctx.fillRect(healthBarX, barY, barW - 35, 4);
 
-    // 血条填充（绿色，暗背景上清晰）
-    const healthPercent = player.health / player.maxHealth;
-    const healthGradient = ctx.createLinearGradient(healthBarX, 0, healthBarX + barW - 35, 0);
-    healthGradient.addColorStop(0, '#5dd47f');
-    healthGradient.addColorStop(1, '#34a35c');
-    ctx.fillStyle = healthGradient;
-    ctx.fillRect(healthBarX, barY, (barW - 35) * healthPercent, 4);
+    // 墙血填充（青色，墙血 <30% 转红预警）
+    const hpPercent = Math.max(0, wall.hp / wall.maxHp);
+    const hpGradient = ctx.createLinearGradient(healthBarX, 0, healthBarX + barW - 35, 0);
+    if (hpPercent < 0.3) { hpGradient.addColorStop(0, '#ff5a5f'); hpGradient.addColorStop(1, '#ff8a8f'); }
+    else { hpGradient.addColorStop(0, '#5dd4e0'); hpGradient.addColorStop(1, '#34a3c3'); }
+    ctx.fillStyle = hpGradient;
+    ctx.fillRect(healthBarX, barY, (barW - 35) * hpPercent, 4);
 
-    // 血量数字
+    // 墙血数字
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 9px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(`${Math.floor(player.health)}`, barX + barW - 12, barY + 5);
-
-    // 不朽之身：剩余复活次数（血条右侧紫色宝珠）
-    if (talentMods.immortalCharges > 0) {
-        const oX = Math.min(screenWidth - 28, barX + barW + 14);
-        const oY = barY + 3;
-        const pulse = 0.7 + Math.sin(Date.now() * 0.005) * 0.3;
-        ctx.save();
-        const og = ctx.createRadialGradient(oX, oY, 0, oX, oY, 8);
-        og.addColorStop(0, `rgba(230, 210, 255, ${pulse})`);
-        og.addColorStop(1, 'rgba(160, 107, 255, 0.15)');
-        ctx.fillStyle = og;
-        ctx.beginPath();
-        ctx.arc(oX, oY, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#c9a4ff';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(oX, oY, 6.5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 9px Arial';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`×${talentMods.immortalCharges}`, oX + 10, oY);
-        ctx.restore();
-    }
+    ctx.fillText(`${Math.floor(wall.hp)}`, barX + barW - 12, barY + 5);
 }
 
 // 绘制炸弹按钮（圆形）
@@ -2837,7 +2830,7 @@ function shoot() {
     // 播放射击音效
     AudioSystem.playShoot();
     
-    const baseAngle = player.gunAngle;
+    const baseAngle = -Math.PI / 2;   // 改造：子弹竖直向上发射（不再追瞄），由坦克横移控制瞄准
     const gunLength = 40;
     const n = player.bulletCount;
     
@@ -3235,56 +3228,22 @@ function updateZombies(dt) {
             // 冰冻残留减速（freeze Lv3 质变）：冰冻刚结束的僵尸继续缓慢移动
             if (zombie._residualSlowUntil && zombie._residualSlowUntil > now) sp *= 0.6;
         }
-        const angle = Math.atan2(player.y - zombie.y, player.x - zombie.x);
-        zombie.x += Math.cos(angle) * sp;
-        zombie.y += Math.sin(angle) * sp;
+        zombie.y += sp;   // 竖直向下（改造：敌人不追踪坦克）
 
-        const dist = Math.hypot(player.x - zombie.x, player.y - zombie.y);
-        if (dist < player.radius + zombie.radius) {
-            // 击退（无敌期同样生效，避免僵尸糊在车上）
-            const pushAngle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
-            zombie.x += Math.cos(pushAngle) * 8;
-            zombie.y += Math.sin(pushAngle) * 8;
-
-            // 不朽之身无敌期：完全免伤
-            if (now < invincibleUntil) continue;
-
-            let damage = zombie.damage;
-
-            // 护盾减伤（技能 −10%/级 + 天赋 −2%/级，封顶 80%）
-            damage *= (1 - getShieldReduce());
-
-            player.health -= damage * 0.03;
-            player.hurtTime = now;
-
-            // 护盾反弹（shield Lv5 质变）：受击反弹 10% 伤害（循环外统一结算，避免遍历中 splice）
-            if (skills.shield._reflect) _reflectTargets.push({ z: zombie, dmg: damage * 0.1 });
-
-            // 播放受伤音效（限制频率，避免连续播放）
-            AudioSystem.playHurt();
-
-            if (player.health <= 0) {
-                // 不朽之身（天赋）：消耗 1 次复活，回半血 + 10 秒真无敌
-                if (talentMods.immortalCharges > 0) {
-                    talentMods.immortalCharges--;
-                    player.health = player.maxHealth * 0.5;
-                    invincibleUntil = now + IMMORTAL_INVINCIBLE_TIME;
-                    hitEffects.push({ x: player.x, y: player.y, type: 'revive', life: 700, maxLife: 700, rot: 0 });
-                    for (let i = 0; i < 26; i++) {
-                        const a = Math.random() * Math.PI * 2;
-                        const sp = 3 + Math.random() * 6;
-                        particles.push({
-                            x: player.x, y: player.y,
-                            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-                            radius: Math.random() * 5 + 3, life: 620,
-                            color: i % 2 ? '#a06bff' : '#e6d2ff'
-                        });
-                    }
-                } else {
-                    gameOver();
-                }
-            }
+        // 到达墙线：撞墙扣墙血后消失（改造：失败条件迁移到墙，不再对坦克直接造成伤害）
+        const wallY = player.y - WALL_Y_OFFSET;
+        if (zombie.y + zombie.radius >= wallY) {
+            wall.hp -= zombie.damage * WALL_LEAK_MULT;   // [PLACEHOLDER] 漏怪伤害倍率
+            hitEffects.push({ x: zombie.x, y: wallY, type: 'wallHit', life: 300, maxLife: 300, rot: 0 });
+            if (wall.hp <= 0) { wall.hp = 0; gameOver(); }
+            zombie._leaked = true;
+            continue;
         }
+    }
+
+    // 移除已漏怪（循环外统一 splice，避免遍历中改数组）
+    for (let i = zombies.length - 1; i >= 0; i--) {
+        if (zombies[i]._leaked) zombies.splice(i, 1);
     }
 
     // 护盾反弹结算（循环外，避免遍历中 splice 导致跳杀）
@@ -3747,6 +3706,7 @@ function startGame() {
     // 重置玩家
     player.x = screenWidth / 2;
     player.y = screenHeight - 80;
+    wall.hp = WALL_MAX_HP; wall.maxHp = WALL_MAX_HP;   // 重置墙血（失败条件）
     player.health = 100;
     player.maxHealth = 100;
     player.exp = 0;
@@ -3937,21 +3897,8 @@ function update(dt) {
         return;
     }
     
-    // 机枪跟踪
-    if (zombies.length > 0) {
-        let nearest = null;
-        let minDist = Infinity;
-        for (const z of zombies) {
-            const d = Math.hypot(z.x - player.x, z.y - player.y);
-            if (d < minDist) {
-                minDist = d;
-                nearest = z;
-            }
-        }
-        if (nearest) {
-            player.gunAngle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
-        }
-    }
+    // 机枪固定竖直向上（改造：子弹竖直发射，由坦克横移控制瞄准，不再追瞄）
+    player.gunAngle = -Math.PI / 2;
     
     // 自动射击
     const now = Date.now();
@@ -10906,6 +10853,12 @@ wx.onTouchStart((e) => {
 
 // 触摸移动处理（拖动滚动）
 wx.onTouchMove((e) => {
+    // 战斗中：拖动控制坦克横移（瞄准），clamp 到屏幕内
+    if (gameState === 'playing') {
+        const t = e.touches[0];
+        if (t) player.x = Math.max(player.radius, Math.min(screenWidth - player.radius, t.clientX));
+        return;
+    }
     if (gameState !== 'mainMenu') return;
 
     // 内嵌小游戏（忍者切水果）：滑动切割

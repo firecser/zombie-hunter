@@ -70,7 +70,7 @@
   `git push https://<PAT>@github.com/firecser/zombie-hunter.git main --tags`
 - **PAT**：存于本地 git-ignored 文件 `.pat`（仓库根目录，明文；本机推送时用 `git push https://$(cat .pat)@github.com/...` 内联鉴权，不入库、不泄露）。如需轮换/撤销，更新 `.pat` 即可。
 - 安全：明文 PAT 已移出 git 跟踪（v1.0.64 推送时 GitHub Push Protection 因历史含明文 PAT 拦截，已用 filter-branch 脱敏历史并将明文转入 `.pat`）。
-- 备注：本机 `C:\Windows\System32\drivers\etc\hosts` 被代理/VPN 写入 `127.0.0.1 github.com` 等映射，推送前需开启能访问 GitHub 的代理/VPN（否则解析到 127.0.0.1 导致连接失败）。
+- 备注（2026-08-08 实测修正）：本机 `hosts` 实测已无 `127.0.0.1 github.com` 映射，`github.com` 解析真实 IP `20.205.243.166`，**直连通常可通**（用户要求"别管代理直接推"后成功）。不再强制开代理；若直连报 `Recv failure: Connection was reset` 再开代理/VPN 走本地端口（Watt Toolkit 默认 57777 / Clash 7890 / v2rayN 10809），且需确认其本地代理已真正监听（仅打开软件不监听端口）。
 
 ## 微信开发者工具报错排查（重要，已确诊）
 - **`[] ENOENT ... open '.../zombie-hunter-game/undefined'`，栈含 `PreCompileProject.getFile → SummerCompiler.getFile`**：这是**微信开发者工具 Stable `2.01.25xxx`（如 2.01.2510290）自身的已知 bug**，**与项目代码/配置/目录结构无关**（社区官方同款帖子栈帧逐字相同，纯 Canvas/H5 项目同样中招）。
