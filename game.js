@@ -303,6 +303,7 @@ const BOMB_BTN_R = 27;
 let gates = [];                            // 场上门：{id, x, y, w, type:'add'|'sub', factor, drainLeft}
 let gateIdCounter = 0;
 let gateRefreshTimer = 0;
+let gateBaseY = 0;                      // 本批门基准 y（initGates 每批随机一次），与槽位偏移叠加得门 y
 
 // 背景山体与地平线（与 drawBackground 的山峦绘制保持同步，改一处需同步两处）
 const GROUND_Y_FRAC = 0.78;
@@ -317,6 +318,8 @@ const GATE_WINDOW_W_FRAC = 0.5;            // [PLACEHOLDER] 门窗口占屏宽�
 const GATE_SPLIT_SPREAD = 0.22;            // [PLACEHOLDER] 克隆子弹对称扇形角(rad)
 const GATE_Y_MIN = Math.round(screenHeight * GROUND_Y_FRAC - MOUNTAIN_TALLEST_PEAK); // 门最靠上的 y = 最高山峰顶，门不得高过山体
 const GATE_Y_MAX = Math.round(screenHeight * GROUND_Y_FRAC - 60); // 门最靠下的 y，限制在墙体上方区域
+const GATE_H = 32;                          // 门可视高度(px)，与 drawGates 的 top=g.y-16 / h=32 同步
+const GATE_V_GAP = 46;                      // [PLACEHOLDER] 同侧门最小垂直间距(中心距)，防同侧两门竖直重叠
 const BULLET_CAP = 240;                    // [PLACEHOLDER] 子弹总数护栏（防克隆爆炸卡顿）
 
 // ==================== 音频系统（Web Audio API）====================
@@ -3048,17 +3051,19 @@ function updateBullets() {
 // 初始化门（每局开始调用）
 function initGates() {
     gates = [];
-    spawnGate('left');                                   // 固定左 1
-    spawnGate('right');                                  // 固定右 1
-    spawnGate(Math.random() < 0.5 ? 'left' : 'right');   // 第 3 个随机左右
+    // 本批基准 y：随机一次，保证 base 与 base+GATE_V_GAP 都落在合法带内（两槽位必然不重叠）
+    gateBaseY = GATE_Y_MIN + Math.random() * (GATE_Y_MAX - GATE_Y_MIN - GATE_V_GAP);
+    spawnGate('left', 0);                                  // 固定左 1（槽位0）
+    spawnGate('right', 0);                                 // 固定右 1（槽位0）
+    spawnGate(Math.random() < 0.5 ? 'left' : 'right', 1);  // 第 3 个随机左右（槽位1，与同侧槽位0 相距 GATE_V_GAP）
 }
 
-// 生成一个门：强制指定 side（'left'|'right'），y 限制在山脚到墙顶之间；类型用加减法（确定性，无随机消亡）
-function spawnGate(forceSide) {
+// 生成一个门：强制 side + 槽位 index（0/1），y 取同侧槽位基准，两槽位间距 GATE_V_GAP 保证同侧不重叠；类型用加减法（确定性）
+function spawnGate(forceSide, slot) {
     const w = screenWidth * GATE_WINDOW_W_FRAC;                    // 半屏宽
-    const side = forceSide || (Math.random() < 0.5 ? 'left' : 'right');
+    const side = forceSide;
     const x = side === 'left' ? screenWidth * 0.25 : screenWidth * 0.75;
-    const y = GATE_Y_MIN + Math.random() * (GATE_Y_MAX - GATE_Y_MIN);
+    const y = gateBaseY + (slot || 0) * GATE_V_GAP;                // 槽位确定性 y，跨侧窗口不相交无需判重叠
     // 类型：65% 增益门(+)，35% 减益门(-)；数值确定性，杜绝除法“可能过可能不过”
     const isAdd = Math.random() < 0.65;
     let type, factor, drainLeft = 0;
@@ -3076,6 +3081,8 @@ function spawnGate(forceSide) {
 
 // 门定期刷新（update 每帧调用，dt 毫秒）
 function updateGates(dt) {
+    // 减法门额度耗尽(剩余=0) → 立即移除而非变暗；在 updateBullets 之后统一清理，避免遍历中 splice
+    gates = gates.filter(g => !(g.type === 'sub' && g.drainLeft <= 0));
     gateRefreshTimer += dt;
     if (gateRefreshTimer >= GATE_REFRESH_INTERVAL) {
         gateRefreshTimer = 0;
@@ -3119,27 +3126,26 @@ function drawGates() {
         const h = 32;
         ctx.save();
         const isAdd = g.type === 'add';
-        const spent = (!isAdd && g.drainLeft <= 0);                 // 减益门额度耗尽 → 变暗提示已安全
         const rgb = isAdd ? '61,220,110' : '255,80,80';
         const grad = ctx.createLinearGradient(left, 0, left + g.w, 0);
-        const aMid = spent ? 0.10 : 0.26;
         grad.addColorStop(0, `rgba(${rgb},0.04)`);
-        grad.addColorStop(0.5, `rgba(${rgb},${aMid})`);
+        grad.addColorStop(0.5, `rgba(${rgb},0.26)`);
         grad.addColorStop(1, `rgba(${rgb},0.04)`);
-        ctx.globalAlpha = spent ? 0.45 : 1;
         ctx.fillStyle = grad;
         ctx.fillRect(left, top, g.w, h);
         ctx.strokeStyle = isAdd ? '#3ddc6e' : '#ff5050';
         ctx.lineWidth = 2;
         ctx.shadowColor = ctx.strokeStyle;
-        ctx.shadowBlur = spent ? 0 : 12;
+        ctx.shadowBlur = 12;
         ctx.strokeRect(left, top, g.w, h);
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px Arial';
+        // 减法门剩 1 颗额度时数字略放大，给出“即将消失”的视觉提醒
+        ctx.font = (!isAdd && g.drainLeft <= 1) ? 'bold 19px Arial' : 'bold 16px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const label = isAdd ? ('+' + g.factor) : ('−' + g.factor);
+        // 加法门显示 +N（克隆数，恒定）；减法门显示剩余额度（实时随每颗穿门子弹递减），归零即被 updateGates 移除
+        const label = isAdd ? ('+' + g.factor) : ('−' + g.drainLeft);
         ctx.fillText(label, g.x, g.y);
         ctx.restore();
     }
