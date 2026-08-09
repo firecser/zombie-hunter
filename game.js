@@ -4022,7 +4022,8 @@ const OTHER_GAMES = [
     { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: 'images/sqsdscjicon.png', appId: '', mode: 'ingame', alpha: 'S' },
     { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: 'images/shenjingmaoicon.png', appId: '', mode: 'ingame', alpha: 'W' },
     { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.png', appId: '', mode: 'ingame', alpha: 'Y' },
-    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'D' }
+    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'D' },
+    { id: 'beishumen', name: '倍增门', emoji: '🚪', icon: '', appId: '', mode: 'ingame', alpha: 'M' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
@@ -4060,6 +4061,10 @@ let sqsdMoneyImg = null, sqsdMoneyLoaded = false; // 数钱数到手抽筋钞票
 // 暴打神经猫（内嵌）
 let bdsjm = null;
 let bdsjmBest = 0;
+
+// 倍增门（内嵌）：确定性门运算 + 车道切换下落小游戏
+let gBzsmen = null;
+let gBzsmenBest = 0;
 
 // ===== 其他游戏页：累计时长 / 最高分 / 滚动 状态 =====
 let miniGamePlaySeconds = {};     // id -> 累计游玩秒数（持久化到本地）
@@ -7503,6 +7508,216 @@ function handleMiniGame2048Input(x, y) {
     g2048Move(dir);
 }
 
+// ==================== 倍增门（内嵌小游戏） ====================
+// 设计（自洽核心循环）：一颗带数字的「核心球」停在屏幕固定高度，从顶部不断落下一排排「门」。
+// 每排门有左右两扇，各带一个【确定性】运算（×2/×3/+N 为好，÷2/÷3/−N 为坏）。
+// 玩家点屏幕左/右半边切换核心所在车道，让核心穿过选中的那扇门：
+//   数值穿越好门增长、穿越坏门衰减；数值 ≤ 1 即失败。
+// 分数 = 达到过的最高数值（持久化 bzsmenBest，同 2048 最高分机制）。
+// 全程确定性，根除「可能过可能不过」的割裂感；难度随通过排数分层（后期出现双坏门考验取舍）。
+// 复用框架共用绘制件：drawMiniGameButton / drawScoreBox / roundRect / drawRoyalePanel / inRect / flushMiniGameSeconds。
+
+const BZSMEN_LANE_COUNT = 2;
+
+function bzsmenTier(rows) {
+    if (rows < 8) return 0;
+    if (rows < 20) return 1;
+    return 2;
+}
+
+// 生成单扇门运算：{op:'×'|'÷'|'+'|'-', n:Number, good:Boolean}
+function bzsmenMakeGate(tier, rows) {
+    const badP = tier === 0 ? 0.18 : (tier === 1 ? 0.42 : 0.55);
+    if (Math.random() >= badP) {
+        // 好门：早期以乘法为主；后期掺入加法（防止数值无限膨胀，制造张力）
+        if (tier < 2 && Math.random() < 0.8) {
+            return { op: '×', n: Math.random() < 0.5 ? 2 : 3, good: true };
+        }
+        return { op: '+', n: 50 + Math.floor(rows * 6), good: true };
+    }
+    // 坏门：÷2 常见；后期出现 ÷3 与更大减法
+    const r = Math.random();
+    if (tier >= 2 && r < 0.3) return { op: '÷', n: 3, good: false };
+    if (r < 0.6) return { op: '÷', n: 2, good: false };
+    return { op: '-', n: 50 + Math.floor(rows * 6), good: false };
+}
+
+function bzsmenMakeRow(y, rows) {
+    const tier = bzsmenTier(rows);
+    let left = bzsmenMakeGate(tier, rows);
+    let right = bzsmenMakeGate(tier, rows);
+    // 早期保证至少一扇好门，避免开局即死
+    if (tier === 0 && !left.good && !right.good) left = { op: '×', n: 2, good: true };
+    return { y: y, gates: [left, right], applied: false };
+}
+
+function bzsmenApplyOp(val, gate) {
+    if (gate.op === '×') return val * gate.n;
+    if (gate.op === '÷') return Math.floor(val / gate.n);
+    if (gate.op === '+') return val + gate.n;
+    return val - gate.n; // '-'
+}
+
+function bzsmenLayout() {
+    const margin = 15;
+    const boardX = margin;
+    const boardW = screenWidth - margin * 2;
+    const laneW = boardW / BZSMEN_LANE_COUNT;
+    const laneX = [boardX + laneW / 2, boardX + laneW + laneW / 2];
+    const coreY = screenHeight * 0.34;
+    const btnY = 16;
+    const backBtn = { x: margin, y: btnY, w: 84, h: 36 };
+    const restartBtn = { x: screenWidth - margin - 84, y: btnY, w: 84, h: 36 };
+    const rowB = btnY + 52; // 分数框 y
+    return { margin, boardX, boardW, laneW, laneX, coreY, backBtn, restartBtn, rowB };
+}
+
+function bzsmenInit() {
+    const L = bzsmenLayout();
+    gBzsmen = {
+        val: 2,
+        maxVal: 2,
+        lane: 0,
+        laneX: L.laneX[0],
+        rows: [],
+        rowsCleared: 0,
+        speed: 130,        // 门下落速度 px/s [PLACEHOLDER]
+        rowGap: 150,       // 相邻门排纵向间距 px [PLACEHOLDER]
+        coreY: L.coreY,
+        gameOver: false,
+        lastTick: Date.now(),
+        flashLane: -1,
+        flashT: 0
+    };
+    // 预填充 4 排，全部位于核心上方，依次下落进入
+    let y = L.coreY - gBzsmen.rowGap;
+    for (let i = 0; i < 4; i++) {
+        gBzsmen.rows.push(bzsmenMakeRow(y, gBzsmen.rowsCleared + i));
+        y -= gBzsmen.rowGap;
+    }
+    try { gBzsmenBest = (wx.getStorageSync && wx.getStorageSync('bzsmenBest')) || 0; } catch (e) { gBzsmenBest = 0; }
+}
+
+function drawMiniGameBzsmen() {
+    if (!gBzsmen) { drawBackground(); return; }
+    const g = gBzsmen;
+    const L = bzsmenLayout();
+    const now = Date.now();
+
+    // ---- 更新（连续下落，dt 驱动；与 bdsjm 同模式写在 draw 内）----
+    if (!g.gameOver) {
+        const dsec = Math.min((now - g.lastTick) / 1000, 0.05);
+        const dy = g.speed * dsec;
+        for (const row of g.rows) row.y += dy;
+        // 核心车道平滑插值
+        const targetX = L.laneX[g.lane];
+        g.laneX += (targetX - g.laneX) * Math.min(1, dsec * 12);
+        // 穿越检测：门排越过核心 y 且未结算
+        for (const row of g.rows) {
+            if (!row.applied && row.y >= g.coreY) {
+                const gate = row.gates[g.lane];
+                g.val = bzsmenApplyOp(g.val, gate);
+                row.applied = true;
+                g.flashLane = g.lane; g.flashT = 0.25;
+                if (g.val > g.maxVal) g.maxVal = g.val;
+                g.rowsCleared++;
+                if (g.val <= 1) {
+                    g.gameOver = true;
+                    if (g.maxVal > gBzsmenBest) {
+                        gBzsmenBest = g.maxVal;
+                        try { if (wx.setStorageSync) wx.setStorageSync('bzsmenBest', gBzsmenBest); } catch (e) {}
+                    }
+                }
+            }
+        }
+        // 移除越过屏幕底部的门排，顶部补充新排（保持 4 排）
+        g.rows = g.rows.filter(r => r.y < screenHeight + 80);
+        while (g.rows.length < 4) {
+            const maxY = g.rows.reduce((m, r) => Math.max(m, r.y), L.coreY - g.rowGap);
+            g.rows.push(bzsmenMakeRow(maxY + g.rowGap, g.rowsCleared + g.rows.length));
+        }
+        if (g.flashT > 0) g.flashT -= dsec;
+    }
+    g.lastTick = now;
+
+    // ---- 渲染 ----
+    drawBackground();
+    drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+    drawMiniGameButton(L.restartBtn, '↻ 重玩', 'green');
+
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 26px Arial';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('倍增门', L.margin, L.rowB - 10);
+
+    const scoreW = (screenWidth - L.margin * 2 - 10) / 2;
+    drawScoreBox(L.margin, L.rowB, scoreW, 40, '当前', g.val);
+    drawScoreBox(L.margin + scoreW + 10, L.rowB, scoreW, 40, '最高', gBzsmenBest);
+
+    // 赛道面板 + 当前车道高亮带
+    drawRoyalePanel(L.boardX, L.coreY - 30, L.boardW, screenHeight - L.coreY + 10, 10);
+    ctx.fillStyle = 'rgba(78,168,255,0.10)';
+    ctx.fillRect(L.boardX + g.lane * L.laneW, L.coreY - 30, L.laneW, screenHeight - L.coreY + 10);
+
+    // 门排
+    for (const row of g.rows) {
+        if (row.y < -40 || row.y > screenHeight + 40) continue;
+        for (let li = 0; li < 2; li++) {
+            const gate = row.gates[li];
+            const cx = L.laneX[li];
+            const w = L.laneW * 0.82;
+            const top = row.y - 26;
+            const rgb = gate.good ? '61,220,110' : '255,86,86';
+            ctx.fillStyle = `rgba(${rgb},0.16)`;
+            roundRect(ctx, cx - w / 2, top, w, 52, 8); ctx.fill();
+            ctx.strokeStyle = gate.good ? '#3ddc6e' : '#ff5656';
+            ctx.lineWidth = 2;
+            roundRect(ctx, cx - w / 2, top, w, 52, 8); ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 26px Arial';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(gate.op + '' + gate.n, cx, row.y);
+        }
+    }
+
+    // 核心球
+    const r = 22;
+    ctx.beginPath();
+    ctx.arc(g.laneX, g.coreY, r, 0, Math.PI * 2);
+    ctx.fillStyle = g.flashT > 0 ? '#ffe066' : '#4ea8ff';
+    ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    const vs = String(g.val);
+    ctx.font = 'bold ' + (vs.length > 4 ? 13 : 18) + 'px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(vs, g.laneX, g.coreY);
+
+    // 失败遮罩（自包含，不依赖 2048 布局）
+    if (g.gameOver) {
+        ctx.fillStyle = 'rgba(15,27,45,0.86)';
+        ctx.fillRect(0, 0, screenWidth, screenHeight);
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 30px Arial';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('游戏结束', screenWidth / 2, screenHeight / 2 - 18);
+        ctx.fillStyle = '#fff';
+        ctx.font = '15px Arial';
+        ctx.fillText('本局最高 ' + g.maxVal + ' · 历史最高 ' + gBzsmenBest, screenWidth / 2, screenHeight / 2 + 12);
+        ctx.fillText('点「↻ 重玩」再来一局', screenWidth / 2, screenHeight / 2 + 38);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function handleMiniGameBzsmenInput(x, y) {
+    if (!gBzsmen) return;
+    const L = bzsmenLayout();
+    if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+    if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); bzsmenInit(); return; }
+    if (gBzsmen.gameOver) return;
+    gBzsmen.lane = (x < screenWidth / 2) ? 0 : 1;
+}
+
 function startMiniGame(game) {
     ensureMiniGameStatsLoaded();
     if (game.id === '2048') {
@@ -7516,6 +7731,10 @@ function startMiniGame(game) {
     } else if (game.id === 'bdsjm') {
         gBdsjmInit();
         activeMiniGame = 'bdsjm';
+        otherGamesModal.show = false;
+    } else if (game.id === 'beishumen') {
+        bzsmenInit();
+        activeMiniGame = 'beishumen';
         otherGamesModal.show = false;
     } else if (game.id === 'qiexigua') {
         gQiexiguaInit();
@@ -10496,6 +10715,8 @@ function gameLoop() {
             drawMiniGameQmxz();
         } else if (activeMiniGame === 'bdsjm') {
             drawMiniGameBdsjm();
+        } else if (activeMiniGame === 'beishumen') {
+            drawMiniGameBzsmen();
         } else if (activeMiniGame === 'qiexigua') {
             drawMiniGameQiexigua();
         } else if (activeMiniGame === 'feidegenggao') {
@@ -11054,6 +11275,12 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（暴打神经猫）：点目标行的猫列 + 按钮点击
     if (gameState === 'mainMenu' && activeMiniGame === 'bdsjm') {
         handleMiniGameBdsjmInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（倍增门）：点左右半屏切换车道 + 按钮点击
+    if (gameState === 'mainMenu' && activeMiniGame === 'beishumen') {
+        handleMiniGameBzsmenInput(endX, endY);
         return;
     }
 
