@@ -303,10 +303,12 @@ const BOMB_BTN_R = 27;
 let gates = [];                            // 场上门：{id, x, y, w, type:'mult'|'div', factor}
 let gateIdCounter = 0;
 let gateRefreshTimer = 0;
-const GATE_COUNT = 3;                      // [PLACEHOLDER] 每批门数量（增益+减益混合）
+const GATE_COUNT = 4;                      // [PLACEHOLDER] 每批门数量：左右半屏各最多 2 个
 const GATE_REFRESH_INTERVAL = 8000;        // [PLACEHOLDER] 门刷新间隔(ms)，定期随机换位置/倍数
-const GATE_WINDOW_W_FRAC = 0.34;           // [PLACEHOLDER] 门窗口占屏宽比例
+const GATE_WINDOW_W_FRAC = 0.5;            // [PLACEHOLDER] 门窗口占屏宽比例（半屏）
 const GATE_SPLIT_SPREAD = 0.22;            // [PLACEHOLDER] 克隆子弹对称扇形角(rad)
+const GATE_Y_MIN = 60;                     // 门最靠上的 y
+const GATE_Y_MAX = Math.round(screenHeight * 0.78 - 60); // 门最靠下的 y，限制在墙体上方区域
 const BULLET_CAP = 240;                    // [PLACEHOLDER] 子弹总数护栏（防克隆爆炸卡顿）
 
 // ==================== 音频系统（Web Audio API）====================
@@ -875,7 +877,7 @@ let acquiredSkills = ['damage'];
 // 墙体（失败条件）：敌人撞墙单次扣墙血后消失，墙血空 = 战斗失败
 const WALL_MAX_HP = 2500;        // [PLACEHOLDER] 墙总血量，竖版射击漏怪率更高，先给宽容值
 const WALL_LEAK_MULT = 2;        // [PLACEHOLDER] 漏怪伤害倍率：leak = z.damage * WALL_LEAK_MULT
-const WALL_Y_OFFSET = 130;       // 墙线在坦克上方像素（坦克 y - 该值）；拉开射击走廊
+const WALL_Y_OFFSET = Math.max(20, Math.round(screenHeight - 105 - (screenHeight * 0.78 + 21))); // 墙顶血条上沿与背景地平线 groundY=screenHeight*0.78 对齐
 let wall = { hp: WALL_MAX_HP, maxHp: WALL_MAX_HP };
 
 let bullets = [];
@@ -2134,10 +2136,10 @@ function drawSkillUI() {
     
     if (activeSkills.length === 0) return;
     
-    // 计算总宽度，居中显示；位置放在射击走廊中间（墙下方、坦克上方），避免贴底局促
+    // 计算总宽度，居中显示；技能栏放在坦克下方（改版前高度），不挡战场
     const totalWidth = Math.min(activeSkills.length, maxPerRow) * (skillSize + skillGap) - skillGap;
     let skillX = (screenWidth - totalWidth) / 2;
-    let skillY = screenHeight - 170;
+    let skillY = screenHeight - 38;
 
     activeSkills.forEach((skill, index) => {
         // 换行处理（竖向向上换行，若技能数超过一行）
@@ -3026,12 +3028,19 @@ function initGates() {
     for (let i = 0; i < GATE_COUNT; i++) spawnGate();
 }
 
-// 随机生成一个门（定期刷新时调用，位置/倍数随机）
+// 随机生成一个门：固定在左半屏或右半屏，每半屏最多 2 个，y 限制在墙体上方区域
 function spawnGate() {
-    const w = screenWidth * GATE_WINDOW_W_FRAC;
-    const x = w / 2 + Math.random() * (screenWidth - w);            // 中心 x 不超出屏幕
-    const y = 60 + Math.random() * (screenHeight - 320 - 60);       // 走廊区间内随机 y（避开顶部与底部 UI/坦克）
-    // 类型：70% 增益门，30% 减益门（保证正向滚雪球为主但有路线风险）
+    const w = screenWidth * GATE_WINDOW_W_FRAC;                    // 半屏宽
+    const sides = ['left', 'right'];
+    let side = sides[Math.floor(Math.random() * sides.length)];
+    const leftCount = gates.filter(g => g.side === 'left').length;
+    const rightCount = gates.filter(g => g.side === 'right').length;
+    if (leftCount >= 2 && rightCount >= 2) return;                 // 两边都满，不再生成
+    if (side === 'left' && leftCount >= 2) side = 'right';
+    if (side === 'right' && rightCount >= 2) side = 'left';
+    const x = side === 'left' ? screenWidth * 0.25 : screenWidth * 0.75;
+    const y = GATE_Y_MIN + Math.random() * (GATE_Y_MAX - GATE_Y_MIN);
+    // 类型：70% 增益门，30% 减益门
     const isMult = Math.random() < 0.7;
     let type, factor;
     if (isMult) {
@@ -3042,7 +3051,7 @@ function spawnGate() {
         type = 'div';
         factor = Math.random() < 0.5 ? 0.5 : 0.3;                   // 50% / 30% 概率消亡
     }
-    gates.push({ id: ++gateIdCounter, x, y, w, type, factor });
+    gates.push({ id: ++gateIdCounter, side, x, y, w, type, factor });
 }
 
 // 门定期刷新（update 每帧调用，dt 毫秒）
