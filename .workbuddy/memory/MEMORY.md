@@ -39,7 +39,7 @@
 ## 版本号规则（重要）
 - **已推送至 v1.0.60**（2026-08-06 推送，含 v1.0.55→v1.0.60 全部）。
 - v1.0.55 天赋系统重做；v1.0.56 战斗体验修复+子弹天赋进三选一+全套美术；v1.0.57 暴击数字放大加粗/去十字星+跳级三选一覆盖修复；v1.0.58 微信编译告警修复（getSystemInfo 弃用换 getWindowInfo）+ 关 sourceMap 上传 ENOENT 报错；v1.0.59 关闭 useCompilerModule 规避 SummerCompiler.getFile(undefined) 编译报错；v1.0.60 清理 Apr16 废弃快照目录（含嵌套第二个 project.config.json）结构性根治 undefined 报错。
-- 本地最新标签 v1.0.73（2026-08-09 本地提交，含 v1.0.61→v1.0.73：核心战斗改造/布局优化/倍增门机制）；下一个版本：**v1.0.74**。
+- 本地最新标签 v1.0.75（2026-08-09 本地提交，含 v1.0.61→v1.0.75：核心战斗改造/布局优化/倍增门/混淆崩溃修复）；下一个版本：**v1.0.76**。
 - 每次推送前必须先读取远程标签确定下一个版本号
 - 命令：`git tag -l --sort=-v:refname` 查看远程标签
 - 版本号命名格式：主版本.次版本.修订号（如1.0.5）
@@ -49,6 +49,7 @@
 - **可读源码 = `game - 副本.js`**（与加固前的可读 game.js 一致）。所有硬编码移植（2048、qmxzfzm 等）都在这里改。
 - 正确工作流：编辑 `game - 副本.js` → 复制 `副本.js` → `game.js` → DevTools「全部加固」（game.js 变混淆 + 生成 game.js.map）后上传 → 上传完把 `副本.js` 拷回 `game.js` 恢复可读。
 - `game.js.map` 是 source map，勿当源码、勿提交。仓库提交的是可读 game.js。
+- **⚠️ 微信加固 `for-of`+`splice` 越界崩溃坑（v1.0.75 确诊）**：加固「高混淆」会把 `for (const x of arr)` 改写成**长度缓存一次**的索引 `for`。若循环体内调用会 splice `arr` 的函数（如 `damageZombie` 死亡时 splice 僵尸），缓存长度失效 → 下标越界读到 `undefined` → `Cannot read property 'x' of undefined`。**规则：任何会在循环体内被 splice 的数组，遍历一律用 `arr.slice()` 快照**（如 `for (const z of zombies.slice())`）。原生 `for...of` 下不崩，所以无头测试/DevTools 跑可读源码都正常，只有混淆上传版会崩——排查时别被"本地不崩"误导。
 - 内嵌小游戏（mode:'ingame'）统一接线点：`OTHER_GAMES` 配置、`startMiniGame`、`gameLoop`（activeMiniGame 分支）、`touchEnd`（activeMiniGame 分支）。已移植三款：2048（滑动合成）、qmxzfzm（点图找目标）、bdsjm（4列下落式打猫）；新增一款照搬 2048/gQmxz*/gBdsjm* 这套 ingame 模板。
 
 ## 天赋系统（v1.0.55 重做，已接入战斗）

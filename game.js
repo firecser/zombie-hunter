@@ -299,16 +299,24 @@ const BOMB_BTN_Y = screenHeight - 58;
 const BOMB_BTN_R = 27;
 
 // ==================== 倍增门（克隆分裂机制）====================
-// 倍增门：子弹竖直向上穿过门窗口 → 按倍数克隆成扇形弹幕，覆盖全屏，降低操控压力
-let gates = [];                            // 场上门：{id, x, y, w, type:'mult'|'div', factor}
+// 倍增门：子弹竖直向上穿过门窗口 → 按加减法克隆/削减成扇形弹幕，覆盖全屏，降低操控压力
+let gates = [];                            // 场上门：{id, x, y, w, type:'add'|'sub', factor, drainLeft}
 let gateIdCounter = 0;
 let gateRefreshTimer = 0;
-const GATE_COUNT = 4;                      // [PLACEHOLDER] 每批门数量：左右半屏各最多 2 个
-const GATE_REFRESH_INTERVAL = 8000;        // [PLACEHOLDER] 门刷新间隔(ms)，定期随机换位置/倍数
+
+// 背景山体与地平线（与 drawBackground 的山峦绘制保持同步，改一处需同步两处）
+const GROUND_Y_FRAC = 0.78;
+const MOUNTAIN_BASE_H = 70;                 // 最矮山高出地平线的像素
+const MOUNTAIN_STEP = 18;                   // 每向后一座山递增的高度
+const MOUNTAIN_COUNT = 5;                   // 山的数量
+const MOUNTAIN_TALLEST_PEAK = MOUNTAIN_BASE_H + (MOUNTAIN_COUNT - 1) * MOUNTAIN_STEP; // = 142，最高峰顶高出地平线
+
+const GATE_COUNT = 3;                       // 固定 3 个门：左 1、右 1、第 3 个随机左右
+const GATE_REFRESH_INTERVAL = 8000;        // [PLACEHOLDER] 门刷新间隔(ms)，定期随机换位置/加减数
 const GATE_WINDOW_W_FRAC = 0.5;            // [PLACEHOLDER] 门窗口占屏宽比例（半屏）
 const GATE_SPLIT_SPREAD = 0.22;            // [PLACEHOLDER] 克隆子弹对称扇形角(rad)
-const GATE_Y_MIN = 60;                     // 门最靠上的 y
-const GATE_Y_MAX = Math.round(screenHeight * 0.78 - 60); // 门最靠下的 y，限制在墙体上方区域
+const GATE_Y_MIN = Math.round(screenHeight * GROUND_Y_FRAC - MOUNTAIN_TALLEST_PEAK); // 门最靠上的 y = 最高山峰顶，门不得高过山体
+const GATE_Y_MAX = Math.round(screenHeight * GROUND_Y_FRAC - 60); // 门最靠下的 y，限制在墙体上方区域
 const BULLET_CAP = 240;                    // [PLACEHOLDER] 子弹总数护栏（防克隆爆炸卡顿）
 
 // ==================== 音频系统（Web Audio API）====================
@@ -877,7 +885,7 @@ let acquiredSkills = ['damage'];
 // 墙体（失败条件）：敌人撞墙单次扣墙血后消失，墙血空 = 战斗失败
 const WALL_MAX_HP = 2500;        // [PLACEHOLDER] 墙总血量，竖版射击漏怪率更高，先给宽容值
 const WALL_LEAK_MULT = 2;        // [PLACEHOLDER] 漏怪伤害倍率：leak = z.damage * WALL_LEAK_MULT
-const WALL_Y_OFFSET = Math.max(20, Math.round(screenHeight - 105 - (screenHeight * 0.78 + 21))); // 墙顶血条上沿与背景地平线 groundY=screenHeight*0.78 对齐
+const WALL_Y_OFFSET = Math.max(20, Math.round(screenHeight - 105 - (screenHeight * GROUND_Y_FRAC + 21))); // 墙顶血条上沿与背景地平线 groundY=screenHeight*GROUND_Y_FRAC 对齐
 let wall = { hp: WALL_MAX_HP, maxHp: WALL_MAX_HP };
 
 let bullets = [];
@@ -1079,13 +1087,13 @@ function drawBackground() {
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
     // 远处暗色山峦
-    const groundY = screenHeight * 0.78;
+    const groundY = screenHeight * GROUND_Y_FRAC;
     ctx.fillStyle = 'rgba(40, 70, 110, 0.5)';
-    for (let i = 0; i < 5; i++) {
-        const x = (i / 5) * screenWidth;
+    for (let i = 0; i < MOUNTAIN_COUNT; i++) {
+        const x = (i / MOUNTAIN_COUNT) * screenWidth;
         ctx.beginPath();
         ctx.moveTo(x - 100, groundY);
-        ctx.lineTo(x, groundY - 70 - i * 18);
+        ctx.lineTo(x, groundY - MOUNTAIN_BASE_H - i * MOUNTAIN_STEP);
         ctx.lineTo(x + 100, groundY);
         ctx.fill();
     }
@@ -1154,20 +1162,35 @@ function drawPlayer() {
         ctx.stroke();
     }
 
-    // 内置血条：贴在墙顶上方，全屏宽度，清晰可读
+    // 内置血条：贴在墙顶上方，全屏宽度，绿色渐变 + 立体浮雕
     const barY = wallY - wallH / 2 - barH - 3;
-    ctx.fillStyle = 'rgba(12, 24, 40, 0.85)';
+    // 背景凹槽（顶暗边 + 底亮边 → 内凹立体感）
+    ctx.fillStyle = 'rgba(10, 20, 34, 0.9)';
     ctx.fillRect(0, barY, screenWidth, barH);
-    const hpGrad = ctx.createLinearGradient(0, barY, screenWidth, barY);
-    if (hpPct < 0.3) {
-        hpGrad.addColorStop(0, '#ff5a5f');
-        hpGrad.addColorStop(1, '#ff8a8f');
-    } else {
-        hpGrad.addColorStop(0, '#5dd4e0');
-        hpGrad.addColorStop(1, '#34a3c3');
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, barY, screenWidth, 1.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(0, barY + barH - 1.5, screenWidth, 1.5);
+    // 血量填充：竖直渐变（上亮下暗）模拟圆柱立体
+    const fillW = screenWidth * hpPct;
+    if (fillW > 0) {
+        const hpGrad = ctx.createLinearGradient(0, barY, 0, barY + barH);
+        if (hpPct < 0.3) {
+            hpGrad.addColorStop(0, '#ff8a8f');
+            hpGrad.addColorStop(0.5, '#ff4d52');
+            hpGrad.addColorStop(1, '#c41f24');
+        } else {
+            hpGrad.addColorStop(0, '#9bff8f');   // 顶部高光亮绿
+            hpGrad.addColorStop(0.45, '#3ddc6e'); // 主绿
+            hpGrad.addColorStop(1, '#1f9e4a');    // 底部深绿（阴影）
+        }
+        ctx.fillStyle = hpGrad;
+        ctx.fillRect(0, barY, fillW, barH);
+        // 顶部高光条 → 玻璃光泽
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(0, barY, fillW, barH * 0.32);
     }
-    ctx.fillStyle = hpGrad;
-    ctx.fillRect(0, barY, screenWidth * hpPct, barH);
+    ctx.globalAlpha = 1;
 
     // 低血红闪预警（整墙泛红光，叠加不遮挡纹理）
     if (hpPct < 0.3) {
@@ -3025,33 +3048,30 @@ function updateBullets() {
 // 初始化门（每局开始调用）
 function initGates() {
     gates = [];
-    for (let i = 0; i < GATE_COUNT; i++) spawnGate();
+    spawnGate('left');                                   // 固定左 1
+    spawnGate('right');                                  // 固定右 1
+    spawnGate(Math.random() < 0.5 ? 'left' : 'right');   // 第 3 个随机左右
 }
 
-// 随机生成一个门：固定在左半屏或右半屏，每半屏最多 2 个，y 限制在墙体上方区域
-function spawnGate() {
+// 生成一个门：强制指定 side（'left'|'right'），y 限制在山脚到墙顶之间；类型用加减法（确定性，无随机消亡）
+function spawnGate(forceSide) {
     const w = screenWidth * GATE_WINDOW_W_FRAC;                    // 半屏宽
-    const sides = ['left', 'right'];
-    let side = sides[Math.floor(Math.random() * sides.length)];
-    const leftCount = gates.filter(g => g.side === 'left').length;
-    const rightCount = gates.filter(g => g.side === 'right').length;
-    if (leftCount >= 2 && rightCount >= 2) return;                 // 两边都满，不再生成
-    if (side === 'left' && leftCount >= 2) side = 'right';
-    if (side === 'right' && rightCount >= 2) side = 'left';
+    const side = forceSide || (Math.random() < 0.5 ? 'left' : 'right');
     const x = side === 'left' ? screenWidth * 0.25 : screenWidth * 0.75;
     const y = GATE_Y_MIN + Math.random() * (GATE_Y_MAX - GATE_Y_MIN);
-    // 类型：70% 增益门，30% 减益门
-    const isMult = Math.random() < 0.7;
-    let type, factor;
-    if (isMult) {
-        type = 'mult';
+    // 类型：65% 增益门(+)，35% 减益门(-)；数值确定性，杜绝除法“可能过可能不过”
+    const isAdd = Math.random() < 0.65;
+    let type, factor, drainLeft = 0;
+    if (isAdd) {
+        type = 'add';
         const r = Math.random();
-        factor = r < 0.5 ? 2 : (r < 0.85 ? 3 : 4);                  // ×2 / ×3 / ×4
+        factor = r < 0.5 ? 2 : (r < 0.85 ? 3 : 4);                 // +2 / +3 / +4 颗克隆
     } else {
-        type = 'div';
-        factor = Math.random() < 0.5 ? 0.5 : 0.3;                   // 50% / 30% 概率消亡
+        type = 'sub';
+        factor = Math.random() < 0.5 ? 2 : 3;                      // -2 / -3 颗削减额度
+        drainLeft = factor;                                        // 该门按额度确定性吃掉子弹，耗尽后子弹正常通过
     }
-    gates.push({ id: ++gateIdCounter, side, x, y, w, type, factor });
+    gates.push({ id: ++gateIdCounter, side, x, y, w, type, factor, drainLeft });
 }
 
 // 门定期刷新（update 每帧调用，dt 毫秒）
@@ -3063,13 +3083,13 @@ function updateGates(dt) {
     }
 }
 
-// 子弹穿门效果
+// 子弹穿门效果（加减法，确定性）
 function cloneBullet(src, gate) {
-    if (gate.type === 'mult') {
-        const n = gate.factor;
-        for (let k = 0; k < n - 1; k++) {                           // 原弹保留，额外生成 n-1 颗 → 单列变 n 列
+    if (gate.type === 'add') {
+        const extra = gate.factor;                                  // +N → 额外生成 N 颗，原弹保留 → 单列变 1+N 列
+        for (let k = 0; k < extra; k++) {
             if (bullets.length >= BULLET_CAP) break;
-            let offset = (n === 2) ? GATE_SPLIT_SPREAD : (k - (n - 2) / 2) * GATE_SPLIT_SPREAD;
+            let offset = (extra === 1) ? 0 : (k - (extra - 1) / 2) * GATE_SPLIT_SPREAD;
             const ang = -Math.PI / 2 + offset;                       // 围绕竖直向上对称扇形
             bullets.push({
                 x: src.x, y: src.y,
@@ -3083,8 +3103,11 @@ function cloneBullet(src, gate) {
                 prevY: src.y
             });
         }
-    } else { // div：穿门子弹以 factor 概率消亡（整体弹幕变薄）
-        if (Math.random() < gate.factor) src._dead = true;
+    } else { // sub：确定性削减——门按 factor 额度吃掉穿门子弹，耗尽后子弹正常通过（无随机，杜绝“可能过可能不过”）
+        if (gate.drainLeft > 0) {
+            src._dead = true;
+            gate.drainLeft--;
+        }
     }
 }
 
@@ -3095,29 +3118,28 @@ function drawGates() {
         const top = g.y - 16;
         const h = 32;
         ctx.save();
+        const isAdd = g.type === 'add';
+        const spent = (!isAdd && g.drainLeft <= 0);                 // 减益门额度耗尽 → 变暗提示已安全
+        const rgb = isAdd ? '61,220,110' : '255,80,80';
         const grad = ctx.createLinearGradient(left, 0, left + g.w, 0);
-        if (g.type === 'mult') {
-            grad.addColorStop(0, 'rgba(60,200,255,0.04)');
-            grad.addColorStop(0.5, 'rgba(60,200,255,0.26)');
-            grad.addColorStop(1, 'rgba(60,200,255,0.04)');
-        } else {
-            grad.addColorStop(0, 'rgba(255,80,80,0.04)');
-            grad.addColorStop(0.5, 'rgba(255,80,80,0.26)');
-            grad.addColorStop(1, 'rgba(255,80,80,0.04)');
-        }
+        const aMid = spent ? 0.10 : 0.26;
+        grad.addColorStop(0, `rgba(${rgb},0.04)`);
+        grad.addColorStop(0.5, `rgba(${rgb},${aMid})`);
+        grad.addColorStop(1, `rgba(${rgb},0.04)`);
+        ctx.globalAlpha = spent ? 0.45 : 1;
         ctx.fillStyle = grad;
         ctx.fillRect(left, top, g.w, h);
-        ctx.strokeStyle = g.type === 'mult' ? '#3cc8ff' : '#ff5050';
+        ctx.strokeStyle = isAdd ? '#3ddc6e' : '#ff5050';
         ctx.lineWidth = 2;
         ctx.shadowColor = ctx.strokeStyle;
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = spent ? 0 : 12;
         ctx.strokeRect(left, top, g.w, h);
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const label = g.type === 'mult' ? ('×' + g.factor) : ('-' + Math.round(g.factor * 100) + '%');
+        const label = isAdd ? ('+' + g.factor) : ('−' + g.factor);
         ctx.fillText(label, g.x, g.y);
         ctx.restore();
     }
