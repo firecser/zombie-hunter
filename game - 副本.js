@@ -1021,7 +1021,7 @@ function superConduct(from, count, dmg) {
     const chained = [from];
     for (let c = 0; c < count; c++) {
         let best = null, bestD = 150;
-        for (const z of zombies) {
+        for (const z of zombies.slice()) {
             if (!chained.includes(z)) {
                 const d = Math.hypot(last.x - z.x, last.y - z.y);
                 if (d < bestD) { bestD = d; best = z; }
@@ -2934,7 +2934,7 @@ function updateBullets() {
                         oilPatches.push({ x: bullet.x, y: bullet.y, radius: explosionRadius * 0.6, life: 1500, level: skills.explosive.level });
                     }
                     
-                    for (const z of zombies) {
+                    for (const z of zombies.slice()) {
                         if (z !== zombie) {
                             const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
                             if (d < explosionRadius) {
@@ -2958,7 +2958,7 @@ function updateBullets() {
                         let closestChain = null;
                         let closestDist = 150;
                         
-                        for (const z of zombies) {
+                        for (const z of zombies.slice()) {
                             if (!chainedTargets.includes(z)) {
                                 const d = Math.hypot(lastTarget.x - z.x, lastTarget.y - z.y);
                                 if (d < closestDist) {
@@ -2983,14 +2983,14 @@ function updateBullets() {
 
                 // 穿透溅射（piercing Lv5 质变）
                 if (skills.piercing._splash) {
-                    for (const z of zombies) {
+                    for (const z of zombies.slice()) {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '物理');
                     }
                 }
                 // 暴击小爆炸（crit Lv5 质变）
                 if (isCrit && skills.crit._explode) {
                     createExplosion(zombie.x, zombie.y, 50);
-                    for (const z of zombies) {
+                    for (const z of zombies.slice()) {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, player.damage * 0.3, false, '火'); checkCombos(z, '火'); }
                     }
                 }
@@ -3418,14 +3418,14 @@ function updateFields(dt) {
             const m = mines[i];
             if (now < m.armTime) continue;
             let triggered = false;
-            for (const z of zombies) {
+            for (const z of zombies.slice()) {
                 if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius + z.radius) { triggered = true; break; }
             }
             if (triggered) {
                 createExplosion(m.x, m.y, m.radius);
                 let dmg = player.damage * (0.5 + m.level * 0.12) * 2;
                 if (skills.mine._dmgBonus) dmg *= (1 + skills.mine._dmgBonus);   // Lv3 伤害 +50%
-                for (const z of zombies) {
+                for (const z of zombies.slice()) {
                     if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) {
                         damageZombie(z, dmg, false, '物理');
                         if (skills.mine._slow) z.slowUntil = Math.max(z.slowUntil || 0, now + 1500);  // Lv5 爆炸附加减速
@@ -3449,7 +3449,7 @@ function updateFields(dt) {
                 // 目标：离坦克（玩家）最近的怪物坐标；无怪物时回退随机散落
                 let _op = randomFieldPos();
                 let _bestD = Infinity;
-                for (const z of zombies) {
+                for (const z of zombies.slice()) {
                     const d = Math.hypot(z.x - player.x, z.y - player.y);
                     if (d < _bestD) { _bestD = d; _op = { x: z.x, y: z.y }; }
                 }
@@ -3460,7 +3460,7 @@ function updateFields(dt) {
             const o = oilPatches[i];
             o.life -= dt;
             if (o.life <= 0) { oilPatches.splice(i, 1); continue; }
-            for (const z of zombies) {
+            for (const z of zombies.slice()) {
                 if (Math.hypot(o.x - z.x, o.y - z.y) < o.radius + z.radius) {
                     z.burningUntil = now + 1000;
                     if (skills.oil._big) z.slowUntil = Math.max(z.slowUntil || 0, now + 1000);  // Lv5 油渍附加减速
@@ -3489,7 +3489,7 @@ function updateFields(dt) {
             if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
             let pull = 0.02 * (1 + t.level * 0.3);
             if (skills.tornado._pullBonus) pull *= (1 + skills.tornado._pullBonus);   // Lv3 牵引增强
-            for (const z of zombies) {
+            for (const z of zombies.slice()) {
                 const d = Math.hypot(t.x - z.x, t.y - z.y);
                 if (d < t.radius && d > 1) {
                     z.x += (t.x - z.x) * pull;
@@ -3981,7 +3981,7 @@ function adDemoBombExplosion() {
     // 统计击杀数并掉落金币（素材演示僵尸100%金币不掉经验）
     adZombieCount = zombies.length;
     adGoldEarned = 0; // 重置金币计数
-    for (const z of zombies) {
+    for (const z of zombies.slice()) {
         if (z.isAdZombie) {
             // 素材僵尸掉落金币
             const goldAmount = z.gold || 5;
@@ -4052,7 +4052,7 @@ function update(dt) {
         if (talentMods.deathrayTimer >= 8000) {
             talentMods.deathrayTimer = 0;
             const dmg = player.damage * (2 + talentMods.deathrayLevel);
-            for (const z of zombies) damageZombie(z, dmg);
+            for (const z of zombies.slice()) damageZombie(z, dmg);
             deathRayEffects.push({ x: player.x, y: player.y, life: 400 });
             AudioSystem.playShoot();
         }
