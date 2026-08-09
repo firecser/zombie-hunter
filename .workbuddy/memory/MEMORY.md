@@ -39,7 +39,7 @@
 ## 版本号规则（重要）
 - **已推送至 v1.0.60**（2026-08-06 推送，含 v1.0.55→v1.0.60 全部）。
 - v1.0.55 天赋系统重做；v1.0.56 战斗体验修复+子弹天赋进三选一+全套美术；v1.0.57 暴击数字放大加粗/去十字星+跳级三选一覆盖修复；v1.0.58 微信编译告警修复（getSystemInfo 弃用换 getWindowInfo）+ 关 sourceMap 上传 ENOENT 报错；v1.0.59 关闭 useCompilerModule 规避 SummerCompiler.getFile(undefined) 编译报错；v1.0.60 清理 Apr16 废弃快照目录（含嵌套第二个 project.config.json）结构性根治 undefined 报错。
-- 本地最新标签 v1.0.75（2026-08-09 本地提交，含 v1.0.61→v1.0.75：核心战斗改造/布局优化/倍增门/混淆崩溃修复）；下一个版本：**v1.0.76**。
+- 本地最新标签 v1.0.76（2026-08-09 本地提交，含 v1.0.61→v1.0.76：核心战斗改造/布局优化/倍增门加减法/墙血条绿色立体/混淆崩溃修复）；下一个版本：**v1.0.77**。
 - 每次推送前必须先读取远程标签确定下一个版本号
 - 命令：`git tag -l --sort=-v:refname` 查看远程标签
 - 版本号命名格式：主版本.次版本.修订号（如1.0.5）
@@ -51,6 +51,12 @@
 - `game.js.map` 是 source map，勿当源码、勿提交。仓库提交的是可读 game.js。
 - **⚠️ 微信加固 `for-of`+`splice` 越界崩溃坑（v1.0.75 确诊）**：加固「高混淆」会把 `for (const x of arr)` 改写成**长度缓存一次**的索引 `for`。若循环体内调用会 splice `arr` 的函数（如 `damageZombie` 死亡时 splice 僵尸），缓存长度失效 → 下标越界读到 `undefined` → `Cannot read property 'x' of undefined`。**规则：任何会在循环体内被 splice 的数组，遍历一律用 `arr.slice()` 快照**（如 `for (const z of zombies.slice())`）。原生 `for...of` 下不崩，所以无头测试/DevTools 跑可读源码都正常，只有混淆上传版会崩——排查时别被"本地不崩"误导。
 - 内嵌小游戏（mode:'ingame'）统一接线点：`OTHER_GAMES` 配置、`startMiniGame`、`gameLoop`（activeMiniGame 分支）、`touchEnd`（activeMiniGame 分支）。已移植三款：2048（滑动合成）、qmxzfzm（点图找目标）、bdsjm（4列下落式打猫）；新增一款照搬 2048/gQmxz*/gBdsjm* 这套 ingame 模板。
+
+## 倍增门设计决策（v1.0.76 定稿，用户拍板）
+- 门固定 3 个：左1、右1、第3个随机左右；窗口半屏宽（GATE_WINDOW_W_FRAC=0.5），x 固定 1/4 或 3/4 屏宽。
+- 语义**只许加减法**，禁用乘除：用户实测除法门会让子弹"可能过可能不过"（体验割裂）。`add` 门确定性克隆 +N 颗（无随机）；`sub` 门用 `drainLeft` 额度确定性削减（额度内必死、额度外必过），耗尽后 `globalAlpha` 变暗提示已安全。
+- 门顶 Y 上限 = 背景最高山峰顶（`MOUNTAIN_TALLEST_PEAK=142`，与 drawBackground 山峦同步），门不得高过山体。
+- 数值 [PLACEHOLDER]：GATE_REFRESH_INTERVAL=8000 / GATE_SPLIT_SPREAD=0.22 / BULLET_CAP=240 / 增益65%·减益35% / add +2+3+4 / sub -2-3，待真机调。
 
 ## 天赋系统（v1.0.55 重做，已接入战斗）
 - 设计原则：前期基础属性天赋（怪物之心/攻击力/生命/攻速）由「百分比」改为「直接加数值」，升级即时可见；金币/经验保留百分比。
