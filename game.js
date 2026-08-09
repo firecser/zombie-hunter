@@ -30,14 +30,14 @@ const STAGES = [
       speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 1.0, bossTime: 120, tankChance: 0.18, fastChance: 0.28 },
     { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '僵尸速度+15%', difficulty: 2, descColor: '#88aacc',
       speedMult: 1.15, healthMult: 1.05, damageMult: 1.05, spawnMult: 1.05, bossTime: 100, tankChance: 0.22, fastChance: 0.32 },
-    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '僵尸血量+30%', difficulty: 3, descColor: '#66bbcc',
-      speedMult: 1.1, healthMult: 1.25, damageMult: 1.1, spawnMult: 1.1, bossTime: 90, tankChance: 0.25, fastChance: 0.30 },
+    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '僵尸血量+20%', difficulty: 3, descColor: '#66bbcc',
+      speedMult: 1.1, healthMult: 1.2, damageMult: 1.1, spawnMult: 1.1, bossTime: 90, tankChance: 0.25, fastChance: 0.30 },
     { id: 4, name: '冰霜要塞', icon: '🏔️', desc: 'Boss提前出现', difficulty: 4, descColor: '#aaaacc',
-      speedMult: 1.15, healthMult: 1.35, damageMult: 1.15, spawnMult: 1.15, bossTime: 60, tankChance: 0.28, fastChance: 0.30 },
+      speedMult: 1.15, healthMult: 1.3, damageMult: 1.15, spawnMult: 1.15, bossTime: 60, tankChance: 0.28, fastChance: 0.30 },
     { id: 5, name: '永冻之巅', icon: '👑', desc: '全属性增强', difficulty: 5, descColor: '#cc88cc',
-      speedMult: 1.25, healthMult: 1.55, damageMult: 1.25, spawnMult: 1.25, bossTime: 50, tankChance: 0.30, fastChance: 0.30 },
+      speedMult: 1.25, healthMult: 1.45, damageMult: 1.25, spawnMult: 1.25, bossTime: 50, tankChance: 0.30, fastChance: 0.30 },
     { id: 6, name: '极寒地狱', icon: '👾', desc: '究极挑战', difficulty: 6, descColor: '#ff6666',
-      speedMult: 1.35, healthMult: 1.75, damageMult: 1.35, spawnMult: 1.35, bossTime: 40, tankChance: 0.32, fastChance: 0.30 }
+      speedMult: 1.35, healthMult: 1.55, damageMult: 1.35, spawnMult: 1.35, bossTime: 40, tankChance: 0.32, fastChance: 0.30 }
 ];
 
 let currentStage = 1;
@@ -845,7 +845,7 @@ const SKILL_DEFS = {
     fireRate:   { type:'fireRate',   name:'急速射击', icon:'»',  element:'物理', category:'bullet', maxLevel:99, desc:'射速 +15%',     apply(lv){ player.fireRate *= 0.85; },
                   qualNodes:{ 3:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } }, 5:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } } } },
     bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; },
-                  qualNodes:{ 5:{ desc:'环射：子弹环形散布', apply(){ player._ringShot = true; } } } },
+                  qualNodes:{ 5:{ desc:'贯穿：穿透 +1', apply(){ player.bulletPiercing++; } } } },
     bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; },
                   qualNodes:{ 3:{ desc:'弹速再提升', apply(){ player.bulletSpeed *= 1.1; } }, 5:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } } } },
     piercing:   { type:'piercing',   name:'穿透弹',   icon:'🗡️', element:'物理', category:'bullet', maxLevel:30, desc:'穿透 +1',       apply(lv){ player.bulletPiercing++; },
@@ -2877,16 +2877,13 @@ function shoot() {
     const baseAngle = -Math.PI / 2;   // 改造：子弹竖直向上发射（不再追瞄），由坦克横移控制瞄准
     const gunLength = 40;
     const n = player.bulletCount;
-    
+    // 竖直扇面：总张角封顶 0.6rad(~34°)，保证高多重射击也不会把子弹打向侧面/下方
+    // （敌人只从正上方垂直下落，朝下的子弹永远打不到它们 → 环射会自我削弱，已废弃）
+    const spreadStep = Math.min(0.15, 0.6 / Math.max(1, n - 1));
+
     for (let i = 0; i < n; i++) {
-        let bulletAngle;
-        if (player._ringShot) {
-            bulletAngle = (Math.PI * 2 / n) * i;   // 多重射击 Lv5 质变：环形散布
-        } else {
-            const spread = 0.15;
-            bulletAngle = baseAngle;
-            if (n > 1) bulletAngle += (i - (n - 1) / 2) * spread;
-        }
+        let bulletAngle = baseAngle;
+        if (n > 1) bulletAngle += (i - (n - 1) / 2) * spreadStep;
         
         const startX = player.x + Math.cos(baseAngle) * gunLength;
         const startY = player.y + Math.sin(baseAngle) * gunLength;
@@ -3064,17 +3061,18 @@ function spawnGate(forceSide, slot) {
     const side = forceSide;
     const x = side === 'left' ? screenWidth * 0.25 : screenWidth * 0.75;
     const y = gateBaseY + (slot || 0) * GATE_V_GAP;                // 槽位确定性 y，跨侧窗口不相交无需判重叠
-    // 类型：65% 增益门(+)，35% 减益门(-)；数值确定性，杜绝除法“可能过可能不过”
-    const isAdd = Math.random() < 0.65;
+    // 门数值绑定玩家当前子弹数(bulletCount)，确定性、根除旧版错配：
+    // 加门——弱玩家(1 弹)给 ×3 救援，其余给 ×2；不再随机 ×2/×3/×4（低关过强高关过弱）。
+    // 减门——恒定吃掉约半数弹幕(drainLeft≈bc*0.5)，相对惩罚一致，不再固定 −2/−3 惩罚弱玩家、放过强玩家。
+    const bc = player.bulletCount;
     let type, factor, drainLeft = 0;
-    if (isAdd) {
+    if (Math.random() < 0.65) {
         type = 'add';
-        const r = Math.random();
-        factor = r < 0.5 ? 2 : (r < 0.85 ? 3 : 4);                 // +2 / +3 / +4 颗克隆
+        factor = bc <= 1 ? 2 : 1;                                 // 额外克隆数：×3(弱) / ×2(其余)；cloneBullet 用
     } else {
         type = 'sub';
-        factor = Math.random() < 0.5 ? 2 : 3;                      // -2 / -3 颗削减额度
-        drainLeft = factor;                                        // 该门按额度确定性吃掉子弹，耗尽后子弹正常通过
+        factor = 0;
+        drainLeft = Math.max(1, Math.min(3, Math.round(bc * 0.5))); // [PLACEHOLDER] 恒定吃约半数弹幕
     }
     gates.push({ id: ++gateIdCounter, side, x, y, w, type, factor, drainLeft });
 }
@@ -3144,8 +3142,8 @@ function drawGates() {
         ctx.font = (!isAdd && g.drainLeft <= 1) ? 'bold 19px Arial' : 'bold 16px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        // 加法门显示 +N（克隆数，恒定）；减法门显示剩余额度（实时随每颗穿门子弹递减），归零即被 updateGates 移除
-        const label = isAdd ? ('+' + g.factor) : ('−' + g.drainLeft);
+        // 加法门显示实际倍率 ×(factor+1)（克隆数+原弹）；减法门显示剩余额度（实时随每颗穿门子弹递减），归零即被 updateGates 移除
+        const label = isAdd ? ('×' + (g.factor + 1)) : ('−' + g.drainLeft);
         ctx.fillText(label, g.x, g.y);
         ctx.restore();
     }
@@ -3653,7 +3651,9 @@ function spawnZombies(dt) {
             }
             
             const template = zombieTypes[type];
-            const healthMult = (1 + gameTimeSec / 65) * stage.healthMult;  // v1.0.73 倍增门火力暴涨，时间膨胀回调一档（原/80）[PLACEHOLDER]
+            // 时间膨胀放缓并封顶 3.0×：原 (1+t/65) 到 5 分钟达 ×5.6，门/多重射击(清量)完全接不住；
+            // 现 (1+t/110) 封顶 3.0，使"更多子弹=更多清除"在全程都是有效策略 [PLACEHOLDER]
+            const healthMult = Math.min(3.0, 1 + gameTimeSec / 110) * stage.healthMult;
             
             zombies.push({
                 x: x,
