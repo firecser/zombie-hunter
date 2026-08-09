@@ -298,6 +298,17 @@ const BOMB_BTN_X = screenWidth - 48;
 const BOMB_BTN_Y = screenHeight - 58;
 const BOMB_BTN_R = 27;
 
+// ==================== 倍增门（克隆分裂机制）====================
+// 倍增门：子弹竖直向上穿过门窗口 → 按倍数克隆成扇形弹幕，覆盖全屏，降低操控压力
+let gates = [];                            // 场上门：{id, x, y, w, type:'mult'|'div', factor}
+let gateIdCounter = 0;
+let gateRefreshTimer = 0;
+const GATE_COUNT = 3;                      // [PLACEHOLDER] 每批门数量（增益+减益混合）
+const GATE_REFRESH_INTERVAL = 8000;        // [PLACEHOLDER] 门刷新间隔(ms)，定期随机换位置/倍数
+const GATE_WINDOW_W_FRAC = 0.34;           // [PLACEHOLDER] 门窗口占屏宽比例
+const GATE_SPLIT_SPREAD = 0.22;            // [PLACEHOLDER] 克隆子弹对称扇形角(rad)
+const BULLET_CAP = 240;                    // [PLACEHOLDER] 子弹总数护栏（防克隆爆炸卡顿）
+
 // ==================== 音频系统（Web Audio API）====================
 const AudioSystem = {
     ctx: null,
@@ -2870,9 +2881,24 @@ function shoot() {
 function updateBullets() {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i];
+        const prevY = (bullet.prevY !== undefined) ? bullet.prevY : bullet.y;
         bullet.x += bullet.vx;
         bullet.y += bullet.vy;
-        
+
+        // 倍增门检测：子弹向上穿过门中心线且 x 落在窗口内 → 触发克隆分裂（每门每弹仅一次，靠跨界判定去重）
+        for (const g of gates) {
+            if (prevY > g.y && bullet.y <= g.y && bullet.x >= g.x - g.w / 2 && bullet.x <= g.x + g.w / 2) {
+                cloneBullet(bullet, g);
+                if (bullet._dead) break;
+            }
+        }
+        bullet.prevY = bullet.y;
+
+        if (bullet._dead) {
+            bullets.splice(i, 1);
+            continue;
+        }
+
         if (bullet.x < 0 || bullet.x > screenWidth || bullet.y < 0 || bullet.y > screenHeight) {
             bullets.splice(i, 1);
             continue;
@@ -2990,6 +3016,101 @@ function updateBullets() {
                 }
             }
         }
+    }
+}
+
+// ==================== 倍增门：生成 / 刷新 / 分裂 ====================
+// 初始化门（每局开始调用）
+function initGates() {
+    gates = [];
+    for (let i = 0; i < GATE_COUNT; i++) spawnGate();
+}
+
+// 随机生成一个门（定期刷新时调用，位置/倍数随机）
+function spawnGate() {
+    const w = screenWidth * GATE_WINDOW_W_FRAC;
+    const x = w / 2 + Math.random() * (screenWidth - w);            // 中心 x 不超出屏幕
+    const y = 60 + Math.random() * (screenHeight - 320 - 60);       // 走廊区间内随机 y（避开顶部与底部 UI/坦克）
+    // 类型：70% 增益门，30% 减益门（保证正向滚雪球为主但有路线风险）
+    const isMult = Math.random() < 0.7;
+    let type, factor;
+    if (isMult) {
+        type = 'mult';
+        const r = Math.random();
+        factor = r < 0.5 ? 2 : (r < 0.85 ? 3 : 4);                  // ×2 / ×3 / ×4
+    } else {
+        type = 'div';
+        factor = Math.random() < 0.5 ? 0.5 : 0.3;                   // 50% / 30% 概率消亡
+    }
+    gates.push({ id: ++gateIdCounter, x, y, w, type, factor });
+}
+
+// 门定期刷新（update 每帧调用，dt 毫秒）
+function updateGates(dt) {
+    gateRefreshTimer += dt;
+    if (gateRefreshTimer >= GATE_REFRESH_INTERVAL) {
+        gateRefreshTimer = 0;
+        initGates();
+    }
+}
+
+// 子弹穿门效果
+function cloneBullet(src, gate) {
+    if (gate.type === 'mult') {
+        const n = gate.factor;
+        for (let k = 0; k < n - 1; k++) {                           // 原弹保留，额外生成 n-1 颗 → 单列变 n 列
+            if (bullets.length >= BULLET_CAP) break;
+            let offset = (n === 2) ? GATE_SPLIT_SPREAD : (k - (n - 2) / 2) * GATE_SPLIT_SPREAD;
+            const ang = -Math.PI / 2 + offset;                       // 围绕竖直向上对称扇形
+            bullets.push({
+                x: src.x, y: src.y,
+                vx: Math.cos(ang) * player.bulletSpeed,
+                vy: Math.sin(ang) * player.bulletSpeed,
+                radius: src.radius,
+                damage: src.damage,
+                piercing: src.piercing,
+                element: src.element,
+                hitZombies: [],
+                prevY: src.y
+            });
+        }
+    } else { // div：穿门子弹以 factor 概率消亡（整体弹幕变薄）
+        if (Math.random() < gate.factor) src._dead = true;
+    }
+}
+
+// 绘制倍增门（发光窗口 + 倍数/减益标注）
+function drawGates() {
+    for (const g of gates) {
+        const left = g.x - g.w / 2;
+        const top = g.y - 16;
+        const h = 32;
+        ctx.save();
+        const grad = ctx.createLinearGradient(left, 0, left + g.w, 0);
+        if (g.type === 'mult') {
+            grad.addColorStop(0, 'rgba(60,200,255,0.04)');
+            grad.addColorStop(0.5, 'rgba(60,200,255,0.26)');
+            grad.addColorStop(1, 'rgba(60,200,255,0.04)');
+        } else {
+            grad.addColorStop(0, 'rgba(255,80,80,0.04)');
+            grad.addColorStop(0.5, 'rgba(255,80,80,0.26)');
+            grad.addColorStop(1, 'rgba(255,80,80,0.04)');
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(left, top, g.w, h);
+        ctx.strokeStyle = g.type === 'mult' ? '#3cc8ff' : '#ff5050';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.shadowBlur = 12;
+        ctx.strokeRect(left, top, g.w, h);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const label = g.type === 'mult' ? ('×' + g.factor) : ('-' + Math.round(g.factor * 100) + '%');
+        ctx.fillText(label, g.x, g.y);
+        ctx.restore();
     }
 }
 
@@ -3495,7 +3616,7 @@ function spawnZombies(dt) {
             }
             
             const template = zombieTypes[type];
-            const healthMult = (1 + gameTimeSec / 80) * stage.healthMult;
+            const healthMult = (1 + gameTimeSec / 65) * stage.healthMult;  // v1.0.73 倍增门火力暴涨，时间膨胀回调一档（原/80）[PLACEHOLDER]
             
             zombies.push({
                 x: x,
@@ -3765,6 +3886,10 @@ function startGame() {
     mines = [];
     oilPatches = [];
     tornadoes = [];
+
+    // 重置倍增门
+    initGates();
+    gateRefreshTimer = 0;
     
     // 重置炸弹
     bombCount = 0;
@@ -3927,6 +4052,7 @@ function update(dt) {
     }
 
     updateBullets();
+    updateGates(dt);
     updateZombies(dt);
     updateFields(dt);
     updateParticles();
@@ -10497,6 +10623,7 @@ function gameLoop() {
             drawZombie(zombie);
         }
         
+        drawGates();
         drawPlayer();
         drawDamageNumbers();
         drawUI();
