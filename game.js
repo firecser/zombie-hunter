@@ -149,7 +149,9 @@ function saveProgress() {
         playerExp: player.exp,
         playerKills: player.kills,
         playerSkills: { ...skills },
-        playerAcquiredSkills: [...acquiredSkills]
+        playerAcquiredSkills: [...acquiredSkills],
+        // 第一关买量演示是否已展示过（整个生命周期只出现一次）
+        l1IntroDone: l1IntroDone
     };
     wx.setStorageSync('zombieHunterProgress', JSON.stringify(stageProgress));
     wx.setStorageSync('zombieHunterGameData', JSON.stringify(gameData));
@@ -185,6 +187,9 @@ function loadGameData() {
             if (data.playerAcquiredSkills) {
                 acquiredSkills = [...data.playerAcquiredSkills];
             }
+
+            // 第一关买量演示是否已展示过（整个生命周期只出现一次）
+            if (data.l1IntroDone) l1IntroDone = true;
         }
     } catch (e) {
         console.log('加载游戏数据失败', e);
@@ -195,8 +200,13 @@ function loadGameData() {
 let gameState = 'start'; // start, mainMenu, playing, paused, gameOver, victory, upgrade
 let gameRunning = false;
 let gamePaused = false;
+let adWatchCount = 0;                 // 本局通过看广告补炸弹的已观看次数
+const AD_WATCH_MAX_PER_LEVEL = 3;     // 每关看广告上限
 let gameTime = 0;
 let lastTime = Date.now();
+// 技能实验室模式：从「世界-山东」进入，复用第一关配置，但三选一改为列出全部技能自由选择；
+// 该模式不修改任何技能数据（SKILL_DEFS 本就是全局共享），故对其它关卡无影响。
+let isSkillLab = false;
 const GAME_TIME_LIMIT = 5 * 60 * 1000;
 const MAX_LEVEL = 20;
 
@@ -209,6 +219,8 @@ let adBombExploded = false;     // 炸弹是否已爆炸
 let adZombieCount = 0;          // 统计击杀僵尸数
 let adGoldEarned = 0;           // 实际获得金币数
 let goldAtStageStart = 0;        // 进入关卡前的金币（用于胜利后累积）
+// 第一关买量演示（首个炸弹+初始金币怪）是否已展示过：整个玩家生命周期只出现一次，持久化
+let l1IntroDone = false;
 
 // ==================== 音效和暂停设置 ====================
 let soundEnabled = true;
@@ -811,12 +823,29 @@ const player = {
 // 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
 // 运行时仅保留 skills[type].level；category: bullet=弹道, buff=增益, field=战场部署, cc=控场
 const SKILL_DEFS = {
-    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +20%',     apply(lv){ player.damage *= 1.2; },
-                  qualNodes:{ 5:{ desc:'贯穿：穿透 +1', apply(){ player.bulletPiercing++; } } } },
+    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +12%',     apply(lv){ player.damage *= 1.12; },
+                  // 大类分支树：选分支 = 火力强化继续升级（不占新槽）；reqLevel 解锁，prereq 前置，mutex 互斥不进池
+                  // 分支可反复升级（branches[bid] 存整数等级，至 maxLevel 止）；图标沿用大类 icon（🔫），不另设
+                  // 数值平衡（以 L20 极限为基准，逐级穷举）：三条进攻分支每级 DPS 倍率(dmgMul/fireMul) 收敛到同一曲线 ≈1+0.25*bl，
+                  // 故无论走哪条路径，火力强化的总强度基本一致；穿甲(对坦克/Boss)、后坐力、弹道校准为情境向增益，强度同量级。
+                  branches: {
+                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+15%/级、射速-3%/级', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(1.15, bl); m.fireMul *= Math.pow(1/1.03, bl); } },
+                    rapidFire:   { name:'狂暴连射', desc:'射速+22%/级，每发伤害-4%/级',             reqLevel:3, prereq:[], mutex:['charge'], maxLevel:5,
+                                   effect(bl,m){ m.fireMul *= Math.pow(0.82, bl); m.dmgMul *= Math.pow(0.96, bl); } },
+                    charge:      { name:'蓄能射击', desc:'射速-13%/级，命中伤害+35%/级',            reqLevel:3, prereq:[], mutex:['rapidFire'], maxLevel:5,
+                                   effect(bl,m){ m.fireMul *= Math.pow(1.147, bl); m.dmgMul *= Math.pow(1.35, bl); } },
+                    armorPierce: { name:'穿甲弹头', desc:'对坦克/Boss额外+30%/级伤害',               reqLevel:4, prereq:['heavyBarrel'], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.armorBonus += 0.30*bl; } },
+                    knockback:   { name:'后坐力',   desc:'命中击退敌人（力度随等级）',               reqLevel:5, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.knock = true; m.knockF = 15*bl; } },
+                    calibration: { name:'弹道校准', desc:'命中判定半径+18%/级',                      reqLevel:6, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.hitboxMul *= Math.pow(1.18, bl); } }
+                  } },
     fireRate:   { type:'fireRate',   name:'急速射击', icon:'»',  element:'物理', category:'bullet', maxLevel:99, desc:'射速 +15%',     apply(lv){ player.fireRate *= 0.85; },
                   qualNodes:{ 3:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } }, 5:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } } } },
     bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; },
-                  qualNodes:{ 5:{ desc:'环射：子弹环形散布', apply(){ player._ringShot = true; } } } },
+                  qualNodes:{ 5:{ desc:'分裂：命中后迸射小弹', apply(){ player._splitOnHit = true; } } } },
     bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; },
                   qualNodes:{ 3:{ desc:'弹速再提升', apply(){ player.bulletSpeed *= 1.1; } }, 5:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } } } },
     piercing:   { type:'piercing',   name:'穿透弹',   icon:'🗡️', element:'物理', category:'bullet', maxLevel:30, desc:'穿透 +1',       apply(lv){ player.bulletPiercing++; },
@@ -986,6 +1015,40 @@ function fireQualNodes(type) {
     }
 }
 
+// 大类衍生分支候选：到达 reqLevel、满足前置、未被互斥分支排除、且未达 maxLevel 的分支
+// 已选过的分支若未升满，仍会再次出现，用于持续升级
+function getAvailableBranches(type) {
+    const def = SKILL_DEFS[type];
+    if (!def || !def.branches) return [];
+    const lv = skills[type].level;
+    const taken = skills[type].branches || {};
+    const out = [];
+    for (const bid in def.branches) {
+        const b = def.branches[bid];
+        const bl = taken[bid] || 0;
+        if (b.maxLevel && bl >= b.maxLevel) continue;            // 已升满
+        if (lv < (b.reqLevel || 1)) continue;                    // 达到 reqLevel 即解锁
+        if (b.prereq && !b.prereq.every(p => taken[p])) continue; // 前置未满足
+        if (b.mutex && b.mutex.some(m => taken[m])) continue;     // 已被互斥分支排除
+        out.push(bid);
+    }
+    return out;
+}
+
+// 由已选分支（含等级）派生 火力强化 的实时修正（不直改 player，避免重开丢失；每次选分支/开局重算）
+function recomputeDamageMods() {
+    const b = (skills.damage && skills.damage.branches) || {};
+    const def = SKILL_DEFS.damage;
+    const m = { dmgMul: 1, fireMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0 };
+    for (const bid in b) {
+        const bl = b[bid];
+        if (!bl) continue;
+        const bd = def.branches[bid];
+        if (bd && bd.effect) bd.effect(bl, m);
+    }
+    if (skills.damage) skills.damage._mods = m;
+}
+
 function pushHit(z, type) {
     hitEffects.push({ x: z.x, y: z.y, type: type, life: 400, maxLife: 400, rot: 0 });
 }
@@ -1036,6 +1099,78 @@ let bombMaxCount = BOMB_MAX_COUNT;    // 实际炸弹上限（含天赋加成）
 const BOMB_COOLDOWN_TIME = 30000;
 let justGotBomb = false; // 刚获得炸弹的标志
 let bombFull = false; // 炸弹已满标志
+
+// ==================== 流量主：激励视频广告（看广告补发炸弹并立即释放） ====================
+// 仅在微信小游戏运行环境下初始化；无头测试/wx 缺失时静默跳过，不影响逻辑测试
+let rewardedAd = null;
+function ensureRewardedAd() {
+    if (rewardedAd) return rewardedAd;
+    if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null;
+    try {
+        rewardedAd = wx.createRewardedVideoAd({ adUnitId: 'adunit-d8eb7685a648ebc1' });
+        rewardedAd.onError((err) => {
+            console.error('激励视频广告加载/播放错误', err);
+        });
+    } catch (e) {
+        rewardedAd = null;
+    }
+    return rewardedAd;
+}
+
+// 展示激励视频广告；onReward 仅当看完激励时长（达标）后回调
+function showRewardedAd(onReward) {
+    const ad = ensureRewardedAd();
+    // 播放广告期间暂停游戏（仅当当前正在游玩且未被手动暂停）
+    let pausedByAd = false;
+    if (gameRunning && gameState === 'playing' && !gamePaused) {
+        gamePaused = true;
+        pausedByAd = true;
+    }
+    const resume = () => {
+        if (pausedByAd) gamePaused = false;
+        // 微信播放激励视频会挂起 AudioContext，广告结束后需恢复，否则背景音乐消失
+        if (typeof AudioSystem !== 'undefined') {
+            AudioSystem.resume();
+            if (gameRunning && musicEnabled && AudioSystem.ctx && AudioSystem.ctx.state === 'running') {
+                AudioSystem.startBGM();
+            }
+        }
+    };
+    if (!ad) {
+        // 非微信环境（如本地预览/测试）：直接视为已发放奖励，便于联调
+        if (onReward) onReward();
+        resume();
+        return;
+    }
+    const handler = (res) => {
+        // 新接口：res.isEnded === true 表示看完激励；旧接口：res 为 undefined 也表示发放
+        if (res === undefined || (res && res.isEnded)) {
+            if (onReward) onReward();
+        }
+        ad.offClose(handler);
+        resume(); // 广告结束（无论是否看完）都恢复游戏
+    };
+    ad.onClose(handler);
+    ad.show().catch(() => {
+        // 失败重试
+        ad.load()
+            .then(() => ad.show())
+            .catch(err => {
+                console.error('激励视频 广告显示失败', err);
+                resume();
+            });
+    });
+}
+
+// 看广告达标后：补发一颗炸弹并立即释放（无论当前是否在冷却/无弹）
+function grantAdBombAndRelease() {
+    if (!gameRunning) return;
+    if (adWatchCount >= AD_WATCH_MAX_PER_LEVEL) return; // 已达本关上限，不再发放
+    adWatchCount += 1;
+    bombCount += 1;
+    bombCooldown = 0;
+    useBomb();
+}
 
 // ==================== 生成参数 ====================
 let spawnTimer = 0;
@@ -1382,6 +1517,166 @@ function getBulletVisual() {
 
 // 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
 // 战场部署/聚怪技能可视化
+
+// 地雷：金属半球弹体（立体渐变）+ 尖刺 + 脉冲发光核心 + 柔和红色警示区
+function drawMine(m) {
+    const now = Date.now();
+    const armed = now >= m.armTime;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+
+    // 警示区：柔和径向羽化（替代硬黄环），读数上像"危险范围"而非生硬圆圈
+    const wr = m.radius;
+    const wg = ctx.createRadialGradient(m.x, m.y, wr * 0.5, m.x, m.y, wr);
+    const aCore = armed ? 0.18 : 0.09;
+    wg.addColorStop(0, 'rgba(255,80,40,0)');
+    wg.addColorStop(0.74, `rgba(255,80,40,${aCore * (0.7 + 0.3 * pulse)})`);
+    wg.addColorStop(1, 'rgba(255,80,40,0)');
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, wr, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 旋转虚线风墙（警示边界）
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.rotate(now / 900);
+    ctx.setLineDash([wr * 0.12, wr * 0.1]);
+    ctx.strokeStyle = armed ? `rgba(255,110,55,${0.55 + 0.3 * pulse})` : 'rgba(150,170,200,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, wr * 0.9, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // 弹体尺寸固定（与爆炸范围解耦，避免高等级撑爆）
+    const bodyR = 14 + Math.min(8, m.level);
+
+    // 地面投影
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(m.x, m.y + bodyR * 0.7, bodyR * 1.15, bodyR * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 金属半球（径向渐变立体感）
+    const bg = ctx.createRadialGradient(m.x - bodyR * 0.35, m.y - bodyR * 0.4, bodyR * 0.2, m.x, m.y, bodyR);
+    bg.addColorStop(0, '#7c8794');
+    bg.addColorStop(0.5, '#414b56');
+    bg.addColorStop(1, '#1d2329');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, bodyR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 外圈（已激活红 / 布署中灰）
+    ctx.strokeStyle = armed ? '#c0392b' : '#5a6470';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, bodyR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 8 颗尖刺（经典地雷外观）
+    ctx.fillStyle = '#2a3138';
+    for (let k = 0; k < 8; k++) {
+        const a = k * (Math.PI * 2 / 8);
+        const sx = m.x + Math.cos(a) * bodyR;
+        const sy = m.y + Math.sin(a) * bodyR;
+        ctx.beginPath();
+        ctx.moveTo(sx + Math.cos(a) * 3, sy + Math.sin(a) * 3);
+        ctx.lineTo(sx + Math.cos(a + 0.28) * 5, sy + Math.sin(a + 0.28) * 5);
+        ctx.lineTo(sx + Math.cos(a - 0.28) * 5, sy + Math.sin(a - 0.28) * 5);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // 发光核心（布署中蓝、已激活红，脉冲）
+    const coreR = bodyR * 0.45;
+    const coreBase = armed ? 'rgba(255,90,60,' : 'rgba(120,175,255,';
+    const cg = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, coreR * 2.4);
+    cg.addColorStop(0, `${coreBase}${armed ? 0.95 : 0.85})`);
+    cg.addColorStop(1, `${coreBase}0)`);
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, coreR * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = armed ? `rgba(255,${120 + 90 * pulse},90,1)` : 'rgba(160,205,255,0.95)';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, coreR * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// 龙卷风：旋转螺旋气旋带 + 中心亮眼 + 外圈虚线风墙 + 环绕碎屑（旋涡聚怪感）
+function drawTornado(t) {
+    const now = Date.now();
+    const rot = now / 600;
+    ctx.save();
+    ctx.translate(t.x, t.y);
+
+    // 底座风晕（柔和羽化范围指示）
+    const fg = ctx.createRadialGradient(0, 0, t.radius * 0.5, 0, 0, t.radius);
+    fg.addColorStop(0, 'rgba(180,220,255,0.04)');
+    fg.addColorStop(0.7, 'rgba(180,220,255,0.16)');
+    fg.addColorStop(1, 'rgba(180,220,255,0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.arc(0, 0, t.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 螺旋气旋带（多条旋臂，制造旋转与向心感）
+    const bands = 5;
+    for (let b = 0; b < bands; b++) {
+        const baseA = rot * (1 + b * 0.12) + b * (Math.PI * 2 / bands);
+        ctx.strokeStyle = `rgba(205,235,255,${0.5 - b * 0.06})`;
+        ctx.lineWidth = Math.max(1.5, 3 - b * 0.35);
+        ctx.beginPath();
+        const steps = 40;
+        for (let i = 0; i <= steps; i++) {
+            const f = i / steps;                       // 0→1 内→外
+            const ang = baseA + f * Math.PI * 3.2;     // 螺旋展开
+            const rr = t.radius * (0.16 + f * 0.84);
+            const x = Math.cos(ang) * rr;
+            const y = Math.sin(ang) * rr;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+
+    // 外圈虚线风墙（受影响范围，反向缓转）
+    ctx.save();
+    ctx.rotate(-rot * 0.6);
+    ctx.setLineDash([t.radius * 0.08, t.radius * 0.06]);
+    ctx.strokeStyle = 'rgba(200,230,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, t.radius * 0.98, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // 环绕碎屑（被吸入感）
+    for (let d = 0; d < 6; d++) {
+        const a = rot * 1.6 + d * (Math.PI * 2 / 6);
+        const rr = t.radius * (0.34 + 0.5 * ((d * 0.17) % 1));
+        const x = Math.cos(a) * rr;
+        const y = Math.sin(a) * rr;
+        ctx.fillStyle = `rgba(222,242,255,${0.65 - (d % 2) * 0.22})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 2.2 + (d % 2), 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 中心点明亮风眼
+    const eye = ctx.createRadialGradient(0, 0, 0, 0, 0, t.radius * 0.22);
+    eye.addColorStop(0, 'rgba(255,255,255,0.9)');
+    eye.addColorStop(1, 'rgba(200,230,255,0)');
+    ctx.fillStyle = eye;
+    ctx.beginPath();
+    ctx.arc(0, 0, t.radius * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
 function drawFields() {
     // 油渍（地面熔岩火池）：柔和羽化边缘，无硬描边；半径随当前油渍等级实时变化（升级即刻放大所有场上火池）
     for (const o of oilPatches) {
@@ -1452,29 +1747,10 @@ function drawFields() {
         }
     }
     ctx.globalAlpha = 1;
-    // 地雷
-    for (const m of mines) {
-        ctx.fillStyle = (m.armTime > Date.now()) ? '#888' : '#c0392b';
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,210,74,0.7)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
-        ctx.stroke();
-    }
-    // 龙卷风
-    for (const t of tornadoes) {
-        ctx.strokeStyle = 'rgba(180,220,255,0.6)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(t.x, t.y, t.radius * 0.5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
-        ctx.stroke();
-    }
+    // 地雷（金属弹体 + 脉冲核心 + 柔和警示区）
+    for (const m of mines) drawMine(m);
+    // 龙卷风（旋转气旋 + 风墙 + 碎屑）
+    for (const t of tornadoes) drawTornado(t);
 }
 
 function drawBullets() {
@@ -1973,6 +2249,41 @@ function drawBombButton() {
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px Arial';
         ctx.fillText(`${Math.ceil(bombCooldown / 1000)}`, btnX, btnY);
+    }
+
+    // 流量主：广告遮罩 + 播放图标（无弹 或 冷却中，点击看广告补发炸弹）
+    const showAdMask = (bombCount <= 0 || bombCooldown > 0);
+    if (showAdMask && bombCount <= 0 && bombCooldown <= 0) {
+        // 完全无弹且无冷却时，整圈加一层深色遮罩
+        ctx.beginPath();
+        ctx.arc(btnX, btnY, btnR, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fill();
+    }
+    if (showAdMask) {
+        // 半透明高亮环，提示可点击
+        ctx.beginPath();
+        ctx.arc(btnX, btnY, btnR + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 215, 0, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 播放三角（白色）
+        const pSize = 10;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(btnX - pSize * 0.45, btnY - pSize * 0.8);
+        ctx.lineTo(btnX - pSize * 0.45, btnY + pSize * 0.8);
+        ctx.lineTo(btnX + pSize * 0.75, btnY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 小标签「看广告」
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 9px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('看广告', btnX, btnY + 19);
     }
 }
 
@@ -2626,11 +2937,66 @@ function drawVictory() {
 }
 
 // 升级面板（带外框的精美弹窗）
+// 按卡片可用宽度截断技能名（末尾加 …），自适应不同卡片宽度
+function fitText(text, maxWidth) {
+    if (!text) return text;
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) {
+        t = t.slice(0, -1);
+    }
+    return t + '…';
+}
+
+// 三选一升级面板卡片尺寸（全局常量，绘制与点击检测共用，避免不一致）
+const UPGRADE_CARD_W = 95;
+const UPGRADE_CARD_H = 148;
+const UPGRADE_CARD_GAP = 8;
+
+// 按卡片内侧宽度把描述折成最多 maxLines 行，超出时最后一行末尾加 …
+// 优先在中文标点/空格处断行，避免行首出现标点
+function wrapText(text, maxWidth, maxLines) {
+    if (!text) return [];
+    const SEP = ' ，；。、/+%-';
+    // 把标点/空格贴在前面一个 token 上，保持行首不会是标点
+    const tokens = [];
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (SEP.includes(ch) && tokens.length) {
+            tokens[tokens.length - 1] += ch;
+        } else {
+            tokens.push(ch);
+        }
+    }
+    const lines = [];
+    for (const tk of tokens) {
+        const last = lines.length ? lines[lines.length - 1] : '';
+        const next = last + tk;
+        if (!last || ctx.measureText(next).width <= maxWidth) {
+            if (lines.length) lines[lines.length - 1] = next;
+            else lines.push(next);
+        } else {
+            lines.push(tk);
+        }
+    }
+    if (lines.length > maxLines) {
+        const kept = lines.slice(0, maxLines);
+        let last = kept[kept.length - 1];
+        while (last.length > 1 && ctx.measureText(last + '…').width > maxWidth) {
+            last = last.slice(0, -1);
+        }
+        kept[kept.length - 1] = last + '…';
+        return kept;
+    }
+    return lines;
+}
+
 function drawUpgradePanel() {
+    if (isSkillLab) { drawUpgradeList(); return; }
     // 计算面板尺寸
-    const cardW = 80;
-    const cardH = 95;
-    const cardGap = 8;
+    const cardW = UPGRADE_CARD_W;
+    const cardH = UPGRADE_CARD_H;
+    const cardGap = UPGRADE_CARD_GAP;
     const totalWidth = cardW * 3 + cardGap * 2;
 
     // 计算高度（根据是否显示炸弹提示）
@@ -2645,9 +3011,9 @@ function drawUpgradePanel() {
     const padding = 20;
     const panelH = titleH + bombReminderH + cardH + padding * 2 + 10;
 
-    const panelX = (screenWidth - totalWidth) / 2 - 25;
+    const panelX = Math.max(10, (screenWidth - totalWidth) / 2 - 25);
     const panelY = screenHeight - 130 - panelH;
-    const panelW = totalWidth + 50;
+    const panelW = Math.min(screenWidth - 20, totalWidth + 50);
     
     // 外框（皇室战争风深蓝面板 + 金色描边）
     drawRoyalePanel(panelX, panelY, panelW, panelH, 15);
@@ -2791,25 +3157,38 @@ function drawUpgradePanel() {
         
         // 图标
         ctx.fillStyle = '#fff';
-        ctx.font = '28px Arial';
+        ctx.font = '30px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(opt.icon, x + cardW / 2, y + 26);
+        ctx.fillText(opt.icon, x + cardW / 2, y + 32);
         
-        // 名称
+        // 名称（分支卡名字带大类前缀，字号略小以适配卡片宽度）
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 10px Arial';
-        ctx.fillText(opt.name, x + cardW / 2, y + 52);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (opt.branch) {
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText(fitText(opt.name, cardW - 10), x + cardW / 2, y + 58);
+            // 等级放在名字下方，蓝色小字（向大类卡看齐）
+            ctx.fillStyle = '#66aaff';
+            ctx.font = '10px Arial';
+            ctx.fillText('Lv.' + opt.branchLevel, x + cardW / 2, y + 74);
+        } else {
+            ctx.font = 'bold 11px Arial';
+            ctx.fillText(fitText(opt.name, cardW - 10), x + cardW / 2, y + 60);
+        }
         
-        // 描述
+        // 描述（按卡片内侧宽度自适应折行，最多 5 行，约可完整显示 50 个汉字）
         ctx.fillStyle = '#999';
         ctx.font = '8px Arial';
-        const desc = opt.desc;
-        if (desc.length > 10) {
-            ctx.fillText(desc.substring(0, 10), x + cardW / 2, y + 70);
-            ctx.fillText(desc.substring(10), x + cardW / 2, y + 82);
+        const descLines = wrapText(opt.desc || '', cardW - 14, 5);
+        const descY = opt.branch ? 90 : 88;
+        if (descLines.length === 1) {
+            ctx.fillText(descLines[0], x + cardW / 2, y + descY + 6);
         } else {
-            ctx.fillText(desc, x + cardW / 2, y + 76);
+            descLines.forEach((line, i) => {
+                ctx.fillText(line, x + cardW / 2, y + descY + i * 12);
+            });
         }
 
         // 质变节点徽标（Phase2）：下一级为质变节点时显示金色「质变」角标
@@ -2825,7 +3204,157 @@ function drawUpgradePanel() {
             ctx.fillStyle = '#000';
             ctx.fillText('质变', x + cardW - 16, y + 10);
         }
+
+        // 衍生分支卡徽标：紫色「分支」（与右上「质变」区分）
+        if (opt.branch) {
+            ctx.fillStyle = '#b06bff';
+            ctx.font = 'bold 9px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            roundRect(ctx, x + 4, y + 3, 30, 14, 4);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.fillText('分支', x + 19, y + 10);
+        }
     });
+}
+
+// 技能实验室：全技能网格布局（绘制与点击共用，保证命中一致）
+function getUpgradeListLayout() {
+    const cols = 3;
+    const n = upgradeOptions.length;
+    const rows = Math.max(1, Math.ceil(n / cols));
+    const panelX = 20;
+    const panelW = screenWidth - 40;
+    const cellGap = 8;
+    const cellW = (panelW - cellGap * (cols - 1)) / cols;
+    const maxRowH = 130;
+    const rowH = Math.min(maxRowH, (screenHeight - 170) / rows);
+    const gridTop = Math.max(64, (screenHeight - rows * rowH) / 2);
+    return { cols, rows, n, panelX, panelW, cellGap, cellW, rowH, gridTop };
+}
+
+// 技能实验室：把所有可选技能以网格列出，玩家点击任一即强化（5 槽上限同正式关）
+function drawUpgradeList() {
+    const L = getUpgradeListLayout();
+
+    // 半透明遮罩
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // 外框面板
+    drawRoyalePanel(L.panelX, 30, L.panelW, screenHeight - 60, 15);
+    ctx.strokeStyle = ROYALE.gold;
+    ctx.lineWidth = 3;
+    roundRect(ctx, L.panelX, 30, L.panelW, screenHeight - 60, 15);
+    ctx.stroke();
+
+    // 标题
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('技能实验室 · 自由选择（共 ' + L.n + ' 个）', screenWidth / 2, 55);
+
+    // 网格卡片
+    for (let i = 0; i < L.n; i++) {
+        const opt = upgradeOptions[i];
+        const c = i % L.cols;
+        const r = Math.floor(i / L.cols);
+        const x = L.panelX + c * (L.cellW + L.cellGap);
+        const y = L.gridTop + r * L.rowH;
+        const cellH = L.rowH - L.cellGap;
+        const isOwned = acquiredSkills.includes(opt.type);
+        const lv = (skills[opt.type] && skills[opt.type].level) || 0;
+
+        // 卡片背景
+        const grad = ctx.createLinearGradient(x, y, x, y + cellH);
+        grad.addColorStop(0, '#1c3a5e');
+        grad.addColorStop(1, '#0f2440');
+        ctx.fillStyle = grad;
+        roundRect(ctx, x, y, L.cellW, cellH, 10);
+        ctx.fill();
+
+        // 边框（已获得蓝色，未获得金色）
+        ctx.strokeStyle = isOwned ? '#66aaff' : '#ffd700';
+        ctx.lineWidth = 2;
+        roundRect(ctx, x, y, L.cellW, cellH, 10);
+        ctx.stroke();
+
+        // 图标
+        ctx.fillStyle = '#fff';
+        ctx.font = '30px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(opt.icon, x + L.cellW / 2, y + 26);
+
+        // 名称（分支卡名字带大类前缀）
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (opt.branch) {
+            ctx.font = 'bold 11px Arial';
+            ctx.fillText(fitText(opt.name, L.cellW - 12), x + L.cellW / 2, y + 46);
+            // 等级放在名字下方，蓝色小字（向大类卡看齐）
+            ctx.fillStyle = '#66aaff';
+            ctx.font = '10px Arial';
+            ctx.fillText('Lv.' + opt.branchLevel, x + L.cellW / 2, y + 62);
+        } else {
+            ctx.font = 'bold 13px Arial';
+            ctx.fillText(fitText(opt.name, L.cellW - 12), x + L.cellW / 2, y + 52);
+        }
+
+        // 等级 / 状态（非分支卡显示 Lv. 或 未获得；分支卡用顶部「分支」徽标）
+        if (!opt.branch) {
+            ctx.fillStyle = isOwned ? '#66aaff' : '#888';
+            ctx.font = 'bold 11px Arial';
+            ctx.fillText(isOwned ? ('Lv.' + lv) : '未获得', x + L.cellW / 2, y + 70);
+        }
+
+        // 描述（按卡片内侧宽度自适应折行，最多 2 行；分支卡因多了等级行，整体下移）
+        ctx.fillStyle = '#bbb';
+        ctx.font = '10px Arial';
+        const labDescLines = wrapText(opt.desc || '', L.cellW - 16, 2);
+        const descBaseY = opt.branch ? 80 : 88;
+        if (labDescLines.length === 1) {
+            ctx.fillText(labDescLines[0], x + L.cellW / 2, y + descBaseY + 8);
+        } else {
+            labDescLines.forEach((line, i) => {
+                ctx.fillText(line, x + L.cellW / 2, y + descBaseY + i * 13);
+            });
+        }
+
+        // 质变节点角标
+        const _nx = lv + 1;
+        const _qn = SKILL_DEFS[opt.type] && SKILL_DEFS[opt.type].qualNodes && SKILL_DEFS[opt.type].qualNodes[_nx];
+        if (_qn) {
+            ctx.fillStyle = '#ffd700';
+            roundRect(ctx, x + L.cellW - 34, y + 4, 30, 14, 4);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 9px Arial';
+            ctx.fillText('质变', x + L.cellW - 19, y + 11);
+        }
+
+        // 衍生分支卡徽标：紫色「分支」
+        if (opt.branch) {
+            ctx.fillStyle = '#b06bff';
+            roundRect(ctx, x + 4, y + 4, 30, 14, 4);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 9px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('分支', x + 19, y + 11);
+        }
+    }
+
+    // 底部提示
+    ctx.fillStyle = '#9aa';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('点击任意技能强化 · 5 槽上限同正式关 · 暂停可退出', screenWidth / 2, screenHeight - 35);
 }
 
 // ==================== 游戏逻辑 ====================
@@ -2842,28 +3371,48 @@ function shoot() {
     const n = player.bulletCount;
     
     for (let i = 0; i < n; i++) {
-        let bulletAngle;
-        if (player._ringShot) {
-            bulletAngle = (Math.PI * 2 / n) * i;   // 多重射击 Lv5 质变：环形散布
-        } else {
-            const spread = 0.15;
-            bulletAngle = baseAngle;
-            if (n > 1) bulletAngle += (i - (n - 1) / 2) * spread;
-        }
-        
+        const spread = 0.15;
+        let bulletAngle = baseAngle;
+        if (n > 1) bulletAngle += (i - (n - 1) / 2) * spread;
+
         const startX = player.x + Math.cos(baseAngle) * gunLength;
         const startY = player.y + Math.sin(baseAngle) * gunLength;
-        
+
+        // 火力强化分支派生修正（dmgMul 伤害、radiusMul 子弹体型）
+        const _dm = (skills.damage && skills.damage._mods) || { dmgMul: 1, radiusMul: 1 };
+
         bullets.push({
             x: startX,
             y: startY,
             vx: Math.cos(bulletAngle) * player.bulletSpeed,
             vy: Math.sin(bulletAngle) * player.bulletSpeed,
-            radius: 6,
-            damage: player.damage,
+            radius: 6 * _dm.radiusMul,
+            damage: player.damage * _dm.dmgMul,
             piercing: player.bulletPiercing,
             element: '物理',
             hitZombies: []
+        });
+    }
+}
+
+// 多重射击 Lv5 质变：子弹首次命中后，在命中点向 6 个方向迸射小弹
+function spawnSplitBullets(x, y, baseDamage, exclude) {
+    const count = 6;
+    const spd = player.bulletSpeed * 0.95;
+    const dmg = baseDamage * 0.5;   // 分裂小弹伤害减半
+    for (let k = 0; k < count; k++) {
+        const a = (Math.PI * 2 / count) * k;
+        bullets.push({
+            x: x,
+            y: y,
+            vx: Math.cos(a) * spd,
+            vy: Math.sin(a) * spd,
+            radius: 4,
+            damage: dmg,
+            piercing: 1,
+            element: '物理',
+            hitZombies: [exclude],   // 排除被命中的主目标，避免同点重复结算
+            isSplit: true            // 标记：分裂弹不再触发分裂，防止级联
         });
     }
 }
@@ -2886,7 +3435,10 @@ function updateBullets() {
             
             if (bullet.hitZombies.includes(zombie)) continue;
             
-            if (dist < bullet.radius + zombie.radius) {
+            // 火力强化·弹道校准：命中判定半径放大
+            const _hitboxMul = (skills.damage && skills.damage._mods) ? skills.damage._mods.hitboxMul : 1;
+            if (dist < bullet.radius * _hitboxMul + zombie.radius) {
+                const isFirstHit = bullet.hitZombies.length === 0;
                 bullet.hitZombies.push(zombie);
 
                 let damage = bullet.damage;
@@ -2897,6 +3449,12 @@ function updateBullets() {
                     damage *= getCritMult();
                     isCrit = true;
                     createCritEffect(zombie.x, zombie.y);
+                }
+
+                // 火力强化·穿甲弹头：对坦克/Boss 额外增伤（armorBonus 随分支等级累加）
+                if (skills.damage && skills.damage._mods && skills.damage._mods.armorBonus > 0 &&
+                    (zombie.type === 'tank' || zombie.type === 'boss')) {
+                    damage *= 1 + skills.damage._mods.armorBonus;
                 }
 
                 // 爆炸伤害
@@ -2954,6 +3512,18 @@ function updateBullets() {
                 
                 damageZombie(zombie, damage, isCrit, '物理');
                 checkCombos(zombie, '物理');
+
+                // 火力强化·后坐力：命中后将存活目标沿子弹来向击退一小段
+                if (skills.damage && skills.damage._mods && skills.damage._mods.knock && zombies.indexOf(zombie) > -1) {
+                    const _ka = Math.atan2(zombie.y - player.y, zombie.x - player.x);
+                    zombie.x += Math.cos(_ka) * skills.damage._mods.knockF;
+                    zombie.y += Math.sin(_ka) * skills.damage._mods.knockF;
+                }
+
+                // 多重射击 Lv5 质变：首次命中后，在命中点向多方向迸射小弹（仅主弹触发，分裂弹不再级联）
+                if (isFirstHit && !bullet.isSplit && player._splitOnHit) {
+                    spawnSplitBullets(bullet.x, bullet.y, damage, zombie);
+                }
 
                 // 穿透溅射（piercing Lv5 质变）
                 if (skills.piercing._splash) {
@@ -3518,7 +4088,7 @@ function spawnZombies(dt) {
             const roll = Math.random();
             const gameTimeSec = gameTime / 1000;
             
-            const bossChance = gameTimeSec > stage.bossTime ? 0.08 : 0;
+            const bossChance = (!isSkillLab && gameTimeSec > stage.bossTime) ? 0.08 : 0;
             const tankChance = gameTimeSec > 60 ? stage.tankChance : stage.tankChance * 0.5;
             const fastChance = stage.fastChance;
             
@@ -3595,17 +4165,69 @@ function levelUp() {
 function showUpgradePanel() {
     gameState = 'upgrade';
     
-    // 选择升级选项
-    let availableUpgrades;
-    if (acquiredSkills.length >= MAX_SKILLS) {
-        availableUpgrades = upgradePool.filter(u => acquiredSkills.includes(u.type));
-    } else {
-        availableUpgrades = [...upgradePool];
+    // 构建候选卡：已拥有大类的基础升级卡 + 其已解锁的衍生分支卡；未满槽时加入未拥有大类卡
+    const cards = [];
+    for (const t of acquiredSkills) {
+        const def = SKILL_DEFS[t];
+        // 基础升级卡（火力强化等大类始终可继续升级；其余技能按原逻辑升级）
+        cards.push({ type: t, name: def.name, icon: def.icon, desc: def.desc });
+        // 衍生分支卡（仅带 branches 的大类有）；图标沿用大类 icon，不另设
+        if (def.branches) {
+            const _taken = skills[t].branches || {};
+            for (const bid of getAvailableBranches(t)) {
+                const b = def.branches[bid];
+                const bl = _taken[bid] || 0;
+                cards.push({
+                    type: t, branch: bid, icon: def.icon,
+                    name: def.name + '-' + b.name,
+                    branchLevel: bl + 1,
+                    desc: b.desc
+                });
+            }
+        }
     }
-    
-    const shuffled = availableUpgrades.sort(() => Math.random() - 0.5);
-    upgradeOptions = shuffled.slice(0, 3);
+    if (acquiredSkills.length < MAX_SKILLS) {
+        for (const t of Object.keys(SKILL_DEFS)) {
+            if (!acquiredSkills.includes(t)) {
+                const def = SKILL_DEFS[t];
+                cards.push({ type: t, name: def.name, icon: def.icon, desc: def.desc });
+            }
+        }
+    }
+
+    if (isSkillLab) {
+        // 技能实验室：列出全部候选卡（含火力强化的所有可用分支），不随机抽 3
+        upgradeOptions = cards;
+    } else {
+        // 加权抽取 3 张：基础大类卡（尤其火力强化基础）加权，避免被多条分支卡挤掉。
+        // 基础与分支不互斥，都应能稳定刷出（"一定概率"）。
+        upgradeOptions = weightedPick3(cards);
+    }
     selectedUpgrade = -1;
+}
+
+// 三选一候选卡权重：火力强化基础卡加权（与分支不互斥，需稳定可刷出）；分支卡 1.0；其余已拥有/新技能 1.4
+function upgradeCardWeight(card) {
+    if (card.type === 'damage' && !card.branch) return 2.0;
+    if (card.branch) return 1.0;
+    return 1.4;
+}
+function weightedPick3(cards) {
+    const pool = cards.slice();
+    const out = [];
+    while (out.length < 3 && pool.length) {
+        let total = 0;
+        for (const c of pool) total += upgradeCardWeight(c);
+        let r = Math.random() * total;
+        let idx = pool.length - 1;
+        for (let i = 0; i < pool.length; i++) {
+            r -= upgradeCardWeight(pool[i]);
+            if (r <= 0) { idx = i; break; }
+        }
+        out.push(pool[idx]);
+        pool.splice(idx, 1);
+    }
+    return out;
 }
 
 // 应用升级
@@ -3617,6 +4239,13 @@ function applyUpgrade(upgrade) {
     }
     
     skills[upgrade.type].level++;
+    
+    // 衍生分支卡：选分支 = 该大类继续升级（不占新槽）；分支等级 +1 并重算派生修正
+    if (upgrade.branch) {
+        skills[upgrade.type].branches = skills[upgrade.type].branches || {};
+        skills[upgrade.type].branches[upgrade.branch] = (skills[upgrade.type].branches[upgrade.branch] || 0) + 1;
+        if (upgrade.type === 'damage') recomputeDamageMods();
+    }
     
     // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
     const _def = SKILL_DEFS[upgrade.type];
@@ -3730,6 +4359,10 @@ function startGame() {
     gameRunning = true;
     gameTime = 0;
     lastTime = Date.now();
+    adWatchCount = 0; // 每关重置看广告次数
+
+    // 预加载激励视频广告（流量主），提前初始化以便随时展示
+    ensureRewardedAd();
 
     // 初始化音频系统
     if (!AudioSystem.isInitialized) {
@@ -3759,10 +4392,13 @@ function startGame() {
     player.bulletSpeed = 10;
     player.bulletPiercing = 1;
     player.bulletCount = 1;
+    player._splitOnHit = false;   // 多重射击 Lv5 质变标志：首次命中后分裂（每局重置）
     
     // 重置技能
     for (const key of Object.keys(skills)) {
         skills[key].level = 0;
+        skills[key].qualified = {};        // 清理跨局残留的质变标记（避免重开后质变不重触）
+        skills[key].branches = {};         // 清理跨局残留的衍生分支选择
     }
     skills.damage.level = 1;
     acquiredSkills = ['damage'];
@@ -3781,6 +4417,8 @@ function startGame() {
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
     for (const key of Object.keys(skills)) fireQualNodes(key);
+    // 火力强化分支派生修正：开局按已选分支重算（本局 branches 已清空，等价于纯基础）
+    recomputeDamageMods();
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
@@ -3812,7 +4450,14 @@ function startGame() {
     spawnInterval = 1500;
 
     // 素材演示模式特殊处理
+    // 整个玩家生命周期只出现一次：首次以演示模式进入第一关后，立即置位并持久化，
+    // 之后（含重进第一关、重开游戏）都不再触发炸弹引导与初始金币怪批次。
+    // 技能实验室（山东入口）复用第一关配置，但不走买量演示。
+    isAdDemoMode = isAdDemoMode && !l1IntroDone && !isSkillLab;
     if (isAdDemoMode) {
+        l1IntroDone = true;
+        try { if (wx.setStorageSync) wx.setStorageSync('zombieHunterL1Intro', true); } catch (e) {}
+
         adDemoState = 'guiding';
         adDemoTimer = 0;
         adBombExploded = false;
@@ -3932,7 +4577,7 @@ function adDemoBombExplosion() {
 
 // ==================== 游戏更新 ====================
 function update(dt) {
-    if (gameTime >= GAME_TIME_LIMIT) {
+    if (!isSkillLab && gameTime >= GAME_TIME_LIMIT) {
         victory();
         return;
     }
@@ -3955,7 +4600,7 @@ function update(dt) {
     
     // 自动射击
     const now = Date.now();
-    if (zombies.length > 0 && now - player.lastShot > player.fireRate) {
+    if (zombies.length > 0 && now - player.lastShot > player.fireRate * ((skills.damage && skills.damage._mods) ? skills.damage._mods.fireMul : 1)) {
         shoot();
         player.lastShot = now;
     }
@@ -4022,7 +4667,8 @@ const OTHER_GAMES = [
     { id: 'sqsdscj', name: '数钱数到手抽筋', emoji: '💰', icon: 'images/sqsdscjicon.png', appId: '', mode: 'ingame', alpha: 'S' },
     { id: 'shenjingmao', name: '围住神经猫', emoji: '😼', icon: 'images/shenjingmaoicon.png', appId: '', mode: 'ingame', alpha: 'W' },
     { id: 'yibihua', name: '一笔画', emoji: '✏️', icon: 'images/yibihuaicon.png', appId: '', mode: 'ingame', alpha: 'Y' },
-    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'D' }
+    { id: 'sheqiu', name: '大力射手', emoji: '⚽', icon: 'images/sheqiuicon.png', appId: '', mode: 'ingame', alpha: 'D' },
+    { id: 'beishumen', name: '守桥射击', emoji: '🛡️', icon: '', appId: '', mode: 'ingame', alpha: 'M' }
 ];
 
 // 其他游戏图标图片表：id -> 已加载的 Image（优先于 emoji 显示）
@@ -4060,6 +4706,10 @@ let sqsdMoneyImg = null, sqsdMoneyLoaded = false; // 数钱数到手抽筋钞票
 // 暴打神经猫（内嵌）
 let bdsjm = null;
 let bdsjmBest = 0;
+
+// 倍增门（内嵌）：确定性门运算 + 车道切换下落小游戏
+let gSq = null;
+let gSqBest = 0;
 
 // ===== 其他游戏页：累计时长 / 最高分 / 滚动 状态 =====
 let miniGamePlaySeconds = {};     // id -> 累计游玩秒数（持久化到本地）
@@ -5722,6 +6372,8 @@ function drawMainMenuWorld() {
         // 省份背景（使用渐变色）
         if (isSelected) {
             ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
+        } else if (p.name === '山东') {
+            ctx.fillStyle = '#7a4fa0'; // 技能实验室入口：紫色高亮区分
         } else if (isGrad1(i)) {
             ctx.fillStyle = '#2a5a8a';
         } else {
@@ -5745,6 +6397,13 @@ function drawMainMenuWorld() {
         ctx.font = `bold ${Math.max(7, 9 * scale)}px Arial`;
         ctx.textAlign = 'center';
         ctx.fillText(p.name, px + pw / 2, py + ph / 2 + 3);
+
+        // 山东：技能实验室入口提示
+        if (p.name === '山东') {
+            ctx.fillStyle = '#ffd700';
+            ctx.font = `bold ${Math.max(6, 8 * scale)}px Arial`;
+            ctx.fillText('🧪 实验室', px + pw / 2, py + ph - 8);
+        }
     }
 
     ctx.restore();
@@ -7503,6 +8162,484 @@ function handleMiniGame2048Input(x, y) {
     g2048Move(dir);
 }
 
+// ==================== 守桥射击（内嵌小游戏，复刻豆包设计文档 V1.1） ====================
+// 竖屏词条肉鸽 + 守桥防守：玩家在底部横向拖动，子弹自动竖直上射；
+// 左侧宝箱可击碎掉落「词条符咒」强化自身，右侧敌人自上而下突破防线，越线扣防线生命；
+// 清完所有波次即过关，防线生命归零则失败。金龙宝箱击碎触发「仙道/魔道」阵营二选一。
+// 数值严格按文档 V1.1：初始攻击8/间隔0.5s/弹道3/暴击5%/暴伤150%/防线10/护盾3/移速450；
+// 宝箱血=200×类型系数×位置系数×K（第1关+30%）；敌人血=40×类型系数×K×波增。
+// 坐标用 1080×1920 比例映射到当前画布。当前范围：核心循环 + 第1关（L2–L5 数据已结构化预留，后续直接扩展）。
+// 复用框架共用件：drawMiniGameButton / drawScoreBox / roundRect / inRect / flushMiniGameSeconds / drawBackground。
+
+// ---- 关卡数据（V1.1 文档全量；此处先启用 L1，其余按文档扩展）----
+const SQ_LEVELS = [
+  { // 第1关 K=1.0
+    K: 1.0,
+    chestHPMul: 1.30, // 第1关宝箱血 +30%（V1.1）
+    chests: [
+      { pos:1, type:'wood',   hp:260,  drop:{white:1.0} },
+      { pos:2, type:'wood',   hp:390,  drop:{white:0.7, green:0.3} },
+      { pos:3, type:'wood',   hp:572,  drop:{green:1.0} },
+      { pos:4, type:'jade',   hp:1950, drop:{green:0.6, blue:0.35, gold:0.05} },
+      { pos:5, type:'dragon', hp:5460, drop:{gold:1.0} }
+    ],
+    waves: [
+      { t:0,  list:[{type:'mob',count:12,hp:40}] },
+      { t:6,  list:[{type:'mob',count:14,hp:43}] },
+      { t:12, list:[{type:'mob',count:10,hp:46},{type:'fast',count:5,hp:144}] }
+    ],
+    loop: { interval:6, count:5, hpMul:1.07, hpCap:2.0, list:[{type:'mob',count:10,hp:46},{type:'fast',count:5,hp:144}] }
+  }
+  // TODO L2..L5 后续按文档接入
+];
+
+// 宝箱类型系数 / 颜色（V1.1）
+const SQ_CHEST = {
+  wood:   { coef:1.0,  color:'#b5793a', name:'木箱' },
+  jade:   { coef:2.5,  color:'#3ad6a0', name:'玉箱' },
+  timed:  { coef:1.8,  color:'#e0c14a', name:'限时' },
+  ice:    { coef:4.0,  color:'#7fd4ff', name:'冰盾' },
+  dragon: { coef:5.25, color:'#ffcf3a', name:'金龙' }
+};
+
+// 敌人类型系数（血/速/突破扣血）；速基 80×coef px/s（文档），绘制时按比例映射
+const SQ_ENEMY = {
+  mob:   { hpCoef:1.0, spdCoef:1.0, breach:1, color:'#ff8a5c', r:16 },
+  fast:  { hpCoef:0.6, spdCoef:1.8, breach:1, color:'#ffe14d', r:13 },
+  armor: { hpCoef:3.0, spdCoef:0.6, breach:2, color:'#9aa7b5', r:20 },
+  elite: { hpCoef:8.0, spdCoef:0.8, breach:3, color:'#c46bff', r:24 },
+  boss:  { hpCoef:25.0,spdCoef:0.5, breach:5, color:'#ff4d6d', r:42 }
+};
+
+// 词条品质颜色（V1.1）
+const SQ_QUALITY = {
+  white: { color:'#e8e8e8', name:'白' },
+  green: { color:'#5fe06a', name:'绿' },
+  blue:  { color:'#5aa8ff', name:'蓝' },
+  gold:  { color:'#ffcf3a', name:'金' }
+};
+
+// 每个品质下的具体词条池（V1.1）；apply 对 gSq 直接修饰。百分比均为加法叠加。
+const SQ_AFFIX_POOL = {
+  white: [
+    { name:'攻击符Ⅰ', apply:(s)=>{ s.attack+=3; } },
+    { name:'速符Ⅰ',   apply:(s)=>{ s.interval=Math.max(0.1,s.interval-0.04); } },
+    { name:'加固符',   apply:(s)=>{ s.lineHP+=2; s.lineHPMax+=2; } }
+  ],
+  green: [
+    { name:'攻击符Ⅱ', apply:(s)=>{ s.attack+=10; } },
+    { name:'攻击增幅Ⅰ', apply:(s)=>{ s.attackPct+=0.08; } },
+    { name:'速符Ⅱ',   apply:(s)=>{ s.interval=Math.max(0.1,s.interval-0.08); } },
+    { name:'爆符',     apply:(s)=>{ s.critRate+=0.08; } },
+    { name:'穿透符',   apply:(s)=>{ s.pierce+=1; } }
+  ],
+  blue: [
+    { name:'攻击符Ⅲ', apply:(s)=>{ s.attack+=30; } },
+    { name:'攻击增幅Ⅱ', apply:(s)=>{ s.attackPct+=0.20; } },
+    { name:'速符Ⅲ',   apply:(s)=>{ s.interval=Math.max(0.1,s.interval-0.12); } },
+    { name:'爆伤符',   apply:(s)=>{ s.critDmg+=0.40; } },
+    { name:'破甲符',   apply:(s)=>{ s.breakArmor=true; } },
+    { name:'弹射符',   apply:(s)=>{ s.ricochet+=1; } }
+  ],
+  gold: [
+    { name:'攻击符Ⅳ', apply:(s)=>{ s.attackPct+=0.30; s.projectile+=1; } },
+    { name:'极速符',   apply:(s)=>{ s.interval=Math.max(0.1,s.interval-0.20); } },
+    { name:'暴击宗师', apply:(s)=>{ s.critRate+=0.15; s.critDmg+=0.80; } },
+    { name:'爆炸符',   apply:(s)=>{ s.explode=true; } }
+  ]
+};
+
+function sqLayout() {
+  const margin = 14;
+  const DW = 1080, DH = 1920;
+  const defLineY = (1600/DH)*screenHeight;       // 防线
+  const playerY  = (1680/DH)*screenHeight;       // 玩家（1600-1750 区间）
+  const chestTopY= (200/DH)*screenHeight;        // 宝箱区顶端
+  const enemyX0  = (560/DW)*screenWidth;         // 敌人通路左
+  const enemyX1  = (960/DW)*screenWidth;         // 敌人通路右
+  const chestX   = (300/DW)*screenWidth;         // 宝箱列 x（120-520 区中部）
+  const chestW   = (170/DW)*screenWidth;
+  // 底部按钮与其他小游戏统一：w84 h32，bottomY = screenHeight-16-32
+  const btnH = 32, btnY = screenHeight - 16 - btnH;
+  const backBtn = { x:margin, y:btnY, w:84, h:btnH };
+  const restartBtn = { x:screenWidth-margin-84, y:btnY, w:84, h:btnH };
+  return { margin, DW, DH, defLineY, playerY, chestTopY, enemyX0, enemyX1, chestX, chestW, backBtn, restartBtn };
+}
+
+function sqChestY(L, pos) {
+  const topY = L.chestTopY;
+  const botY = L.defLineY - (90/L.DH)*screenHeight;
+  return botY + (topY - botY) * ((pos-1)/6); // pos1 底 → pos7 顶
+}
+
+function sqInit() {
+  const L = sqLayout();
+  const lv = SQ_LEVELS[0];
+  gSq = {
+    level: 0, K: lv.K,
+    attack: 8, attackPct: 0, interval: 0.5,
+    projectile: 3, critRate: 0.05, critDmg: 1.5,
+    pierce: 0, ricochet: 0, explode: false, breakArmor: false,
+    lineHP: 10, lineHPMax: 10, lineShield: 3,
+    faction: null,
+    playerX: screenWidth/2, playerY: L.playerY, radius: 20,
+    bullets: [], enemies: [], chests: [], orbs: [], floats: [],
+    fireTimer: 0, enemyId: 0,
+    waves: lv.waves.map(w=>({ t:w.t, list:w.list, done:false })),
+    loop: lv.loop, waveTimer: 0, loopTimer: 0, loopCount: 0,
+    spawnedAll: false, win: false, gameOver: false, factionChoice: false,
+    pendingFactionAffix: null, factionBtns: null,
+    score: 0, kills: 0, chestsBroken: 0,
+    lastTick: Date.now(), shake: 0
+  };
+  for (const c of lv.chests) {
+    gSq.chests.push({
+      pos:c.pos, type:c.type, hp:c.hp, hpMax:c.hp, drop:c.drop,
+      x:L.chestX, y:sqChestY(L,c.pos), w:L.chestW, h:(130/L.DH)*screenHeight,
+      broken:false, shieldAcc:0, brokenShield:false,
+      timer: c.type==='timed' ? 25 : 0
+    });
+  }
+  try { gSqBest = (wx.getStorageSync && wx.getStorageSync('sqBest')) || 0; } catch(e){ gSqBest = 0; }
+}
+
+function sqUpdate(dsec) {
+  const g = gSq, L = sqLayout();
+  if (g.gameOver || g.win || g.factionChoice) return;
+
+  // 自动开火（竖直上射，多弹道小幅散布）
+  g.fireTimer -= dsec;
+  if (g.fireTimer <= 0) {
+    g.fireTimer += g.interval;
+    const dmgBase = g.attack * (1 + g.attackPct);
+    const n = g.projectile;
+    const spread = (n>1) ? (g.radius*1.8) : 0;
+    for (let i=0;i<n;i++) {
+      const off = (n>1) ? (-spread/2 + spread*i/(n-1)) : 0;
+      const crit = Math.random() < g.critRate;
+      g.bullets.push({ x:g.playerX+off, y:g.playerY-g.radius, vy:-(1100/L.DH)*screenHeight,
+        dmg:dmgBase*(crit?g.critDmg:1), crit, pierce:g.pierce, hitSet:[], explode:g.explode });
+    }
+  }
+
+  // 子弹移动 + 命中（命中循环用 slice 快照，避免微信高混淆 splice 越界）
+  for (const b of g.bullets.slice()) {
+    b.y += b.vy*dsec;
+    if (b.y < -20) { b.dead = true; continue; }
+    for (const c of g.chests) {
+      if (c.broken) continue;
+      if (b.x > c.x-c.w/2 && b.x < c.x+c.w/2 && b.y < c.y+c.h/2 && b.y > c.y-c.h/2) {
+        sqDamageChest(c, b.dmg);
+        if (b.pierce > 0) b.pierce--; else b.dead = true;
+        break;
+      }
+    }
+    if (b.dead) continue;
+    for (const e of g.enemies.slice()) {
+      if (b.hitSet.indexOf(e.id) !== -1) continue;
+      const dx=b.x-e.x, dy=b.y-e.y, rr=(e.r+4);
+      if (dx*dx+dy*dy <= rr*rr) {
+        sqDamageEnemy(e, b.dmg, b.crit);
+        b.hitSet.push(e.id);
+        if (b.explode) sqExplode(e, b.dmg*0.7);
+        if (b.pierce > 0) b.pierce--; else { b.dead = true; break; }
+      }
+    }
+  }
+  g.bullets = g.bullets.filter(b=>!b.dead);
+
+  // 敌人下移 + 越防线
+  for (const e of g.enemies.slice()) {
+    const spd = (80*SQ_ENEMY[e.type].spdCoef)/L.DH*screenHeight;
+    e.y += spd*dsec;
+    if (e.y - e.r >= L.defLineY) { sqBreach(e); e.dead = true; }
+  }
+  g.enemies = g.enemies.filter(e=>!e.dead);
+
+  // 符咒下落 + 玩家触碰拾取（60px/s）
+  for (const o of g.orbs.slice()) {
+    o.y += (60/L.DH)*screenHeight*dsec;
+    const dx=o.x-g.playerX, dy=o.y-g.playerY, rr=(g.radius+o.r);
+    if (dx*dx+dy*dy <= rr*rr) { sqPickAffix(o); o.dead = true; }
+    if (o.y > screenHeight+20) o.dead = true;
+  }
+  g.orbs = g.orbs.filter(o=>!o.dead);
+
+  // 飘字
+  for (const f of g.floats) { f.y -= 30*dsec; f.life -= dsec; }
+  g.floats = g.floats.filter(f=>f.life>0);
+
+  sqSpawnWaves(dsec);
+  if (g.shake > 0) g.shake -= dsec;
+
+  if (g.lineHP <= 0) { g.gameOver = true; sqSaveBest(); }
+  if (g.spawnedAll && g.enemies.length === 0) { g.win = true; sqSaveBest(); }
+}
+
+function sqDamageChest(c, dmg) {
+  const g = gSq;
+  let dealt = dmg;
+  if (c.type === 'ice' && !g.breakArmor) {
+    dealt = Math.max(1, c.hpMax*0.01);
+    c.shieldAcc += dealt;
+    if (c.shieldAcc >= c.hpMax*0.10) c.brokenShield = true;
+  }
+  c.hp -= dealt;
+  if (c.hp <= 0 && !c.broken) { c.broken = true; sqBreakChest(c); }
+}
+
+function sqBreakChest(c) {
+  const g = gSq;
+  g.chestsBroken++; g.score += 50;
+  if (g.faction === 'xian') { g.lineHP = Math.min(g.lineHPMax, g.lineHP+1); g.lineShield += 1; }
+  // 限时宝箱倒计时结束降级（蓝→绿 / 金→蓝），血量不变（L1 无，逻辑预留）
+  let drop = c.drop;
+  const qs = Object.keys(drop);
+  let r = Math.random(), acc = 0, q = qs[0];
+  for (const k of qs) { acc += drop[k]; if (r <= acc) { q = k; break; } }
+  const pool = SQ_AFFIX_POOL[q];
+  const aff = pool[Math.floor(Math.random()*pool.length)];
+  if (c.type === 'dragon') { g.factionChoice = true; g.pendingFactionAffix = { q, aff }; return; }
+  g.orbs.push({ x:c.x, y:c.y, r:14, q, aff });
+}
+
+function sqPickAffix(o) {
+  const g = gSq;
+  o.aff.apply(g);
+  // 仙道：每碎宝箱回1生命+1护盾（已在 sqBreakChest 处理）；此处仅结算
+  g.score += 20;
+  g.floats.push({ x:o.x, y:o.y, text:o.aff.name, color:SQ_QUALITY[o.q].color, life:0.9 });
+}
+
+function sqDamageEnemy(e, dmg, crit) {
+  const g = gSq;
+  let dd = dmg;
+  if (g.breakArmor && e.type === 'armor') dd *= 1.5;
+  e.hp -= dd;
+  g.floats.push({ x:e.x, y:e.y-10, text:Math.round(dd)+(crit?'!':''), color:crit?'#ffd700':'#fff', life:0.5 });
+  if (e.hp <= 0 && !e.dead) {
+    e.dead = true; g.kills++; g.score += 10;
+    if (g.faction === 'mo' && Math.random() < 0.10) g.lineHP = Math.min(g.lineHPMax, g.lineHP+1);
+  }
+}
+
+function sqExplode(e, dmg) {
+  const g = gSq;
+  const R = (120/L.DH)*screenHeight;
+  for (const o of g.enemies.slice()) {
+    if (o === e || o.dead) continue;
+    const dx=o.x-e.x, dy=o.y-e.y;
+    if (dx*dx+dy*dy <= (R+o.r)*(R+o.r)) sqDamageEnemy(o, dmg, false);
+  }
+}
+
+function sqBreach(e) {
+  const g = gSq;
+  let rem = SQ_ENEMY[e.type].breach * (g.faction === 'mo' ? 1.5 : 1);
+  if (g.lineShield > 0) { const a = Math.min(g.lineShield, rem); g.lineShield -= a; rem -= a; }
+  if (rem > 0) g.lineHP -= rem;
+  g.shake = 0.25;
+}
+
+function sqSpawnWaves(dsec) {
+  const g = gSq;
+  g.waveTimer += dsec;
+  for (const w of g.waves) {
+    if (!w.done && g.waveTimer >= w.t) { sqSpawnWave(w.list); w.done = true; }
+  }
+  if (g.waves.every(w=>w.done)) {
+    if (g.loopCount < g.loop.count) {
+      g.loopTimer += dsec;
+      if (g.loopTimer >= g.loop.interval) {
+        g.loopTimer = 0; g.loopCount++;
+        const hpMul = Math.min(g.loop.hpCap, Math.pow(g.loop.hpMul, g.loopCount));
+        const cntMul = Math.pow(1.15, g.loopCount);
+        const list = g.loop.list.map(en=>({ type:en.type, count:Math.round(en.count*cntMul), hp:Math.round(en.hp*hpMul) }));
+        sqSpawnWave(list);
+      }
+    } else {
+      g.spawnedAll = true;
+    }
+  }
+}
+
+function sqSpawnWave(list) {
+  const g = gSq, L = sqLayout();
+  let idc = g.enemyId;
+  for (const e of list) {
+    for (let i=0;i<e.count;i++) {
+      const x = L.enemyX0 + Math.random()*(L.enemyX1-L.enemyX0);
+      const y = -20 - Math.random()*120;
+      g.enemies.push({ id:idc++, type:e.type, x, y, r:SQ_ENEMY[e.type].r, hp:e.hp, hpMax:e.hp });
+    }
+  }
+  g.enemyId = idc;
+}
+
+function sqApplyFaction(f) {
+  const g = gSq;
+  g.faction = f; g.factionChoice = false;
+  if (f === 'xian') {
+    g.attack *= 1.12; g.attackPct += 0.12; g.interval *= 0.88; // 全属性 +12%
+    g.lineHP = Math.min(g.lineHPMax, g.lineHP+1); g.lineShield += 1;
+  } else {
+    g.attackPct += 0.45; g.interval *= 0.80; // 攻击+45% 攻速+20%
+  }
+  if (g.pendingFactionAffix) {
+    g.orbs.push({ x:g.playerX, y:g.playerY-40, r:14, q:g.pendingFactionAffix.q, aff:g.pendingFactionAffix.aff });
+    g.pendingFactionAffix = null;
+  }
+}
+
+function sqSaveBest() {
+  const g = gSq;
+  if (g.score > gSqBest) {
+    gSqBest = g.score;
+    try { if (wx.setStorageSync) wx.setStorageSync('sqBest', gSqBest); } catch(e) {}
+  }
+}
+
+function drawFactionBtn(b, title, desc) {
+  ctx.fillStyle = 'rgba(78,168,255,0.25)';
+  roundRect(ctx, b.x, b.y, b.w, b.h, 10); ctx.fill();
+  ctx.strokeStyle = '#4ea8ff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(title, b.x+b.w/2, b.y+24);
+  ctx.font = '12px Arial'; ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillText(desc, b.x+b.w/2, b.y+48);
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawMiniGameSq() {
+  if (!gSq) { drawBackground(); return; }
+  const g = gSq, L = sqLayout();
+  const now = Date.now();
+  const dsec = Math.min((now - g.lastTick)/1000, 0.05);
+  g.lastTick = now;
+  sqUpdate(dsec);
+
+  drawBackground();
+
+  ctx.save();
+  if (g.shake > 0) { const s = g.shake*10; ctx.translate((Math.random()-0.5)*s, (Math.random()-0.5)*s); }
+
+  // 防御线
+  ctx.strokeStyle = 'rgba(255,80,80,0.85)'; ctx.lineWidth = 2; ctx.setLineDash([10,8]);
+  ctx.beginPath(); ctx.moveTo(0, L.defLineY); ctx.lineTo(screenWidth, L.defLineY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,80,80,0.7)'; ctx.font = '11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('⚠ 防线', screenWidth/2, L.defLineY-4);
+
+  // 宝箱
+  for (const c of g.chests) {
+    if (c.broken) continue;
+    ctx.fillStyle = SQ_CHEST[c.type].color;
+    roundRect(ctx, c.x-c.w/2, c.y-c.h/2, c.w, c.h, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2; ctx.stroke();
+    const hpFrac = Math.max(0, c.hp/c.hpMax);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(c.x-c.w/2, c.y-c.h/2-8, c.w, 5);
+    ctx.fillStyle = '#7CFC00'; ctx.fillRect(c.x-c.w/2, c.y-c.h/2-8, c.w*hpFrac, 5);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(SQ_CHEST[c.type].name, c.x, c.y);
+    if (c.type === 'ice' && !c.brokenShield) { ctx.fillStyle = 'rgba(127,212,255,0.95)'; ctx.fillText('冰盾', c.x, c.y+14); }
+    if (c.type === 'timed') { ctx.fillStyle = '#fff'; ctx.fillText(Math.ceil(c.timer)+'s', c.x, c.y+14); }
+  }
+
+  // 敌人
+  for (const e of g.enemies) {
+    ctx.fillStyle = SQ_ENEMY[e.type].color;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+    const f = Math.max(0, e.hp/e.hpMax);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(e.x-e.r, e.y-e.r-6, e.r*2, 4);
+    ctx.fillStyle = '#ff5c5c'; ctx.fillRect(e.x-e.r, e.y-e.r-6, e.r*2*f, 4);
+  }
+
+  // 子弹
+  ctx.fillStyle = '#ffe066';
+  for (const b of g.bullets) ctx.fillRect(b.x-2, b.y-8, 4, 12);
+
+  // 符咒
+  for (const o of g.orbs) {
+    ctx.fillStyle = SQ_QUALITY[o.q].color;
+    ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // 玩家
+  ctx.fillStyle = '#4ea8ff';
+  ctx.beginPath(); ctx.arc(g.playerX, g.playerY, g.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(g.playerX, g.playerY-g.radius); ctx.lineTo(g.playerX, g.playerY-g.radius-10); ctx.stroke();
+
+  // 飘字
+  for (const f of g.floats) {
+    ctx.fillStyle = f.color; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.globalAlpha = Math.min(1, f.life*2); ctx.fillText(f.text, f.x, f.y); ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+
+  // 顶部 HUD
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText('守桥射击', L.margin, 22);
+  const barX = L.margin, barY = 30, barW = screenWidth*0.5, barH = 12;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; roundRect(ctx, barX, barY, barW, barH, 6); ctx.fill();
+  const hpFrac = Math.max(0, Math.min(1, g.lineHP/g.lineHPMax));
+  ctx.fillStyle = '#ff4d4d'; roundRect(ctx, barX, barY, barW*hpFrac, barH, 6); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = '11px Arial';
+  ctx.fillText('防线 '+Math.ceil(Math.max(0,g.lineHP))+'/'+g.lineHPMax+'  护盾'+g.lineShield, barX+4, barY+10);
+  const scoreW = (screenWidth - L.margin*2 - 10)/2;
+  drawScoreBox(L.margin, 48, scoreW, 34, '攻击', Math.round(g.attack*(1+g.attackPct)));
+  drawScoreBox(L.margin+scoreW+10, 48, scoreW, 34, '得分', g.score);
+
+  // 阵营选择遮罩
+  if (g.factionChoice) {
+    ctx.fillStyle = 'rgba(15,27,45,0.9)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = '#ffd700'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('金龙现世 · 选择阵营', screenWidth/2, screenHeight*0.3);
+    const bw = screenWidth*0.72, bh = 70, bx = (screenWidth-bw)/2;
+    const xianBtn = { x:bx, y:screenHeight*0.42, w:bw, h:bh };
+    const moBtn = { x:bx, y:screenHeight*0.42+bh+20, w:bw, h:bh };
+    g.factionBtns = { xian:xianBtn, mo:moBtn };
+    drawFactionBtn(xianBtn, '仙道', '全属性+12% · 碎箱回血回盾 · 稳健');
+    drawFactionBtn(moBtn, '魔道', '攻击+45% 攻速+20% · 击杀回血 · 受创+50%');
+  }
+
+  // 胜利 / 失败遮罩（按钮最后画，置顶）
+  if (g.win || g.gameOver) {
+    ctx.fillStyle = 'rgba(15,27,45,0.86)'; ctx.fillRect(0, 0, screenWidth, screenHeight);
+    ctx.fillStyle = g.win ? '#7CFC00' : '#ff5656'; ctx.font = 'bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(g.win ? '过关！' : '防线失守', screenWidth/2, screenHeight/2-18);
+    ctx.fillStyle = '#fff'; ctx.font = '15px Arial';
+    ctx.fillText('得分 '+g.score+' · 历史最高 '+gSqBest, screenWidth/2, screenHeight/2+12);
+    ctx.fillText(g.win ? '（第1关 · 后续关卡开发中）' : '点「↻ 重玩」再来一局', screenWidth/2, screenHeight/2+36);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  drawMiniGameButton(L.backBtn, '‹ 返回', 'gray');
+  drawMiniGameButton(L.restartBtn, '↻ 重玩', 'green');
+}
+
+function handleMiniGameSqInput(x, y) {
+  if (!gSq) return;
+  const L = sqLayout();
+  if (inRect(x, y, L.backBtn)) { flushMiniGameSeconds(); activeMiniGame = null; otherGamesModal.show = true; return; }
+  if (inRect(x, y, L.restartBtn)) { flushMiniGameSeconds(); sqInit(); return; }
+  if (gSq.gameOver || gSq.win) return;
+  if (gSq.factionChoice) {
+    if (gSq.factionBtns) {
+      if (inRect(x, y, gSq.factionBtns.xian)) sqApplyFaction('xian');
+      else if (inRect(x, y, gSq.factionBtns.mo)) sqApplyFaction('mo');
+    }
+    return;
+  }
+  gSq.playerX = Math.max(gSq.radius, Math.min(screenWidth - gSq.radius, x));
+}
+
+
 function startMiniGame(game) {
     ensureMiniGameStatsLoaded();
     if (game.id === '2048') {
@@ -7516,6 +8653,10 @@ function startMiniGame(game) {
     } else if (game.id === 'bdsjm') {
         gBdsjmInit();
         activeMiniGame = 'bdsjm';
+        otherGamesModal.show = false;
+    } else if (game.id === 'beishumen') {
+        sqInit();
+        activeMiniGame = 'beishumen';
         otherGamesModal.show = false;
     } else if (game.id === 'qiexigua') {
         gQiexiguaInit();
@@ -10349,8 +11490,8 @@ function handleMiniGameDlsqInput(x, y) {
 function handleWorldClick(x, y) {
     const navH = MAIN_MENU_NAV_H;
     const padding = 15;
-    const headerH = 50;
-    const mapY = headerH + 10;
+    // 必须与 drawMainMenuWorld 的地图布局完全一致，否则点到的省份和命中的省份错位
+    const mapY = SAFE_TOP_OFFSET + 40;
     const mapW = screenWidth - padding * 2;
     const mapX = padding;
     const mapH = mapW;
@@ -10368,6 +11509,13 @@ function handleWorldClick(x, y) {
     // 查找点击的省份
     for (const p of PROVINCES) {
         if (relX >= p.x && relX < p.x + p.w && relY >= p.y && relY < p.y + p.h) {
+            if (p.name === '山东') {
+                // 技能实验室入口：复用第一关（霜冻平原）配置，进入全技能自由选择模式
+                currentStage = 1;
+                isSkillLab = true;
+                startGame();
+                return;
+            }
             selectedProvince = p.name;
             return;
         }
@@ -10435,6 +11583,7 @@ function handleMainMenuTouch(x, y) {
                     if (isUnlocked && x >= cx && x <= cx + cardW && y >= cy && y <= cy + cardH) {
                         currentStage = levelNum;
                         isAdDemoMode = (levelNum === 1);
+                        isSkillLab = false;
                         startGame();
                     }
                 });
@@ -10496,6 +11645,8 @@ function gameLoop() {
             drawMiniGameQmxz();
         } else if (activeMiniGame === 'bdsjm') {
             drawMiniGameBdsjm();
+        } else if (activeMiniGame === 'beishumen') {
+            drawMiniGameSq();
         } else if (activeMiniGame === 'qiexigua') {
             drawMiniGameQiexigua();
         } else if (activeMiniGame === 'feidegenggao') {
@@ -10687,6 +11838,12 @@ wx.onTouchStart((e) => {
             levelTouchStartX = x;  // 复用levelTouchStart坐标
             levelTouchStartY = y;
         }
+
+        // 世界Tab：设置触摸起点（否则 handleWorldClick 用到的 levelTouchStart 会停留在切 tab 时的导航坐标，导致点省份无反应）
+        if (mainMenuTab === 'world') {
+            levelTouchStartX = x;
+            levelTouchStartY = y;
+        }
     } else if (gameState === 'start') {
         const btnW = 140, btnH = 45;
         const btnX = screenWidth / 2 - btnW / 2;
@@ -10773,6 +11930,7 @@ wx.onTouchStart((e) => {
                 savePlayerData();  // 保存玩家数据
                 gameState = 'mainMenu';
                 mainMenuTab = 'level';  // 确保回到关卡Tab
+                isSkillLab = false;
                 gamePaused = false;
                 return;
             }
@@ -10783,19 +11941,44 @@ wx.onTouchStart((e) => {
             const btnR = 30; // 稍微大一点的点击区域
             const dist = Math.hypot(x - btnX, y - btnY);
             
-            if (dist <= btnR && bombCount > 0 && bombCooldown <= 0) {
-                if (isAdDemoMode && !adBombExploded) {
-                    adDemoBombExplosion();
+            if (dist <= btnR) {
+                if (bombCount > 0 && bombCooldown <= 0) {
+                    if (isAdDemoMode && !adBombExploded) {
+                        adDemoBombExplosion();
+                    } else {
+                        useBomb();
+                    }
                 } else {
-                    useBomb();
+                    // 无弹 / 冷却中：看激励视频广告，达标后补发一颗炸弹并立即释放
+                    if (adWatchCount >= AD_WATCH_MAX_PER_LEVEL) {
+                        // 每关看广告次数已达上限（3 次），不再弹出广告
+                        if (typeof wx !== 'undefined' && wx.showToast) {
+                            wx.showToast({ title: '本关观看次数已用完', icon: 'none' });
+                        }
+                    } else {
+                        showRewardedAd(() => grantAdBombAndRelease());
+                    }
                 }
             }
         }
     } else if (gameState === 'upgrade') {
+        if (isSkillLab) {
+            // 技能实验室：网格点击检测（与getUpgradeListLayout一致）
+            const L = getUpgradeListLayout();
+            if (y >= L.gridTop && y <= L.gridTop + L.rows * L.rowH && x >= L.panelX && x <= L.panelX + L.panelW) {
+                const col = Math.floor((x - L.panelX) / (L.cellW + L.cellGap));
+                const row = Math.floor((y - L.gridTop) / L.rowH);
+                const idx = row * L.cols + col;
+                if (col >= 0 && col < L.cols && row >= 0 && row < L.rows && idx >= 0 && idx < L.n) {
+                    applyUpgrade(upgradeOptions[idx]);
+                    return;
+                }
+            }
+        } else {
         // 三个卡片并排布局的点击检测（与drawUpgradePanel一致）
-        const cardW = 80;
-        const cardH = 95;
-        const cardGap = 8;
+        const cardW = UPGRADE_CARD_W;
+        const cardH = UPGRADE_CARD_H;
+        const cardGap = UPGRADE_CARD_GAP;
         const totalWidth = cardW * 3 + cardGap * 2;
 
         // 计算面板高度（与绘制代码一致）
@@ -10809,9 +11992,9 @@ wx.onTouchStart((e) => {
         const padding = 20;
         const panelH = titleH + bombReminderH + cardH + padding * 2 + 10;
 
-        const panelX = (screenWidth - totalWidth) / 2 - 25;
+        const panelX = Math.max(10, (screenWidth - totalWidth) / 2 - 25);
         const panelY = screenHeight - 130 - panelH;
-        const panelW = totalWidth + 50;
+        const panelW = Math.min(screenWidth - 20, totalWidth + 50);
 
         // 卡片起始Y = panelY + titleH + bombReminderH + padding + 5
         const startY = panelY + titleH + bombReminderH + padding + 5;
@@ -10824,6 +12007,7 @@ wx.onTouchStart((e) => {
                 applyUpgrade(upgradeOptions[i]);
                 break;
             }
+        }
         }
     } else if (gameState === 'gameOver') {
         // 与drawGameOver一致的弹窗位置
@@ -10847,6 +12031,7 @@ wx.onTouchStart((e) => {
                 levelReturnHandled = true;  // 标记已处理
                 gameState = 'mainMenu';
                 mainMenuTab = 'level';  // 确保回到关卡Tab
+                isSkillLab = false;
                 return;
             }
         }
@@ -10882,6 +12067,7 @@ wx.onTouchStart((e) => {
                     levelReturnHandled = true;  // 标记已处理
                     gameState = 'mainMenu';
                     mainMenuTab = 'level';  // 确保回到关卡Tab
+                isSkillLab = false;
                     return;
                 }
             }
@@ -10897,6 +12083,7 @@ wx.onTouchStart((e) => {
                     levelReturnHandled = true;  // 标记已处理
                     gameState = 'mainMenu';
                     mainMenuTab = 'level';  // 确保回到关卡Tab
+                isSkillLab = false;
                     return;
                 }
             }
@@ -10934,6 +12121,15 @@ wx.onTouchMove((e) => {
     if (gameState === 'mainMenu' && activeMiniGame === 'yibihua') {
         const sm = e.touches[0];
         if (gYbh) gYbhDrag(sm.clientX, sm.clientY);
+        return;
+    }
+
+    // 内嵌小游戏（守桥射击）：拖动控制玩家横向走位
+    if (gameState === 'mainMenu' && activeMiniGame === 'beishumen') {
+        const sqm = e.touches[0];
+        if (gSq && !gSq.gameOver && !gSq.win && !gSq.factionChoice) {
+            gSq.playerX = Math.max(gSq.radius, Math.min(screenWidth - gSq.radius, sqm.clientX));
+        }
         return;
     }
 
@@ -11054,6 +12250,12 @@ wx.onTouchEnd((e) => {
     // 内嵌小游戏（暴打神经猫）：点目标行的猫列 + 按钮点击
     if (gameState === 'mainMenu' && activeMiniGame === 'bdsjm') {
         handleMiniGameBdsjmInput(endX, endY);
+        return;
+    }
+
+    // 内嵌小游戏（守桥射击）：按钮点击 + 拖动定位（拖动由 touchMove 处理）
+    if (gameState === 'mainMenu' && activeMiniGame === 'beishumen') {
+        handleMiniGameSqInput(endX, endY);
         return;
     }
 
