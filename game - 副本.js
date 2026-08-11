@@ -829,8 +829,8 @@ const SKILL_DEFS = {
                   // 数值平衡（以 L20 极限为基准，逐级穷举）：三条进攻分支每级 DPS 倍率(dmgMul/fireMul) 收敛到同一曲线 ≈1+0.25*bl，
                   // 故无论走哪条路径，火力强化的总强度基本一致；穿甲(对坦克/Boss)、后坐力、弹道校准为情境向增益，强度同量级。
                   branches: {
-                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+15%/级、射速+3%/级', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
-                                   effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(1.15, bl); m.fireMul *= Math.pow(1/1.03, bl); } },
+                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+20%/级、射速-3%/级', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(1.20, bl); m.fireMul *= Math.pow(1.03, bl); } },
                     rapidFire:   { name:'狂暴连射', desc:'射速+22%/级，每发伤害-4%/级',             reqLevel:3, prereq:[], mutex:['charge'], maxLevel:5,
                                    effect(bl,m){ m.fireMul *= Math.pow(0.82, bl); m.dmgMul *= Math.pow(0.96, bl); } },
                     charge:      { name:'蓄能射击', desc:'射速-13%/级，命中伤害+35%/级',            reqLevel:3, prereq:[], mutex:['rapidFire'], maxLevel:5,

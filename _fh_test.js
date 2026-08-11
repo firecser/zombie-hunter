@@ -110,13 +110,13 @@ assert(remaining.includes('rapidFire') && remaining.includes('armorPierce') && r
 console.log('== 2. recomputeDamageMods 派生修正（按分支等级，平衡后数值）==');
 skills.damage.branches = { heavyBarrel: 1 };
 recomputeDamageMods();
-assert(Math.abs(skills.damage._mods.dmgMul - 1.15) < 1e-6, '重型枪管 Lv1 dmgMul=1.15(+15%/级)');
+assert(Math.abs(skills.damage._mods.dmgMul - 1.20) < 1e-6, '重型枪管 Lv1 dmgMul=1.20(+20%/级)');
 assert(Math.abs(skills.damage._mods.radiusMul - 1.20) < 1e-6, '重型枪管 Lv1 子弹体型=1.20(+20%/级)');
-assert(skills.damage._mods.fireMul < 1, '弹速下降(fireMul<1)');
+assert(skills.damage._mods.fireMul > 1, '射速下降(间隔变长, fireMul>1，真-3%/级惩罚)');
 // 持续升级验证：重型枪管 Lv3 → 体型/伤害/弹速惩罚随等级放大（复合倍率）
 skills.damage.branches = { heavyBarrel: 3 };
 recomputeDamageMods();
-assert(Math.abs(skills.damage._mods.dmgMul - Math.pow(1.15, 3)) < 1e-6, '重型枪管 Lv3 dmgMul=1.15^3');
+assert(Math.abs(skills.damage._mods.dmgMul - Math.pow(1.20, 3)) < 1e-6, '重型枪管 Lv3 dmgMul=1.20^3');
 assert(Math.abs(skills.damage._mods.radiusMul - Math.pow(1.20, 3)) < 1e-6, '重型枪管 Lv3 子弹体型=1.20^3');
 
 skills.damage.branches = { charge: 1 };
@@ -159,12 +159,12 @@ applyUpgrade({ type: 'damage', branch: 'heavyBarrel' });
 assert(acquiredSkills.length === slotsBefore, '选分支后槽位数不变（不占新槽）');
 assert(skills.damage.level === 2, '选分支 = 火力强化升到 Lv2');
 assert(skills.damage.branches.heavyBarrel === 1, '分支等级记为 1（整数）');
-assert(Math.abs(skills.damage._mods.dmgMul - 1.15) < 1e-6, 'applyUpgrade 后派生修正已重算');
+assert(Math.abs(skills.damage._mods.dmgMul - 1.20) < 1e-6, 'applyUpgrade 后派生修正已重算(重型dm=1.20)');
 // 再次选同一分支 → 升到 Lv2，大类继续升级
 applyUpgrade({ type: 'damage', branch: 'heavyBarrel' });
 assert(skills.damage.branches.heavyBarrel === 2, '再次选同分支 → 分支升到 Lv2');
 assert(skills.damage.level === 3, '大类随之升到 Lv3');
-assert(Math.abs(skills.damage._mods.dmgMul - Math.pow(1.15, 2)) < 1e-6, 'Lv2 派生修正 dmgMul=1.15^2');
+assert(Math.abs(skills.damage._mods.dmgMul - Math.pow(1.20, 2)) < 1e-6, 'Lv2 派生修正 dmgMul=1.20^2');
 
 console.log('== 4. showUpgradePanel 候选集（实验室模式）+ 图标沿用大类 ==');
 skills = {};

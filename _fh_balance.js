@@ -6,7 +6,7 @@
 // 候选分支系数（待调）：
 // 每个 offensive 分支用 每级乘法因子 表示：dmgMul *= dm^bl，fireMul *= fm^bl
 const branches = {
-  heavyBarrel: { dm: 1.15,  fm: 1/1.03, rm: 1.20 }, // 体型+AoE，微射速代价
+  heavyBarrel: { dm: 1.20,  fm: 1.03, rm: 1.20 }, // 体型+AoE，射速-3%/级 代价，伤害补到1.20/级 保持平衡
   rapidFire:   { dm: 0.96,  fm: 0.82 },             // 快射低伤
   charge:      { dm: 1.35,  fm: 1.147 },            // 重击慢射
   armorPierce: { armor: 0.30 },                     // 对坦克/Boss 额外增伤（每级）
