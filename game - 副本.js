@@ -829,7 +829,7 @@ const SKILL_DEFS = {
                   // 数值平衡（以 L20 极限为基准，逐级穷举）：三条进攻分支每级 DPS 倍率(dmgMul/fireMul) 收敛到同一曲线 ≈1+0.25*bl，
                   // 故无论走哪条路径，火力强化的总强度基本一致；穿甲(对坦克/Boss)、后坐力、弹道校准为情境向增益，强度同量级。
                   branches: {
-                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+15%/级、射速-3%/级', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+15%/级、射速+3%/级', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(1.15, bl); m.fireMul *= Math.pow(1/1.03, bl); } },
                     rapidFire:   { name:'狂暴连射', desc:'射速+22%/级，每发伤害-4%/级',             reqLevel:3, prereq:[], mutex:['charge'], maxLevel:5,
                                    effect(bl,m){ m.fireMul *= Math.pow(0.82, bl); m.dmgMul *= Math.pow(0.96, bl); } },
@@ -842,8 +842,6 @@ const SKILL_DEFS = {
                     calibration: { name:'弹道校准', desc:'命中判定半径+18%/级',                      reqLevel:6, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.hitboxMul *= Math.pow(1.18, bl); } }
                   } },
-    fireRate:   { type:'fireRate',   name:'急速射击', icon:'»',  element:'物理', category:'bullet', maxLevel:99, desc:'射速 +15%',     apply(lv){ player.fireRate *= 0.85; },
-                  qualNodes:{ 3:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } }, 5:{ desc:'射速再提升', apply(){ player.fireRate *= 0.95; } } } },
     bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; },
                   qualNodes:{ 5:{ desc:'分裂：命中后迸射小弹', apply(){ player._splitOnHit = true; } } } },
     bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; },
@@ -906,7 +904,7 @@ const zombieTypes = {
 };
 
 // ==================== 升级选项 ====================
-// 三选一池由 SKILL_DEFS 派生（含新增的 3 个部署/聚怪技能，共 15 个）
+// 三选一池由 SKILL_DEFS 派生（含新增的 3 个部署/聚怪技能，共 14 个；射速维度已并入火力强化分支树，故移除独立急速射击）
 const upgradePool = Object.keys(SKILL_DEFS).map(type => ({
     type: type,
     name: SKILL_DEFS[type].name,
