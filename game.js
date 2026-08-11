@@ -842,49 +842,50 @@ const SKILL_DEFS = {
                     calibration: { name:'弹道校准', desc:'命中判定半径+18%/级',                      reqLevel:6, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.hitboxMul *= Math.pow(1.18, bl); } }
                   } },
-    bulletCount:{ type:'bulletCount',name:'多重射击', icon:'🎯', element:'物理', category:'bullet', maxLevel:20, desc:'子弹数 +1',     apply(lv){ player.bulletCount++; },
-                  qualNodes:{ 5:{ desc:'分裂：命中后迸射小弹', apply(){ player._splitOnHit = true; } } } },
-    bulletSpeed:{ type:'bulletSpeed',name:'高速子弹', icon:'💨', element:'物理', category:'bullet', maxLevel:99, desc:'弹速 +20%',     apply(lv){ player.bulletSpeed *= 1.2; },
-                  qualNodes:{ 3:{ desc:'弹速再提升', apply(){ player.bulletSpeed *= 1.1; } }, 5:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } } } },
-    piercing:   { type:'piercing',   name:'穿透弹',   icon:'🗡️', element:'物理', category:'bullet', maxLevel:30, desc:'穿透 +1',       apply(lv){ player.bulletPiercing++; },
-                  qualNodes:{ 3:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } }, 5:{ desc:'穿透溅射小范围', apply(){ skills.piercing._splash = true; } } } },
     health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); },
                   qualNodes:{ 3:{ desc:'每级额外生命 +10', apply(){ player.maxHealth += 10; player.health += 10; } } } },
     explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'命中产生范围爆炸', apply(lv){},
                   // 大类分支树：选分支 = 爆炸弹继续升级（不占新槽）；reqLevel 解锁，prereq 前置，mutex 互斥不进池
                   // 分支可反复升级（branches[bid] 存整数等级，至 maxLevel 止）；图标沿用大类 icon（💥），不另设
                   // 互斥规则：互斥的两分支必须处于同一 reqLevel（出现的等级不能有先后），供玩家在同一档二选一
-                  // 参考《向僵尸开炮》温压弹：增伤 / 范围 / 破甲 / 引燃·焚身燃烧链；剔除与现有技能重叠维度（连发→多重射击、穿透→穿透弹、地面火池→油渍）
+                  // 参考《向僵尸开炮》温压弹：增伤 / 破甲 / 引燃·焚身燃烧链；火属性树（属性树之一）
                   // 温压冲击(击退)因强度过高且不适合本游戏，已重设计为「破甲」（爆炸使敌人受伤增加，纯数值增益、不干扰走位）
+                  // 阶段二（本轮）：已把多重/暴击/穿透/高速等通用效果以"共享分支模板"移入此树，
+                  // 即 multiShot/highSpeed/fireCrit/pierce 四个分支——后续冰/雷/毒属性树将复用同名结构，
+                  // 实现「基础(火力强化) + 属性(火/冰/雷/毒)」架构。慢速效果暂不在此树，留待冰属性树。
                   branches: {
-                    fuelFill:      { name:'富燃料填充', desc:'爆炸伤害+20%/级',                 reqLevel:2, prereq:[], mutex:[], maxLevel:5,
-                                     effect(bl,m){ m.explDmgMul *= Math.pow(1.20, bl); } },
-                    thermalBurst:  { name:'热能爆发',   desc:'爆炸范围+8%/级',                  reqLevel:3, prereq:[], mutex:['thermalExplode'], maxLevel:5,
-                                     effect(bl,m){ m.explRadiusMul *= Math.pow(1.08, bl); } },
-                    thermalExplode:{ name:'热能爆炸',   desc:'爆炸伤害+38%/级，范围-10%/级',     reqLevel:3, prereq:[], mutex:['thermalBurst'], maxLevel:5,
-                                     effect(bl,m){ m.explDmgMul *= Math.pow(1.38, bl); m.explRadiusMul *= Math.pow(0.90, bl); } },
-                    armorBreak:    { name:'破甲',       desc:'爆炸使范围内敌人受伤+8%/级',        reqLevel:4, prereq:[], mutex:[], maxLevel:5,
-                                     effect(bl,m){ m.explArmorBreak = true; m.armorBreakF += 0.08 * bl; } },
-                    ignite:        { name:'引燃',       desc:'灼烧伤害+20%/级（只增伤不延时长）', reqLevel:4, prereq:[], mutex:[], maxLevel:5,
-                                     effect(bl,m){ m.explIgnite = true; m.burnDmgMul *= Math.pow(1.20, bl); } },
-                    incinerate:    { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
-                                     effect(bl,m){ m.explIncinerate += bl; } }
+                    // —— 通用「属性树共享模板」分支（火树先行；冰/雷/毒树后续复用同名结构）——
+                    multiShot:  { name:'多重爆裂', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.bulletCountBoost += bl; } },
+                    highSpeed:  { name:'疾速弹道', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
+                    fireCrit:   { name:'火焰暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发小爆炸', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.critExplode = true; } },
+                    pierce:     { name:'烈焰穿透', desc:'穿透 +1/级；满级命中溅射',            reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.pierceSplash = true; } },
+                    // —— 火属性专属分支 ——
+                    // 注：爆炸弹基础等级已随等级扩大爆炸范围（explosionRadius = (40+level*20)），故不另设纯范围分支，避免与原始效果重复
+                    // 富燃料填充 / 热能爆炸 二者互斥、同档(reqLevel 2)二选一：群伤增伤 vs 单体高伤+范围缩小
+                    fuelFill:   { name:'富燃料填充', desc:'爆炸伤害+20%/级',                 reqLevel:2, prereq:[], mutex:['thermalExplode'], maxLevel:5,
+                                  effect(bl,m){ m.explDmgMul *= Math.pow(1.20, bl); } },
+                    thermalExplode:{ name:'热能爆炸', desc:'爆炸伤害+38%/级，范围明显缩小',    reqLevel:2, prereq:[], mutex:['fuelFill'], maxLevel:5,
+                                  effect(bl,m){ m.explDmgMul *= Math.pow(1.38, bl); m.explRadiusCut += 40 * bl; } },
+                    armorBreak: { name:'破甲',       desc:'爆炸使范围内敌人受伤+8%/级',        reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.explArmorBreak = true; m.armorBreakF += 0.08 * bl; } },
+                    ignite:     { name:'引燃',       desc:'灼烧伤害+20%/级（只增伤不延时长）', reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.explIgnite = true; m.burnDmgMul *= Math.pow(1.20, bl); } },
+                    incinerate: { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.explIncinerate += bl; } }
                   } },
     lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'雷',   category:'bullet', maxLevel:99, desc:'弹射攻击',       apply(lv){},
                   qualNodes:{ 3:{ desc:'链目标 +2', apply(){ skills.lightning._chainBonus = 2; } }, 5:{ desc:'链命中触发导电', apply(){ skills.lightning._conduct = true; } } } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
                   qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
-    crit:       { type:'crit',       name:'致命暴击', icon:'💢', element:'物理', category:'buff',   maxLevel:12, desc:'暴击率 +5%',     apply(lv){},
-                  qualNodes:{ 3:{ desc:'暴击伤害 +20%', apply(){ skills.crit._dmgBonus = 0.2; } }, 5:{ desc:'暴击触发小爆炸', apply(){ skills.crit._explode = true; } } } },
     freeze:     { type:'freeze',     name:'冰霜弹',   icon:'❄️', element:'冰',   category:'bullet', maxLevel:8,  desc:'冰冻几率 +6%',  apply(lv){},
                   qualNodes:{ 3:{ desc:'冰冻残留减速', apply(){ skills.freeze._residual = true; } }, 5:{ desc:'20% 几率眩晕', apply(){ skills.freeze._stun = true; } } } },
-    slow:       { type:'slow',       name:'缓速弹',   icon:'🐌', element:'冰',   category:'cc',     maxLevel:8,  desc:'减速几率 +8%',  apply(lv){},
-                  qualNodes:{ 3:{ desc:'减速更强', apply(){ skills.slow._stronger = true; } }, 5:{ desc:'减速标记易感', apply(){ skills.slow._conductive = true; } } } },
     // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
     mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
                   qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
-    oil:        { type:'oil',        name:'油渍',     icon:'🛢️', element:'火',   category:'field',  maxLevel:5,  desc:'地面燃油',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'灼烧 DOT ×2', apply(){ skills.oil._dotBonus = 1; } }, 5:{ desc:'烈焰强化：额外火池 & 减速', apply(){ skills.oil._big = true; } } } },
     tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){},
                   qualNodes:{ 3:{ desc:'牵引力增强', apply(){ skills.tornado._pullBonus = 0.5; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
 };
@@ -925,7 +926,7 @@ const zombieTypes = {
 };
 
 // ==================== 升级选项 ====================
-// 三选一池由 SKILL_DEFS 派生（含新增的 3 个部署/聚怪技能，共 14 个；射速维度已并入火力强化分支树，故移除独立急速射击）
+// 三选一池由 SKILL_DEFS 派生；攻击性技能架构 = 基础(火力强化) + 属性(火/冰/雷/毒)，故已删除独立的多重射击/高速子弹/穿透弹/致命暴击/缓速弹/油渍（其效果将并入各属性树分支）
 const upgradePool = Object.keys(SKILL_DEFS).map(type => ({
     type: type,
     name: SKILL_DEFS[type].name,
@@ -971,13 +972,23 @@ function randomFieldPos() {
 // 天赋提供长线基础值（每级小幅），局内三选一技能提供当场高成长值（每级大幅），二者相加后封顶。
 // 所有子弹相关效果都必须走这里，保证「天赋」与「三选一」表现完全一致。
 function getCritChance() {
-    return Math.min(0.6, talentMods.critChance + skills.crit.level * 0.05);
+    // 致命暴击独立技能已移除；暴击率 = 天赋基础值 + 火树「火焰暴击」分支加成
+    const _ec = (skills.explosive && skills.explosive._mods) ? skills.explosive._mods.critChanceBoost : 0;
+    return Math.min(0.6, talentMods.critChance + _ec);
 }
 function getCritMult() {
-    let m = talentMods.critDamageMult + skills.crit.level * 0.1;
-    if (skills.crit._dmgBonus) m += skills.crit._dmgBonus;   // crit Lv3 质变：暴击伤 +20%
-    return m;
+    // 致命暴击独立技能已移除；暴击伤害倍率 = 天赋基础值 + 火树「火焰暴击」分支加成
+    const _eb = (skills.explosive && skills.explosive._mods) ? skills.explosive._mods.critDamageBoost : 0;
+    return talentMods.critDamageMult + _eb;
 }
+// 火属性树对弹道效果的加成（多重/疾速/穿透/暴击），由 explosive._mods 派生（缺省安全值）
+function explosiveMods() {
+    return (skills.explosive && skills.explosive._mods) ? skills.explosive._mods
+        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false };
+}
+function getEffBulletCount()   { return player.bulletCount + explosiveMods().bulletCountBoost; }
+function getEffBulletSpeed()   { return player.bulletSpeed * explosiveMods().speedMul; }
+function getEffBulletPiercing(){ return player.bulletPiercing + explosiveMods().pierceBoost; }
 function getFreezeChance() {
     return Math.min(0.5, talentMods.freezeChance + skills.freeze.level * 0.06);
 }
@@ -985,12 +996,12 @@ function getFreezeDuration() {
     return Math.min(2600, 1000 + talentMods.freezeLevel * 40 + skills.freeze.level * 120);
 }
 function getSlowChance() {
-    return Math.min(0.6, talentMods.slowChance + skills.slow.level * 0.08);
+    // 缓速弹独立技能已移除；过渡期减速效果直接关闭，待冰属性树实现后由冰树提供（本阶段返回 0）
+    return 0;
 }
 function getSlowFactor() {
-    // 数值越小移动越慢
-    let f = 0.7 - talentMods.slowLevel * 0.01 - skills.slow.level * 0.04;
-    if (skills.slow._stronger) f -= 0.1;   // slow Lv3 质变：减速更强
+    // 数值越小移动越慢；缓速弹独立技能已移除，减速仅天赋提供（冰树实现后走属性树）
+    let f = 0.7 - talentMods.slowLevel * 0.01;
     return Math.max(0.3, f);
 }
 function getShieldReduce() {
@@ -1072,7 +1083,9 @@ function recomputeDamageMods() {
 function recomputeExplosiveMods() {
     const b = (skills.explosive && skills.explosive.branches) || {};
     const def = SKILL_DEFS.explosive;
-    const m = { explDmgMul: 1, explRadiusMul: 1, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0 };
+    const m = { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0,
+                // 共享模板分支派生（多重/疾速/暴击/穿透）
+                bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
@@ -1561,8 +1574,8 @@ function getBulletVisual() {
         crit: getCritChance() > 0,           // 暴击：金色描边
         freeze: getFreezeChance() > 0,       // 冰霜弹：霜环 + 冰晶
         slow: getSlowChance() > 0,           // 缓速弹：紫色黏稠尾迹
-        pierce: player.bulletPiercing > 1,   // 穿透弹：拉长 + 尖锐弹头
-        fast: skills.bulletSpeed.level > 0,  // 高速子弹：残影
+        pierce: getEffBulletPiercing() > 1,   // 烈焰穿透：拉长 + 尖锐弹头
+        fast: getEffBulletSpeed() > player.bulletSpeed + 0.001,  // 疾速弹道：残影（速度加成来自火树）
         boom: skills.explosive.level > 0,    // 爆炸弹：尾部火花
         bolt: skills.lightning.level > 0     // 闪电链：弹身电弧
     };
@@ -1733,9 +1746,9 @@ function drawTornado(t) {
 function drawFields() {
     // 油渍（地面熔岩火池）：柔和羽化边缘，无硬描边；半径随当前油渍等级实时变化（升级即刻放大所有场上火池）
     for (const o of oilPatches) {
+        const base = skills.oil ? getOilRadius(skills.oil.level) : (o.radius || 0);  // 油渍技能已移除；base 仅用于绘制（oilPatches 恒空，不会执行到此）
         const k = 1;        // 亮度恒定：不随寿命淡出，寿命结束由 updateFields 直接移除（瞬间消失）
         const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);   // 熔岩呼吸
-        const base = getOilRadius(skills.oil.level);              // 实时半径：升级油渍即刻放大所有场上火池
         const t = Date.now() / 800;
         // 不规则 blob 顶点（液体飞溅感）
         const blobs = [
@@ -2092,11 +2105,13 @@ function drawBombExplosions() {
         effect.radius = Math.min(maxR, effect.radius + rate);
 
         const alpha = effect.life / 400;
+        const lineW = (8 * (effect.radius / Math.max(1, maxR)) + 2) * alpha;  // 线宽随半径缩放
+        const ringR = Math.max(0, Math.min(effect.radius, maxR - lineW / 2));  // 环外缘不超出爆炸半径
 
         ctx.beginPath();
-        ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
+        ctx.arc(effect.x, effect.y, ringR, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(255, 100, 50, ${alpha * 0.8})`;
-        ctx.lineWidth = (8 * (effect.radius / Math.max(1, maxR)) + 2) * alpha;  // 线宽随半径缩放
+        ctx.lineWidth = lineW;
         ctx.stroke();
 
         if (effect.life <= 0) {
@@ -3423,8 +3438,9 @@ function shoot() {
     
     const baseAngle = player.gunAngle;
     const gunLength = 40;
-    const n = player.bulletCount;
-    
+    const n = getEffBulletCount();          // 火树「多重爆裂」加成在此并入
+    const _spd = getEffBulletSpeed();       // 火树「疾速弹道」加成在此并入
+
     for (let i = 0; i < n; i++) {
         const spread = 0.15;
         let bulletAngle = baseAngle;
@@ -3439,11 +3455,11 @@ function shoot() {
         bullets.push({
             x: startX,
             y: startY,
-            vx: Math.cos(bulletAngle) * player.bulletSpeed,
-            vy: Math.sin(bulletAngle) * player.bulletSpeed,
+            vx: Math.cos(bulletAngle) * _spd,
+            vy: Math.sin(bulletAngle) * _spd,
             radius: 6 * _dm.radiusMul,
             damage: player.damage * _dm.dmgMul,
-            piercing: player.bulletPiercing,
+            piercing: getEffBulletPiercing(),   // 火树「烈焰穿透」加成在此并入
             element: '物理',
             hitZombies: []
         });
@@ -3453,7 +3469,7 @@ function shoot() {
 // 多重射击 Lv5 质变：子弹首次命中后，在命中点向 6 个方向迸射小弹
 function spawnSplitBullets(x, y, baseDamage, exclude) {
     const count = 6;
-    const spd = player.bulletSpeed * 0.95;
+    const spd = getEffBulletSpeed() * 0.95;
     const dmg = baseDamage * 0.5;   // 分裂小弹伤害减半
     for (let k = 0; k < count; k++) {
         const a = (Math.PI * 2 / count) * k;
@@ -3514,8 +3530,8 @@ function updateBullets() {
 
                 // 爆炸伤害
                 if (skills.explosive.level > 0) {
-                    const _em = skills.explosive._mods || { explDmgMul: 1, explRadiusMul: 1, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0 };
-                    let explosionRadius = (40 + skills.explosive.level * 20) * _em.explRadiusMul;
+                    const _em = skills.explosive._mods || { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0 };
+                    let explosionRadius = Math.max(35, (40 + skills.explosive.level * 20) - _em.explRadiusCut);  // 热能爆炸：随分支等级平减半径（基础等级仍放大，二者叠加体现“高伤小范围”取舍）
                     createExplosion(bullet.x, bullet.y, explosionRadius);
 
                     if (_em.explIgnite && zombie) {                        // 引燃：仅引燃被击中和被波及的怪物，不生成地面火池（避免与油渍冲突）
@@ -3588,14 +3604,14 @@ function updateBullets() {
                     spawnSplitBullets(bullet.x, bullet.y, damage, zombie);
                 }
 
-                // 穿透溅射（piercing Lv5 质变）
-                if (skills.piercing._splash) {
+                // 穿透溅射（火树「烈焰穿透」满级质变）
+                if (skills.explosive && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
                     for (const z of zombies) {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '物理');
                     }
                 }
-                // 暴击小爆炸（crit Lv5 质变）
-                if (isCrit && skills.crit._explode) {
+                // 暴击小爆炸（火树「火焰暴击」满级质变）
+                if (isCrit && skills.explosive && skills.explosive._mods && skills.explosive._mods.critExplode) {
                     createExplosion(zombie.x, zombie.y, 50);
                     for (const z of zombies) {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, player.damage * 0.3, false, '火'); checkCombos(z, '火'); }
@@ -3836,6 +3852,9 @@ function createExplosion(x, y, radius) {
         particles.push({
             x: x,
             y: y,
+            ox: x,                  // 原点，用于把火花限制在实际爆炸半径内
+            oy: y,
+            maxR: radius,           // 火花可触及的最大半径 = 爆炸范围半径
             vx: Math.cos(angle) * sp,
             vy: Math.sin(angle) * sp,
             radius: 4 + radius / 30,
@@ -3989,37 +4008,8 @@ function updateFields(dt) {
         }
     }
 
-    // 油渍：地面燃油区域（独立释放 CD），释放时锁定离坦克最近的怪物坐标；进入的僵尸持续灼烧（DOT 由 updateZombies 结算）
-    if (skills.oil.level > 0) {
-        updateFields._oilTimer = (updateFields._oilTimer || 0) + dt;
-        let cap = OIL_MAX_BASE + skills.oil.level;
-        let patchR = getOilRadius(skills.oil.level);        // 半径随当前油渍等级实时放大（升级即时可见）
-        if (skills.oil._big) { cap += 1; }                  // Lv5 额外 +1 个火池（不再扩大单池面积）
-        if (updateFields._oilTimer >= OIL_SPAWN_INTERVAL) {
-            updateFields._oilTimer = 0;
-            if (oilPatches.length < cap) {
-                // 目标：离坦克（玩家）最近的怪物坐标；无怪物时回退随机散落
-                let _op = randomFieldPos();
-                let _bestD = Infinity;
-                for (const z of zombies) {
-                    const d = Math.hypot(z.x - player.x, z.y - player.y);
-                    if (d < _bestD) { _bestD = d; _op = { x: z.x, y: z.y }; }
-                }
-                oilPatches.push({ x: _op.x, y: _op.y, radius: patchR, life: OIL_LIFE, level: skills.oil.level });
-            }
-        }
-        for (let i = oilPatches.length - 1; i >= 0; i--) {
-            const o = oilPatches[i];
-            o.life -= dt;
-            if (o.life <= 0) { oilPatches.splice(i, 1); continue; }
-            for (const z of zombies) {
-                if (Math.hypot(o.x - z.x, o.y - z.y) < o.radius + z.radius) {
-                    applyBurn(z, player.damage * (1 + (skills.oil._dotBonus || 0)), BURN_DURATION);  // 油渍每跳伤害 = 子弹单发伤害（Lv3 质变 ×2）
-                    if (skills.oil._big) z.slowUntil = Math.max(z.slowUntil || 0, now + 1000);  // Lv5 油渍附加减速
-                }
-            }
-        }
-    }
+    // 油渍地面火池：独立「油渍」技能已删除，灼烧效果由爆炸弹「引燃」分支承担（applyBurn 灼烧循环仍保留在 updateZombies）。
+    // 此处地面火池逻辑整段移除——不再生成/维护 oilPatches，相关常量与 getOilRadius 一并成为死代码（保留以免误伤引用）。
 
     // 龙卷风：独立释放 CD，释放后在场上存在一段时长（超时消失），期间牵引附近僵尸聚拢
     if (skills.tornado.level > 0) {
@@ -4068,6 +4058,17 @@ function updateParticles() {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
+        if (p.maxR) {               // 爆炸火花：限制外缘不超过实际爆炸半径（中心夹到 maxR - 自身半径）
+            const limit = Math.max(0, p.maxR - p.radius);
+            const dx = p.x - p.ox, dy = p.y - p.oy;
+            const dd = Math.hypot(dx, dy);
+            if (dd > limit) {
+                p.x = p.ox + dx / dd * limit;
+                p.y = p.oy + dy / dd * limit;
+                p.vx *= 0.2;        // 触顶后减速消散，不再外溢
+                p.vy *= 0.2;
+            }
+        }
         p.life -= 16;
         p.radius *= 0.97;
         
@@ -4245,6 +4246,7 @@ function showUpgradePanel() {
     const cards = [];
     for (const t of acquiredSkills) {
         const def = SKILL_DEFS[t];
+        if (!def) continue;   // 旧存档可能含已删除技能（多重/高速/穿透/暴击/缓速/油渍），跳过避免崩溃
         // 基础升级卡（火力强化等大类始终可继续升级；其余技能按原逻辑升级）
         cards.push({ type: t, name: def.name, icon: def.icon, desc: def.desc });
         // 衍生分支卡（仅带 branches 的大类有）；图标沿用大类 icon，不另设

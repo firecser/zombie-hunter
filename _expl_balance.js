@@ -1,43 +1,39 @@
 // 爆炸弹分支树数值平衡穷举（对标火力强化：L20 极限，bl1~bl5 逐级）
 // 与火力强化一致：每条进攻分支应收敛到相近倍率（火力强化三进攻分支 bl5 ≈ 2.15~2.26x）
-const branches = {
-  fuelFill:       { dmg: 1.20, rad: 1.00 }, // 富燃料填充：纯增伤
-  thermalBurst:   { dmg: 1.00, rad: 1.08 }, // 热能爆发：纯范围（系数 1.08/级，避免 2 级即覆盖全屏）
-  thermalExplode: { dmg: 1.38, rad: 0.90 }, // 热能爆炸：增伤+范围惩罚（单体重击，较原 1.45/0.85 收敛）
-};
+// 注：爆炸范围扩大为爆炸弹基础等级自带效果（explosionRadius = (40+level*20)），不再设纯范围分支
+// 热能爆炸：范围用平减像素(每级-40)而非乘性%，否则会被基础等级每级+20 增长完全抵消（玩家感知“没生效”）
+const CUT = 40; // 热能爆炸每级平减半径 px
+function radiusAt(level, thermalBl) {
+  return Math.max(35, (40 + level * 20) - CUT * thermalBl);
+}
 
-console.log('bl | 富燃料(增伤) | 热能爆发(范围) | 热能爆炸(累计伤害/范围) | 火力强化基准(≈)');
+console.log('bl | 富燃料(增伤) | 热能爆炸伤害 | 同等级半径(无/有热能爆炸) | 半径比 | 火力强化基准(≈)');
 for (let bl = 1; bl <= 5; bl++) {
-  const f = (b) => Math.pow(b.dmg, bl);
-  const r = (b) => Math.pow(b.rad, bl);
-  const ff = f(branches.fuelFill);
-  const tb = r(branches.thermalBurst);
+  const dmg = Math.pow(1.38, bl);
+  // 选 bl 级热能爆炸时，爆炸弹总等级 = 起始2(解锁用) + bl；用 level=2+bl 近似同进度
+  const level = 2 + bl;
+  const rNo = radiusAt(level, 0);
+  const rYes = radiusAt(level, bl);
   console.log(
     String(bl).padStart(2), '|',
-    ff.toFixed(2) + 'x', '|',
-    tb.toFixed(2) + 'x', '|',
-    '伤害' + f(branches.thermalExplode).toFixed(2) + 'x/范围' + r(branches.thermalExplode).toFixed(2) + 'x', '|',
+    Math.pow(1.20, bl).toFixed(2) + 'x', '|',
+    dmg.toFixed(2) + 'x', '|',
+    rNo.toFixed(0) + '/' + rYes.toFixed(0), '|',
+    (rYes / rNo).toFixed(2), '|',
     '2.15~2.26x'
   );
 }
 
-console.log('\n=== 面积加权指数 = 伤害倍率 × 范围倍率²（群怪总输出代理；单体重击分支天然吃亏）===');
-for (let bl = 1; bl <= 5; bl++) {
-  const idx = (b) => Math.pow(b.dmg, bl) * Math.pow(b.rad, bl * 2);
-  console.log(
-    'bl' + bl, '|',
-    '富燃料', idx(branches.fuelFill).toFixed(2), '|',
-    '热能爆发', idx(branches.thermalBurst).toFixed(2), '|',
-    '热能爆炸', idx(branches.thermalExplode).toFixed(2)
-  );
-}
+console.log('\n=== 单体重击直观对比：同等级(level=8) 有/无 热能爆炸(bl5) ===');
+console.log('无热能爆炸半径 =', radiusAt(8, 0), '| 热能爆炸 bl5 半径 =', radiusAt(8, 5), '（缩小到', (radiusAt(8,5)/radiusAt(8,0)*100).toFixed(0) + '%）');
+console.log('=> 每次选 热能爆炸 卡，半径净减 (40-20)=20px/级，取舍在每一次选卡时都肉眼可见');
 
-console.log('\n=== 情境分支（非纯数值，无法用 DPS 倍率比较）===');
-console.log('破甲 armorBreak：爆炸使范围内敌人受伤 +8%*bl（bl5=+40%，持续 1.5s），放大其后所有伤害（纯数值、不干扰走位，替代过强的击退）');
-console.log('引燃 ignite：命中引燃敌人，灼烧伤害 +20%*bl（bl5=2.49x），只增伤、不延长持续时长（固定 1.5s）');
-console.log('焚身 incinerate：对引燃目标即时追加 3%*bl 最大生命伤害（bl5=15% 最大生命，斩杀/Boss 特化）');
+console.log('\n=== 情境分支（非纯数值）===');
+console.log('破甲 armorBreak：爆炸使范围内敌人受伤 +8%*bl（bl5=+40%，持续 1.5s）');
+console.log('引燃 ignite：灼烧伤害 +20%*bl（bl5=2.49x），只增伤、不延长持续时长（固定 1.5s）');
+console.log('焚身 incinerate：对引燃目标即时追加 3%*bl 最大生命伤害（bl5=15% 最大生命）');
 
 console.log('\n=== 与火力强化家族同量级校验（bl5 纯进攻主维度）===');
 console.log('火力强化三进攻：2.15 / 2.20 / 2.26x');
-console.log('爆炸弹三进攻主维度：富燃料', Math.pow(1.20,5).toFixed(2)+'x', '| 热能爆发', Math.pow(1.20,5).toFixed(2)+'x', '| 热能爆炸 单体重伤', (Math.pow(1.38,5)/Math.pow(0.90,5)).toFixed(2)+'x');
-console.log('破甲(bl5)作为力放大器 +50% 受伤，配合 AoE/互斥/灼烧链，无严格主导分支。');
+console.log('爆炸弹进攻主维度：富燃料', Math.pow(1.20,5).toFixed(2)+'x', '| 热能爆炸 单体重伤', Math.pow(1.38,5).toFixed(2)+'x');
+console.log('范围扩大由基础等级(40+level*20)决定并叠加热能爆炸平减；破甲(bl5)+40%受伤、引燃(bl5)2.49x灼烧，配合 AoE/灼烧链，无严格主导分支。');

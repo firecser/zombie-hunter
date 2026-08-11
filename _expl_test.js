@@ -58,20 +58,25 @@ eval(createExplSrc);
 let FAILED = false;
 function assert(cond, msg) { if (!cond) { console.log('  ✗ FAIL:', msg); FAILED = true; } else console.log('  ✓', msg); }
 
-console.log('== 1. getAvailableBranches 树语义（爆炸弹）==');
+console.log('== 1. getAvailableBranches 树语义（爆炸弹·火属性树）==');
 skills.explosive.level = 1;
 assert(getAvailableBranches('explosive').length === 0, 'Lv1 无分支解锁');
 skills.explosive.level = 2;
 let av = getAvailableBranches('explosive');
-assert(av.includes('fuelFill') && !av.includes('thermalBurst'), 'Lv2 仅解锁 富燃料填充（热能爆发已移至 Lv3）');
+// 共享模板分支（多重/疾速）+ 火专属（富燃料/热能爆炸 同档互斥二选一），均在 Lv2 解锁
+assert(av.includes('multiShot'), 'Lv2 解锁 多重爆裂(共享模板)');
+assert(av.includes('highSpeed'), 'Lv2 解锁 疾速弹道(共享模板)');
+assert(av.includes('fuelFill') && av.includes('thermalExplode'), 'Lv2 解锁 富燃料填充 / 热能爆炸（同档互斥，二选一）');
+// 选 fuelFill → 互斥排除 thermalExplode
 skills.explosive.branches.fuelFill = 1;
 skills.explosive.level = 3;
 av = getAvailableBranches('explosive');
-assert(av.includes('fuelFill'), '分支未升满 → 仍被提供用于继续升级');
-assert(av.includes('thermalBurst') && av.includes('thermalExplode'), 'Lv3 热能爆发与热能爆炸 同时出现（互斥但尚未二选一）');
-skills.explosive.branches.thermalBurst = 1;
-av = getAvailableBranches('explosive');
-assert(!av.includes('thermalExplode'), '互斥：选热能爆发后，热能爆炸不再进池（范围扩大 ↔ 纯增伤 互斥，且同为 Lv3）');
+assert(av.includes('fuelFill'),
+  '分支未升满 → 仍被提供用于继续升级');
+assert(!av.includes('thermalExplode'), '已选富燃料 → 互斥排除热能爆炸');
+assert(av.includes('fireCrit'), 'Lv3 解锁 火焰暴击(共享模板)');
+assert(av.includes('pierce'), 'Lv3 解锁 烈焰穿透(共享模板)');
+skills.explosive.branches.fuelFill = 2;   // 升满富燃料
 skills.explosive.level = 4;
 av = getAvailableBranches('explosive');
 assert(av.includes('armorBreak') && av.includes('ignite'), 'Lv4 破甲 / 引燃 解锁（独立、不互斥）');
@@ -85,14 +90,11 @@ console.log('== 2. recomputeExplosiveMods 派生修正 ==');
 skills.explosive.branches = { fuelFill: 1 };
 recomputeExplosiveMods();
 assert(Math.abs(skills.explosive._mods.explDmgMul - 1.20) < 1e-6, '富燃料 Lv1 explDmgMul=1.20');
-assert(Math.abs(skills.explosive._mods.explRadiusMul - 1.00) < 1e-6, '富燃料 不改范围');
-skills.explosive.branches = { thermalBurst: 3 };
-recomputeExplosiveMods();
-assert(Math.abs(skills.explosive._mods.explRadiusMul - Math.pow(1.08, 3)) < 1e-6, '热能爆发 Lv3 范围=1.260（系数 1.08/级）');
+assert(skills.explosive._mods.explRadiusCut === 0, '富燃料 不缩小范围（范围扩大仅由基础等级决定）');
 skills.explosive.branches = { thermalExplode: 5 };
 recomputeExplosiveMods();
 assert(Math.abs(skills.explosive._mods.explDmgMul - Math.pow(1.38, 5)) < 1e-6, '热能爆炸 Lv5 伤害=5.05');
-assert(Math.abs(skills.explosive._mods.explRadiusMul - Math.pow(0.90, 5)) < 1e-6, '热能爆炸 Lv5 范围=0.590（惩罚放缓）');
+assert(skills.explosive._mods.explRadiusCut === 200, '热能爆炸 Lv5 范围平减=200px（每级-40，抵消并超过基础每级+20，取舍可见）');
 skills.explosive.branches = { armorBreak: 2 };
 recomputeExplosiveMods();
 assert(skills.explosive._mods.explArmorBreak === true && Math.abs(skills.explosive._mods.armorBreakF - 0.16) < 1e-6, '破甲 Lv2 受伤+16%（无击退）');
@@ -102,6 +104,25 @@ assert(skills.explosive._mods.explIgnite === true && Math.abs(skills.explosive._
 skills.explosive.branches = { incinerate: 5 };
 recomputeExplosiveMods();
 assert(skills.explosive._mods.explIncinerate === 5, '焚身 Lv5 追加5档(15%最大生命)');
+// 共享模板分支派生（多重/疾速/暴击/穿透）
+skills.explosive.branches = { multiShot: 5 };
+recomputeExplosiveMods();
+assert(skills.explosive._mods.bulletCountBoost === 5, '多重爆裂 Lv5 子弹+5');
+skills.explosive.branches = { highSpeed: 5 };
+recomputeExplosiveMods();
+assert(Math.abs(skills.explosive._mods.speedMul - Math.pow(1.20, 5)) < 1e-6, '疾速弹道 Lv5 弹速×2.49');
+skills.explosive.branches = { fireCrit: 5 };
+recomputeExplosiveMods();
+assert(Math.abs(skills.explosive._mods.critChanceBoost - 0.25) < 1e-6, '火焰暴击 Lv5 暴击率+25%');
+assert(Math.abs(skills.explosive._mods.critDamageBoost - 0.75) < 1e-6, '火焰暴击 Lv5 暴击伤害+75%');
+assert(skills.explosive._mods.critExplode === true, '火焰暴击 Lv5 质变：暴击触发小爆炸');
+skills.explosive.branches = { pierce: 5 };
+recomputeExplosiveMods();
+assert(skills.explosive._mods.pierceBoost === 5, '烈焰穿透 Lv5 穿透+5');
+assert(skills.explosive._mods.pierceSplash === true, '烈焰穿透 Lv5 质变：命中溅射');
+skills.explosive.branches = { fireCrit: 4 };
+recomputeExplosiveMods();
+assert(skills.explosive._mods.critExplode === false, '火焰暴击 Lv4 未质变（critExplode=false）');
 
 console.log('== 3. applyUpgrade：选分支 = 大类继续升级，不占新槽 ==');
 skills.explosive = { level: 1, branches: {}, _mods: { explDmgMul: 1, explRadiusMul: 1 } };
@@ -122,6 +143,22 @@ assert(bombExplosionEffects.length === 1 && Math.abs(bombExplosionEffects[0].max
 bombExplosionEffects = [];
 createExplosion(100, 100, 240);
 assert(bombExplosionEffects.length === 1 && Math.abs(bombExplosionEffects[0].maxRadius - 240) < 1e-6, '大半径爆炸(范围分支放大后)：maxRadius=240');
+
+// 火花外缘（中心+自身半径）最大触及 = 爆炸半径（确保特效不超出伤害范围）
+const updatePartSrc = extractFn('updateParticles');
+eval(updatePartSrc);
+function maxSparkOuter(radius) {
+  particles = [];
+  createExplosion(0, 0, radius);
+  let mx = 0;
+  for (let i = 0; i < 30; i++) {        // 粒子生命周期内逐帧追踪最大外缘半径
+    updateParticles();
+    for (const p of particles) if (p.maxR) mx = Math.max(mx, Math.hypot(p.x - p.ox, p.y - p.oy) + p.radius);
+  }
+  return mx;
+}
+assert(maxSparkOuter(40) <= 40 + 1.5, '火花外缘≤爆炸半径(40)');
+assert(maxSparkOuter(240) <= 240 + 1.5, '火花外缘≤爆炸半径(240)');
 
 console.log(FAILED ? '\nEXPL_TEST_FAIL' : '\nEXPL_TEST_OK');
 process.exit(FAILED ? 1 : 0);
