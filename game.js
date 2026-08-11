@@ -896,7 +896,7 @@ const SKILL_DEFS = {
 const skills = {};
 for (const _t in SKILL_DEFS) {
     const _d = SKILL_DEFS[_t];
-    skills[_t] = { level: 0, baseLevel: 0, name: _d.name, icon: _d.icon, desc: _d.desc, element: _d.element, category: _d.category, maxLevel: _d.maxLevel };
+    skills[_t] = { level: 0, name: _d.name, icon: _d.icon, desc: _d.desc, element: _d.element, category: _d.category, maxLevel: _d.maxLevel };
 }
 
 const MAX_SKILLS = 5;
@@ -1047,21 +1047,12 @@ function fireQualNodes(type) {
     }
 }
 
-// 天赋预置等级折入 skills[type].level（影响威力/范围），但不应影响分支解锁档位；
-// 故分支解锁 / 界面等级统一按「玩家自己点的等级」baseLevel，天赋只折进威力。
-function talentLevelBoost(type) {
-    if (type === 'explosive') return talentMods.explosiveLevel || 0;
-    if (type === 'lightning') return talentMods.lightningLevel || 0;
-    return 0;
-}
-
 // 大类衍生分支候选：到达 reqLevel、满足前置、未被互斥分支排除、且未达 maxLevel 的分支
 // 已选过的分支若未升满，仍会再次出现，用于持续升级
-// 注意：门槛比对 baseLevel（玩家自己点数），不含天赋预置等级，避免天赋把 Lv4 分支提前刷出
 function getAvailableBranches(type) {
     const def = SKILL_DEFS[type];
     if (!def || !def.branches) return [];
-    const lv = skills[type].baseLevel || 0;
+    const lv = skills[type].level;
     const taken = skills[type].branches || {};
     const out = [];
     for (const bid in def.branches) {
@@ -2551,7 +2542,7 @@ function drawSkillUI() {
         // 等级
         ctx.fillStyle = ROYALE.gold;
         ctx.font = '7px Arial';
-        ctx.fillText(`Lv${skill.baseLevel}`, skillX + skillSize / 2, skillY + skillSize - 4);
+        ctx.fillText(`Lv${skill.level}`, skillX + skillSize / 2, skillY + skillSize - 4);
 
         // 技能释放 CD 冷却遮罩（地雷/油渍/龙卷风）：参考炸弹，黑色径向扇形 + 剩余秒数
         const cdInfo = getSkillCooldown(skill.key);
@@ -3346,7 +3337,7 @@ function drawUpgradeList() {
         const y = L.gridTop + r * L.rowH;
         const cellH = L.rowH - L.cellGap;
         const isOwned = acquiredSkills.includes(opt.type);
-        const lv = (skills[opt.type] && skills[opt.type].baseLevel) || 0;
+        const lv = (skills[opt.type] && skills[opt.type].level) || 0;
 
         // 卡片背景
         const grad = ctx.createLinearGradient(x, y, x, y + cellH);
@@ -4335,7 +4326,6 @@ function applyUpgrade(upgrade) {
     }
     
     skills[upgrade.type].level++;
-    skills[upgrade.type].baseLevel = (skills[upgrade.type].baseLevel || 0) + 1;  // 玩家自己点的等级 +1（不受天赋影响）
     
     // 衍生分支卡：选分支 = 该大类继续升级（不占新槽）；分支等级 +1 并重算派生修正
     if (upgrade.branch) {
@@ -4495,12 +4485,10 @@ function startGame() {
     // 重置技能
     for (const key of Object.keys(skills)) {
         skills[key].level = 0;
-        skills[key].baseLevel = 0;         // 玩家自己点的等级（不含天赋预置），用于分支门槛/界面显示
         skills[key].qualified = {};        // 清理跨局残留的质变标记（避免重开后质变不重触）
         skills[key].branches = {};         // 清理跨局残留的衍生分支选择
     }
     skills.damage.level = 1;
-    skills.damage.baseLevel = 1;
     acquiredSkills = ['damage'];
 
     // 应用永久天赋到本场战斗（在基础属性重置之后折入）
@@ -4514,11 +4502,6 @@ function startGame() {
     // 护盾不折入技能等级（技能 −10%/级 与 天赋 −2%/级 权重不同，由 getShieldReduce 分别结算）
     skills.explosive.level += talentMods.explosiveLevel;
     skills.lightning.level += talentMods.lightningLevel;
-    // 天赋预置等级折入 skills[].level（影响威力），但 baseLevel 需回扣天赋补偿，
-    // 使分支解锁档位 / 界面等级反映玩家自己点的等级（避免天赋把高等级分支提前刷出）
-    for (const key of Object.keys(skills)) {
-        skills[key].baseLevel = (skills[key].level || 0) - talentLevelBoost(key);
-    }
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
     for (const key of Object.keys(skills)) fireQualNodes(key);
