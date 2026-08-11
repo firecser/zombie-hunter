@@ -27,6 +27,7 @@ function extractExplosiveBranches() {
 }
 
 const getAvailSrc = extractFn('getAvailableBranches');
+const talentBoostSrc = extractFn('talentLevelBoost');
 const recomputeSrc = extractFn('recomputeExplosiveMods');
 const applySrc = extractFn('applyUpgrade');
 const createExplSrc = extractFn('createExplosion');
@@ -38,7 +39,7 @@ const SKILL_DEFS = {
 };
 
 let skills = {};
-for (const k in SKILL_DEFS) skills[k] = { level: 0, name: SKILL_DEFS[k].name, icon: SKILL_DEFS[k].icon, desc: SKILL_DEFS[k].desc, element: '物理', category: 'bullet', maxLevel: 99, branches: {}, qualified: {} };
+for (const k in SKILL_DEFS) skills[k] = { level: 0, baseLevel: 0, name: SKILL_DEFS[k].name, icon: SKILL_DEFS[k].icon, desc: SKILL_DEFS[k].desc, element: '物理', category: 'bullet', maxLevel: 99, branches: {}, qualified: {} };
 let acquiredSkills = ['explosive'];
 let isSkillLab = false, upgradeOptions = [];
 let gameState = 'playing', gameRunning = true, lastTime = Date.now();
@@ -47,10 +48,12 @@ const MAX_SKILLS = 5;
 const player = { damage: 10, fireRate: 500, bulletSpeed: 10, exp: 0, expToLevel: 100, level: 1 };
 let bombExplosionEffects = [];   // createExplosion 依赖
 let particles = [];              // createExplosion 依赖
+let talentMods = { explosiveLevel: 0, lightningLevel: 0 };  // getAvailableBranches 经 talentLevelBoost 读取
 function fireQualNodes() {}
 function levelUp() {}
 
 eval(getAvailSrc);
+eval(talentBoostSrc);
 eval(recomputeSrc);
 eval(applySrc);
 eval(createExplSrc);
@@ -58,10 +61,12 @@ eval(createExplSrc);
 let FAILED = false;
 function assert(cond, msg) { if (!cond) { console.log('  ✗ FAIL:', msg); FAILED = true; } else console.log('  ✓', msg); }
 
+function setLv(x){ skills.explosive.level = x; skills.explosive.baseLevel = x; }  // 测试无天赋：baseLevel 跟随点数
+
 console.log('== 1. getAvailableBranches 树语义（爆炸弹·火属性树）==');
-skills.explosive.level = 1;
+setLv(1);
 assert(getAvailableBranches('explosive').length === 0, 'Lv1 无分支解锁');
-skills.explosive.level = 2;
+setLv(2);
 let av = getAvailableBranches('explosive');
 // 共享模板分支（多重/疾速）+ 火专属（富燃料/热能爆炸 同档互斥二选一），均在 Lv2 解锁
 assert(av.includes('multiShot'), 'Lv2 解锁 多重爆裂(共享模板)');
@@ -69,7 +74,7 @@ assert(av.includes('highSpeed'), 'Lv2 解锁 疾速弹道(共享模板)');
 assert(av.includes('fuelFill') && av.includes('thermalExplode'), 'Lv2 解锁 富燃料填充 / 热能爆炸（同档互斥，二选一）');
 // 选 fuelFill → 互斥排除 thermalExplode
 skills.explosive.branches.fuelFill = 1;
-skills.explosive.level = 3;
+setLv(3);
 av = getAvailableBranches('explosive');
 assert(av.includes('fuelFill'),
   '分支未升满 → 仍被提供用于继续升级');
@@ -77,19 +82,19 @@ assert(!av.includes('thermalExplode'), '已选富燃料 → 互斥排除热能�
 assert(av.includes('fireCrit'), 'Lv3 解锁 火焰暴击(共享模板)');
 assert(av.includes('pierce'), 'Lv3 解锁 烈焰穿透(共享模板)');
 skills.explosive.branches.fuelFill = 2;   // 升满富燃料
-skills.explosive.level = 4;
+setLv(4);
 av = getAvailableBranches('explosive');
 assert(av.includes('armorBreak') && av.includes('ignite'), 'Lv4 破甲 / 引燃 同档解锁（均未选时二者同现）');
 assert(!av.includes('incinerate'), 'Lv4 焚身 未满足前置 引燃');
 // 破甲 / 引燃 同档(Lv4)互斥二选一：已选其一则排除另一
 skills.explosive.branches.ignite = 1;
-skills.explosive.level = 5;
+setLv(5);
 av = getAvailableBranches('explosive');
 assert(av.includes('incinerate'), 'Lv5 引燃已选 → 焚身解锁（前置满足）');
 assert(!av.includes('armorBreak'), '已选引燃 → 互斥排除破甲（爆发增幅 vs 灼伤链 二选一）');
 // 反向校验：选破甲则排除引燃
 skills.explosive.branches = { armorBreak: 1 };
-skills.explosive.level = 5;
+setLv(5);
 av = getAvailableBranches('explosive');
 assert(!av.includes('ignite'), '已选破甲 → 互斥排除引燃');
 
@@ -166,6 +171,19 @@ function maxSparkOuter(radius) {
 }
 assert(maxSparkOuter(40) <= 40 + 1.5, '火花外缘≤爆炸半径(40)');
 assert(maxSparkOuter(240) <= 240 + 1.5, '火花外缘≤爆炸半径(240)');
+
+console.log('== 5. 天赋预置等级不应提前刷出高等级分支 ==');
+// 复现场景：玩家自己只点了 3 次爆炸弹（baseLevel=3），但「爆炸」天赋 +1 把 skills.explosive.level 抬高到 4
+// 分支解锁门槛必须按 baseLevel(玩家点数) 判定，否则 Lv4 分支（破甲/引燃）会提前出现
+skills.explosive = { level: 4, baseLevel: 3, branches: {}, _mods: {} };
+let av5 = getAvailableBranches('explosive');
+assert(av5.includes('fireCrit') && av5.includes('pierce'), 'baseLevel=3 → Lv3 分支(fireCrit/烈焰穿透) 正常解锁');
+assert(!av5.includes('armorBreak') && !av5.includes('ignite'), 'baseLevel=3 → Lv4 分支(破甲/引燃) 不提前刷出（即使 level 被天赋抬到4）');
+assert(!av5.includes('incinerate'), 'baseLevel=3 → Lv5 焚身 不解锁');
+// 反向：天赋为 0、玩家点满到 4 级，Lv4 分支应出现
+skills.explosive = { level: 4, baseLevel: 4, branches: {}, _mods: {} };
+let av5b = getAvailableBranches('explosive');
+assert(av5b.includes('armorBreak') && av5b.includes('ignite'), 'baseLevel=4 → Lv4 分支(破甲/引燃) 正常解锁');
 
 console.log(FAILED ? '\nEXPL_TEST_FAIL' : '\nEXPL_TEST_OK');
 process.exit(FAILED ? 1 : 0);
