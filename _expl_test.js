@@ -79,12 +79,19 @@ assert(av.includes('pierce'), 'Lv3 解锁 烈焰穿透(共享模板)');
 skills.explosive.branches.fuelFill = 2;   // 升满富燃料
 skills.explosive.level = 4;
 av = getAvailableBranches('explosive');
-assert(av.includes('armorBreak') && av.includes('ignite'), 'Lv4 破甲 / 引燃 解锁（独立、不互斥）');
+assert(av.includes('armorBreak') && av.includes('ignite'), 'Lv4 破甲 / 引燃 同档解锁（均未选时二者同现）');
 assert(!av.includes('incinerate'), 'Lv4 焚身 未满足前置 引燃');
+// 破甲 / 引燃 同档(Lv4)互斥二选一：已选其一则排除另一
 skills.explosive.branches.ignite = 1;
 skills.explosive.level = 5;
 av = getAvailableBranches('explosive');
 assert(av.includes('incinerate'), 'Lv5 引燃已选 → 焚身解锁（前置满足）');
+assert(!av.includes('armorBreak'), '已选引燃 → 互斥排除破甲（爆发增幅 vs 灼伤链 二选一）');
+// 反向校验：选破甲则排除引燃
+skills.explosive.branches = { armorBreak: 1 };
+skills.explosive.level = 5;
+av = getAvailableBranches('explosive');
+assert(!av.includes('ignite'), '已选破甲 → 互斥排除引燃');
 
 console.log('== 2. recomputeExplosiveMods 派生修正 ==');
 skills.explosive.branches = { fuelFill: 1 };

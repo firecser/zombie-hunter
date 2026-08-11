@@ -866,13 +866,15 @@ const SKILL_DEFS = {
                     // —— 火属性专属分支 ——
                     // 注：爆炸弹基础等级已随等级扩大爆炸范围（explosionRadius = (40+level*20)），故不另设纯范围分支，避免与原始效果重复
                     // 富燃料填充 / 热能爆炸 二者互斥、同档(reqLevel 2)二选一：群伤增伤 vs 单体高伤+范围缩小
+                    // 破甲 / 引燃 二者互斥、同档(reqLevel 4)二选一：爆发增幅路线 vs 灼伤链路线（引燃可继续点焚身 Lv5）
                     fuelFill:   { name:'富燃料填充', desc:'爆炸伤害+20%/级',                 reqLevel:2, prereq:[], mutex:['thermalExplode'], maxLevel:5,
                                   effect(bl,m){ m.explDmgMul *= Math.pow(1.20, bl); } },
                     thermalExplode:{ name:'热能爆炸', desc:'爆炸伤害+38%/级，范围明显缩小',    reqLevel:2, prereq:[], mutex:['fuelFill'], maxLevel:5,
                                   effect(bl,m){ m.explDmgMul *= Math.pow(1.38, bl); m.explRadiusCut += 40 * bl; } },
-                    armorBreak: { name:'破甲',       desc:'爆炸使范围内敌人受伤+8%/级',        reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                    // 破甲 / 引燃 同档(Lv4)互斥二选一：爆发增幅路线 vs 灼伤链路线（引燃可继续点焚身 Lv5 走完灼烧链；破甲走爆发增幅）
+                    armorBreak: { name:'破甲',       desc:'爆炸使范围内敌人受伤+8%/级',        reqLevel:4, prereq:[], mutex:['ignite'], maxLevel:5,
                                   effect(bl,m){ m.explArmorBreak = true; m.armorBreakF += 0.08 * bl; } },
-                    ignite:     { name:'引燃',       desc:'灼烧伤害+20%/级（只增伤不延时长）', reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                    ignite:     { name:'引燃',       desc:'灼烧伤害+20%/级（只增伤不延时长）', reqLevel:4, prereq:[], mutex:['armorBreak'], maxLevel:5,
                                   effect(bl,m){ m.explIgnite = true; m.burnDmgMul *= Math.pow(1.20, bl); } },
                     incinerate: { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.explIncinerate += bl; } }
