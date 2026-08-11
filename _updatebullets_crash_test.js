@@ -81,5 +81,22 @@ threw = null;
 try { updateBullets(); } catch (e) { threw = e; }
 assert(threw === null, '单只僵尸场景也不抛异常');
 
+// 关键回归：外层碰撞循环「单轮多杀越界」
+// 子弹 piercing 足够大（不 break），命中最高索引僵尸时其爆炸 AOE 一次性清空其余低索引僵尸；
+// 旧代码用实时 zombies[j] 倒序遍历，单轮 j 只减 1 但数组已缩短数十个 → 下一轮 zombies[j] 越界 → undefined.x 崩溃。
+// 修复后外层遍历快照 + 存活校验，应安全跳过已被清除的僵尸。
+console.log('== 回归：穿透子弹 + 爆炸清群导致外层 j 越界 ==');
+bullets = [{ x: 640, y: 360, vx: 0, vy: 0, radius: 6, damage: 100, piercing: 6, element: '物理', hitZombies: [] }];
+zombies = [];
+for (let i = 0; i < 6; i++) {
+  zombies.push({ x: 640 + i * 3, y: 360, radius: 18, speed: 0, health: 1, maxHealth: 1,
+    damage: 0, color: '#0f0', exp: 1, type: 'normal', frozenUntil: 0, slowUntil: 0,
+    stunUntil: 0, _residualSlowUntil: 0, _inTornado: false, slowFactor: 0.5, vulnUntil: 0, vulnMul: 1 });
+}
+threw = null;
+try { updateBullets(); } catch (e) { threw = e; }
+assert(threw === null, '穿透子弹 + 爆炸清群时外层循环不越界崩溃' + (threw ? '（实际: ' + threw.message + '）' : ''));
+assert(zombies.length === 0, '全部 6 只僵尸被清除（无 undefined 漏杀）');
+
 console.log(FAILED ? '\n结果: 有失败项 ❌' : '\n结果: 全部通过 ✅');
 process.exit(FAILED ? 1 : 0);

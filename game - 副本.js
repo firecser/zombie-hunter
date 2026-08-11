@@ -3502,8 +3502,13 @@ function updateBullets() {
             continue;
         }
         
-        for (let j = zombies.length - 1; j >= 0; j--) {
-            const zombie = zombies[j];
+        // 遍历快照副本：本帧一发爆炸/闪电链可能一次性清空一整片僵尸（多次 splice），
+        // 若直接对实时 zombies 用索引 j 倒序遍历，单轮 j 只减 1 但数组已缩短数十个，
+        // 下一轮 zombies[j] 会越过新长度 → undefined.x 崩溃。故用快照 + 存活校验。
+        const _zs = zombies.slice();
+        for (let j = _zs.length - 1; j >= 0; j--) {
+            const zombie = _zs[j];
+            if (zombies.indexOf(zombie) === -1) continue;   // 已被本帧其它命中/爆炸/闪电清除，跳过
             const dist = Math.hypot(bullet.x - zombie.x, bullet.y - zombie.y);
             
             if (bullet.hitZombies.includes(zombie)) continue;
