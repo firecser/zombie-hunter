@@ -850,8 +850,24 @@ const SKILL_DEFS = {
                   qualNodes:{ 3:{ desc:'穿透 +1', apply(){ player.bulletPiercing++; } }, 5:{ desc:'穿透溅射小范围', apply(){ skills.piercing._splash = true; } } } },
     health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); },
                   qualNodes:{ 3:{ desc:'每级额外生命 +10', apply(){ player.maxHealth += 10; player.health += 10; } } } },
-    explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'范围伤害',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'爆炸留火池(灼烧)', apply(){ skills.explosive._firePool = true; } }, 5:{ desc:'范围+50% & 二次小爆', apply(){ skills.explosive._big = true; } } } },
+    explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'命中产生范围爆炸', apply(lv){},
+                  // 大类分支树：选分支 = 爆炸弹继续升级（不占新槽）；reqLevel 解锁，prereq 前置，mutex 互斥不进池
+                  // 分支可反复升级（branches[bid] 存整数等级，至 maxLevel 止）；图标沿用大类 icon（💥），不另设
+                  // 参考《向僵尸开炮》温压弹：增伤 / 范围 / 冲击 / 引燃·焚身燃烧链；剔除与现有技能重叠维度（连发→多重射击、穿透→穿透弹、地面火池→油渍）
+                  branches: {
+                    fuelFill:      { name:'富燃料填充', desc:'爆炸伤害+20%/级',                 reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                     effect(bl,m){ m.explDmgMul *= Math.pow(1.20, bl); } },
+                    thermalBurst:  { name:'热能爆发',   desc:'爆炸范围+20%/级',                 reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                     effect(bl,m){ m.explRadiusMul *= Math.pow(1.20, bl); } },
+                    thermalExplode:{ name:'热能爆炸',   desc:'爆炸伤害+45%/级，范围-15%/级',     reqLevel:3, prereq:[], mutex:['shockwave'], maxLevel:5,
+                                     effect(bl,m){ m.explDmgMul *= Math.pow(1.45, bl); m.explRadiusMul *= Math.pow(0.85, bl); } },
+                    shockwave:     { name:'温压冲击',   desc:'爆炸击退敌人（力度随等级）',       reqLevel:3, prereq:[], mutex:['thermalExplode'], maxLevel:5,
+                                     effect(bl,m){ m.explKnock = true; m.explKnockF = 30 * bl; } },
+                    ignite:        { name:'引燃',       desc:'命中引燃敌人（火池灼烧）',         reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                                     effect(bl,m){ m.explIgnite = true; m.igniteLevel = bl; } },
+                    incinerate:    { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
+                                     effect(bl,m){ m.explIncinerate += bl; } }
+                  } },
     lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'雷',   category:'bullet', maxLevel:99, desc:'弹射攻击',       apply(lv){},
                   qualNodes:{ 3:{ desc:'链目标 +2', apply(){ skills.lightning._chainBonus = 2; } }, 5:{ desc:'链命中触发导电', apply(){ skills.lightning._conduct = true; } } } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
@@ -1045,6 +1061,20 @@ function recomputeDamageMods() {
         if (bd && bd.effect) bd.effect(bl, m);
     }
     if (skills.damage) skills.damage._mods = m;
+}
+
+// 由已选分支（含等级）派生 爆炸弹 的实时修正（命中爆炸的伤害/范围/击退/引燃/焚身）；不直改结算，每次选分支/开局重算
+function recomputeExplosiveMods() {
+    const b = (skills.explosive && skills.explosive.branches) || {};
+    const def = SKILL_DEFS.explosive;
+    const m = { explDmgMul: 1, explRadiusMul: 1, explKnock: false, explKnockF: 0, explIgnite: false, igniteLevel: 0, explIncinerate: 0 };
+    for (const bid in b) {
+        const bl = b[bid];
+        if (!bl) continue;
+        const bd = def.branches[bid];
+        if (bd && bd.effect) bd.effect(bl, m);
+    }
+    if (skills.explosive) skills.explosive._mods = m;
 }
 
 function pushHit(z, type) {
@@ -3457,21 +3487,28 @@ function updateBullets() {
 
                 // 爆炸伤害
                 if (skills.explosive.level > 0) {
-                    let explosionRadius = 40 + skills.explosive.level * 20;
-                    if (skills.explosive._big) explosionRadius *= 1.5;   // Lv5 范围 +50%
+                    const _em = skills.explosive._mods || { explDmgMul: 1, explRadiusMul: 1 };
+                    let explosionRadius = (40 + skills.explosive.level * 20) * _em.explRadiusMul;
                     createExplosion(bullet.x, bullet.y, explosionRadius);
-                    if (skills.explosive._firePool) {                    // Lv3 留下火池（灼烧）
+                    if (_em.explIgnite) {                                   // 引燃：留下火池（复用 oil 灼烧机制）
                         oilPatches.push({ x: bullet.x, y: bullet.y, radius: explosionRadius * 0.6, life: 1500, level: skills.explosive.level });
                     }
-                    
+
                     for (const z of zombies) {
                         if (z !== zombie) {
                             const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
                             if (d < explosionRadius) {
-                                let aoeDamage = damage * (0.3 + skills.explosive.level * 0.1);
-                                if (skills.explosive._big) aoeDamage *= 1.5;
+                                let aoeDamage = damage * (0.3 + skills.explosive.level * 0.1) * _em.explDmgMul;
                                 damageZombie(z, aoeDamage, false, '火');
+                                if (_em.explKnock) {                        // 温压冲击：爆炸击退
+                                    const _a = Math.atan2(z.y - bullet.y, z.x - bullet.x);
+                                    z.x += Math.cos(_a) * _em.explKnockF;
+                                    z.y += Math.sin(_a) * _em.explKnockF;
+                                }
                                 checkCombos(z, '火');
+                                if (_em.explIncinerate) {                   // 焚身：对引燃目标追加最大生命%伤害
+                                    damageZombie(z, z.maxHealth * 0.03 * _em.explIncinerate, false, '火');
+                                }
                             }
                         }
                     }
@@ -4243,6 +4280,7 @@ function applyUpgrade(upgrade) {
         skills[upgrade.type].branches = skills[upgrade.type].branches || {};
         skills[upgrade.type].branches[upgrade.branch] = (skills[upgrade.type].branches[upgrade.branch] || 0) + 1;
         if (upgrade.type === 'damage') recomputeDamageMods();
+        else if (upgrade.type === 'explosive') recomputeExplosiveMods();
     }
     
     // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
@@ -4415,8 +4453,9 @@ function startGame() {
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
     for (const key of Object.keys(skills)) fireQualNodes(key);
-    // 火力强化分支派生修正：开局按已选分支重算（本局 branches 已清空，等价于纯基础）
+    // 火力强化 / 爆炸弹 分支派生修正：开局按已选分支重算（本局 branches 已清空，等价于纯基础）
     recomputeDamageMods();
+    recomputeExplosiveMods();
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
