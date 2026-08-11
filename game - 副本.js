@@ -853,18 +853,20 @@ const SKILL_DEFS = {
     explosive:  { type:'explosive',  name:'爆炸弹',   icon:'💥', element:'火',   category:'bullet', maxLevel:99, desc:'命中产生范围爆炸', apply(lv){},
                   // 大类分支树：选分支 = 爆炸弹继续升级（不占新槽）；reqLevel 解锁，prereq 前置，mutex 互斥不进池
                   // 分支可反复升级（branches[bid] 存整数等级，至 maxLevel 止）；图标沿用大类 icon（💥），不另设
-                  // 参考《向僵尸开炮》温压弹：增伤 / 范围 / 冲击 / 引燃·焚身燃烧链；剔除与现有技能重叠维度（连发→多重射击、穿透→穿透弹、地面火池→油渍）
+                  // 互斥规则：互斥的两分支必须处于同一 reqLevel（出现的等级不能有先后），供玩家在同一档二选一
+                  // 参考《向僵尸开炮》温压弹：增伤 / 范围 / 破甲 / 引燃·焚身燃烧链；剔除与现有技能重叠维度（连发→多重射击、穿透→穿透弹、地面火池→油渍）
+                  // 温压冲击(击退)因强度过高且不适合本游戏，已重设计为「破甲」（爆炸使敌人受伤增加，纯数值增益、不干扰走位）
                   branches: {
                     fuelFill:      { name:'富燃料填充', desc:'爆炸伤害+20%/级',                 reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                      effect(bl,m){ m.explDmgMul *= Math.pow(1.20, bl); } },
-                    thermalBurst:  { name:'热能爆发',   desc:'爆炸范围+20%/级',                 reqLevel:2, prereq:[], mutex:[], maxLevel:5,
-                                     effect(bl,m){ m.explRadiusMul *= Math.pow(1.20, bl); } },
-                    thermalExplode:{ name:'热能爆炸',   desc:'爆炸伤害+45%/级，范围-15%/级',     reqLevel:3, prereq:[], mutex:['shockwave'], maxLevel:5,
-                                     effect(bl,m){ m.explDmgMul *= Math.pow(1.45, bl); m.explRadiusMul *= Math.pow(0.85, bl); } },
-                    shockwave:     { name:'温压冲击',   desc:'爆炸击退敌人（力度随等级）',       reqLevel:3, prereq:[], mutex:['thermalExplode'], maxLevel:5,
-                                     effect(bl,m){ m.explKnock = true; m.explKnockF = 30 * bl; } },
-                    ignite:        { name:'引燃',       desc:'命中引燃敌人（火池灼烧）',         reqLevel:4, prereq:[], mutex:[], maxLevel:5,
-                                     effect(bl,m){ m.explIgnite = true; m.igniteLevel = bl; } },
+                    thermalBurst:  { name:'热能爆发',   desc:'爆炸范围+8%/级',                  reqLevel:3, prereq:[], mutex:['thermalExplode'], maxLevel:5,
+                                     effect(bl,m){ m.explRadiusMul *= Math.pow(1.08, bl); } },
+                    thermalExplode:{ name:'热能爆炸',   desc:'爆炸伤害+38%/级，范围-10%/级',     reqLevel:3, prereq:[], mutex:['thermalBurst'], maxLevel:5,
+                                     effect(bl,m){ m.explDmgMul *= Math.pow(1.38, bl); m.explRadiusMul *= Math.pow(0.90, bl); } },
+                    armorBreak:    { name:'破甲',       desc:'爆炸使范围内敌人受伤+8%/级',        reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                                     effect(bl,m){ m.explArmorBreak = true; m.armorBreakF += 0.08 * bl; } },
+                    ignite:        { name:'引燃',       desc:'灼烧伤害+20%/级（只增伤不延时长）', reqLevel:4, prereq:[], mutex:[], maxLevel:5,
+                                     effect(bl,m){ m.explIgnite = true; m.burnDmgMul *= Math.pow(1.20, bl); } },
                     incinerate:    { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
                                      effect(bl,m){ m.explIncinerate += bl; } }
                   } },
@@ -896,6 +898,9 @@ for (const _t in SKILL_DEFS) {
 
 const MAX_SKILLS = 5;
 let acquiredSkills = ['damage'];
+
+// 灼烧(引燃/油渍)的固定持续时长（毫秒）：引燃只增伤不延长，故为常量
+const BURN_DURATION = 1500;
 
 // ==================== 游戏对象 ====================
 let bullets = [];
@@ -1067,7 +1072,7 @@ function recomputeDamageMods() {
 function recomputeExplosiveMods() {
     const b = (skills.explosive && skills.explosive.branches) || {};
     const def = SKILL_DEFS.explosive;
-    const m = { explDmgMul: 1, explRadiusMul: 1, explKnock: false, explKnockF: 0, explIgnite: false, igniteLevel: 0, explIncinerate: 0 };
+    const m = { explDmgMul: 1, explRadiusMul: 1, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0 };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
@@ -1491,7 +1496,7 @@ function drawZombie(zombie) {
             ctx.fill();
         }
         ctx.restore();
-    } else if (zombie.slowUntil > nowZ) {
+    } if (zombie.slowUntil > nowZ) {
         // 减速：脚下紫色黏液 + 上浮气泡 + 身上薄雾
         ctx.save();
         ctx.fillStyle = 'rgba(160, 107, 255, 0.45)';
@@ -1514,6 +1519,26 @@ function drawZombie(zombie) {
         ctx.arc(x, y, r * 0.95, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
+    }
+
+    // ========== 状态表现：灼烧（独立显示，可与冰冻/减速叠加）==========
+    if (zombie.burningUntil > nowZ) {
+        ctx.save();
+        const flick = 0.75 + 0.25 * Math.sin(nowZ * 0.02);   // 火焰抖动
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = '#ff7a1a';
+        ctx.beginPath();
+        ctx.arc(x, y, r * (0.98 + 0.06 * Math.sin(nowZ * 0.03)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.35 * flick;
+        ctx.fillStyle = '#ffd24a';
+        ctx.beginPath();
+        ctx.arc(x, y - r * 0.1, r * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        if (Math.random() < 0.4) {                              // 上升火星
+            particles.push({ x: x + (Math.random() - 0.5) * r, y: y - r * 0.6, vx: (Math.random() - 0.5) * 1.5, vy: -1.5 - Math.random() * 1.5, radius: 2 + Math.random() * 2, life: 400, color: '#ffae3a' });
+        }
     }
 
     // 血条
@@ -2062,16 +2087,18 @@ function drawBombExplosions() {
     for (let i = bombExplosionEffects.length - 1; i >= 0; i--) {
         const effect = bombExplosionEffects[i];
         effect.life -= 16;
-        effect.radius += 20;
-        
+        const maxR = effect.maxRadius || (screenWidth + screenHeight);   // 全屏炸弹效果默认扩至满屏
+        const rate = maxR / 25;                                           // 约 25 帧扩至 maxRadius（爆炸范围越大环越大）
+        effect.radius = Math.min(maxR, effect.radius + rate);
+
         const alpha = effect.life / 400;
-        
+
         ctx.beginPath();
         ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(255, 100, 50, ${alpha * 0.8})`;
-        ctx.lineWidth = 10 * alpha;
+        ctx.lineWidth = (8 * (effect.radius / Math.max(1, maxR)) + 2) * alpha;  // 线宽随半径缩放
         ctx.stroke();
-        
+
         if (effect.life <= 0) {
             bombExplosionEffects.splice(i, 1);
         }
@@ -3487,11 +3514,12 @@ function updateBullets() {
 
                 // 爆炸伤害
                 if (skills.explosive.level > 0) {
-                    const _em = skills.explosive._mods || { explDmgMul: 1, explRadiusMul: 1 };
+                    const _em = skills.explosive._mods || { explDmgMul: 1, explRadiusMul: 1, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0 };
                     let explosionRadius = (40 + skills.explosive.level * 20) * _em.explRadiusMul;
                     createExplosion(bullet.x, bullet.y, explosionRadius);
-                    if (_em.explIgnite) {                                   // 引燃：留下火池（复用 oil 灼烧机制）
-                        oilPatches.push({ x: bullet.x, y: bullet.y, radius: explosionRadius * 0.6, life: 1500, level: skills.explosive.level });
+
+                    if (_em.explIgnite && zombie) {                        // 引燃：仅引燃被击中和被波及的怪物，不生成地面火池（避免与油渍冲突）
+                        applyBurn(zombie, player.damage * _em.burnDmgMul, BURN_DURATION);
                     }
 
                     for (const z of zombies) {
@@ -3500,10 +3528,10 @@ function updateBullets() {
                             if (d < explosionRadius) {
                                 let aoeDamage = damage * (0.3 + skills.explosive.level * 0.1) * _em.explDmgMul;
                                 damageZombie(z, aoeDamage, false, '火');
-                                if (_em.explKnock) {                        // 温压冲击：爆炸击退
-                                    const _a = Math.atan2(z.y - bullet.y, z.x - bullet.x);
-                                    z.x += Math.cos(_a) * _em.explKnockF;
-                                    z.y += Math.sin(_a) * _em.explKnockF;
+                                if (_em.explIgnite) applyBurn(z, player.damage * _em.burnDmgMul, BURN_DURATION);
+                                if (_em.explArmorBreak) {                   // 破甲：爆炸使范围内敌人受伤增加（持续一段时间，纯数值不干扰走位）
+                                    z.vulnUntil = Math.max(z.vulnUntil || 0, Date.now() + BURN_DURATION);
+                                    z.vulnMul = 1 + _em.armorBreakF;
                                 }
                                 checkCombos(z, '火');
                                 if (_em.explIncinerate) {                   // 焚身：对引燃目标追加最大生命%伤害
@@ -3602,7 +3630,9 @@ function updateBullets() {
 
 // 伤害僵尸
 function damageZombie(zombie, damage, isCrit, element) {
+    const now = Date.now();
     damage *= getElementBonus(zombie, element);   // Phase2 异常交互：状态 × 元素 增伤（element 缺省'物理'→×1）
+    if (zombie.vulnUntil > now) damage *= (zombie.vulnMul || 1);  // 破甲：爆炸后敌人受伤增加
     zombie.health -= damage;
 
     damageNumbers.push({
@@ -3788,15 +3818,27 @@ function drawHitEffects() {
 }
 
 // 创建爆炸效果
+// 施加灼烧：设/续灼烧时长与每跳伤害（伤害取较高者，不叠加累乘）；引燃只增伤，故 duration 固定
+function applyBurn(z, dmgPerTick, duration) {
+    const now = Date.now();
+    z.burnDmg = Math.max(z.burnDmg || 0, dmgPerTick);
+    z.burningUntil = Math.max(z.burningUntil || 0, now + duration);
+}
+
 function createExplosion(x, y, radius) {
-    for (let i = 0; i < 18; i++) {
-        const angle = (Math.PI * 2 / 18) * i;
+    // 爆炸冲击环：扩至实际爆炸半径（随爆炸范围分支同步放大/缩小）
+    bombExplosionEffects.push({ x: x, y: y, radius: 0, life: 400, maxRadius: radius });
+    // 火花：数量与扩散速度随半径缩放
+    const n = Math.max(12, Math.round(radius / 3));
+    const sp = 3 + radius / 12;
+    for (let i = 0; i < n; i++) {
+        const angle = (Math.PI * 2 / n) * i;
         particles.push({
             x: x,
             y: y,
-            vx: Math.cos(angle) * 4,
-            vy: Math.sin(angle) * 4,
-            radius: 5,
+            vx: Math.cos(angle) * sp,
+            vy: Math.sin(angle) * sp,
+            radius: 4 + radius / 30,
             life: 300,
             color: '#ff6600'
         });
@@ -3895,16 +3937,15 @@ function updateZombies(dt) {
     // 护盾反弹结算（循环外，避免遍历中 splice 导致跳杀）
     for (const rt of _reflectTargets) damageZombie(rt.z, rt.dmg, false, '物理');
 
-    // 灼烧 DOT（油渍）：节流 500ms 结算一次；逆序遍历，damageZombie 内 splice 安全
+    // 灼烧 DOT（油渍 / 爆炸引燃）：节流 500ms 结算一次；逆序遍历，damageZombie 内 splice 安全
     const _now = Date.now();
     for (let j = zombies.length - 1; j >= 0; j--) {
         const z = zombies[j];
-        if (z.burningUntil > _now) {
+        if (z.burningUntil > _now && z.burnDmg > 0) {
             z._burnTick = (z._burnTick || 0) + (dt || 16);
             if (z._burnTick >= 500) {
                 z._burnTick = 0;
-                const dot = player.damage * (1 + (skills.oil._dotBonus || 0));  // 油渍每跳伤害 = 子弹单发伤害（Lv3 质变 ×2）；与子弹初始伤害对齐
-                damageZombie(z, dot, false, '火');   // 火：冰冻中僵尸踩油渍 → 融化 ×2
+                damageZombie(z, z.burnDmg, false, '火');   // 灼烧伤害按各自来源（油渍/引燃）结算；火：冰冻中僵尸踩油渍 → 融化 ×2
             }
         }
     }
@@ -3973,7 +4014,7 @@ function updateFields(dt) {
             if (o.life <= 0) { oilPatches.splice(i, 1); continue; }
             for (const z of zombies) {
                 if (Math.hypot(o.x - z.x, o.y - z.y) < o.radius + z.radius) {
-                    z.burningUntil = now + 1000;
+                    applyBurn(z, player.damage * (1 + (skills.oil._dotBonus || 0)), BURN_DURATION);  // 油渍每跳伤害 = 子弹单发伤害（Lv3 质变 ×2）
                     if (skills.oil._big) z.slowUntil = Math.max(z.slowUntil || 0, now + 1000);  // Lv5 油渍附加减速
                 }
             }
