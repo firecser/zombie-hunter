@@ -823,11 +823,13 @@ const player = {
 // 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
 // 运行时仅保留 skills[type].level；category: bullet=弹道, buff=增益, field=战场部署, cc=控场
 const SKILL_DEFS = {
-    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +12%',     apply(lv){ player.damage *= 1.12; },
+    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +14%',     apply(lv){ player.damage *= 1.14; },
                   // 大类分支树：选分支 = 火力强化继续升级（不占新槽）；reqLevel 解锁，prereq 前置，mutex 互斥不进池
                   // 分支可反复升级（branches[bid] 存整数等级，至 maxLevel 止）；图标沿用大类 icon（🔫），不另设
                   // 数值平衡（以 L20 极限为基准，逐级穷举）：三条进攻分支每级 DPS 倍率(dmgMul/fireMul) 收敛到同一曲线 ≈1+0.25*bl，
                   // 故无论走哪条路径，火力强化的总强度基本一致；穿甲(对坦克/Boss)、后坐力、弹道校准为情境向增益，强度同量级。
+                  // 基础增幅 +14%/级（原 +12%）：爆炸弹主键不随自身等级增长、且半径随等级涨到 ~440px，
+                  // 在「稍有聚集」时就反超火力强化；提至 14% 把 crossover 推到「密集群才反超」，还原火力强化=单体/Boss、爆炸弹=群伤的定位。
                   branches: {
                     heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+20%/级、射速-3%/级', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(1.20, bl); m.fireMul *= Math.pow(1.03, bl); } },
