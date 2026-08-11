@@ -1,0 +1,85 @@
+// 回归测试：修复「爆炸/穿透/暴击/地雷/龙卷风/死亡射线」遍历 zombies 时 splice 导致
+// for...of 下一步读到 undefined（Cannot read property 'x' of undefined）的崩溃。
+// 场景：爆炸弹一发命中，爆炸 AOE 同时击杀多只聚集僵尸。
+const fs = require('fs');
+const src = fs.readFileSync('game - 副本.js', 'utf8');
+
+function extractFn(name) {
+  const i = src.indexOf('function ' + name + '(');
+  if (i < 0) throw new Error('未找到函数 ' + name);
+  let j = src.indexOf('{', i), depth = 0, k = j;
+  for (; k < src.length; k++) {
+    if (src[k] === '{') depth++;
+    else if (src[k] === '}') { depth--; if (depth === 0) { k++; break; } }
+  }
+  return src.slice(i, k);
+}
+
+// ---- 桩环境（updateBullets / damageZombie 依赖）----
+const screenWidth = 1280, screenHeight = 720;
+const BURN_DURATION = 1500;
+let bullets = [];
+let zombies = [];
+const particles = [], damageNumbers = [], expOrbs = [], goldOrbs = [], hitEffects = [];
+const talentMods = { lifestealPerKill: 0 };
+const player = { x: 640, y: 360, damage: 100, _splitOnHit: false, kills: 0, health: 100, maxHealth: 100 };
+const skills = {
+  damage:    { level: 0, _mods: { dmgMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0, fireMul: 1 } },
+  explosive: { level: 5, _mods: { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0, pierceSplash: false, critExplode: false } },
+  lightning: { level: 0, _mods: {}, _chainBonus: 0, _conduct: 0 },
+  freeze:    { level: 0, _mods: {}, _residual: false, _stun: false }
+};
+const AudioSystem = { playZombieDeath() {}, playLevelUp() {}, playBombExplosion() {}, playShoot() {} };
+
+// 纯桩函数（eval 作用域内可见）
+function getCritChance() { return 0; }       // 关闭暴击/分裂/闪电/冰冻/减速分支，聚焦爆炸 AOE
+function getCritMult() { return 1; }
+function getElementBonus() { return 1; }
+function getFreezeChance() { return 0; }
+function getFreezeDuration() { return 0; }
+function getSlowChance() { return 0; }
+function getSlowFactor() { return 0.5; }
+function createCritEffect() {}
+function createExplosion() {}
+function createFreezeEffect() {}
+function createSlowEffect() {}
+function applyBurn() {}
+function checkCombos(z) {}
+function getEffBulletSpeed() { return 10; }
+function getEffBulletPiercing() { return 1; }
+function spawnSplitBullets() {}
+
+eval(extractFn('damageZombie'));
+eval(extractFn('updateBullets'));
+
+let FAILED = false;
+function assert(cond, msg) { if (!cond) { console.log('  ✗ FAIL:', msg); FAILED = true; } else console.log('  ✓', msg); }
+
+console.log('== 回归：爆炸 AOE 同时击杀多只僵尸不应崩溃 ==');
+bullets = [{
+  x: 640, y: 360, vx: 0, vy: 0, radius: 6, damage: 100, piercing: 1, element: '物理', hitZombies: []
+}];
+// 5 只僵尸聚集在子弹落点附近，血量极低，必被 AOE 秒杀（触发 splice）
+zombies = [];
+for (let i = 0; i < 5; i++) {
+  zombies.push({ x: 640 + i * 2, y: 360, radius: 18, speed: 0, health: 1, maxHealth: 1,
+    damage: 0, color: '#0f0', exp: 1, type: 'normal', frozenUntil: 0, slowUntil: 0,
+    stunUntil: 0, _residualSlowUntil: 0, _inTornado: false, slowFactor: 0.5, vulnUntil: 0, vulnMul: 1 });
+}
+let threw = null;
+try { updateBullets(); } catch (e) { threw = e; }
+assert(threw === null, 'updateBullets 在多只僵尸被 AOE 击杀时不抛异常' + (threw ? '（实际: ' + threw.message + '）' : ''));
+assert(zombies.length === 0, '5 只僵尸均被正确清除（无 undefined 跳杀/漏杀）');
+assert(bullets.length === 0, '主弹命中后按 piercing 移除');
+
+// 仅 1 只僵尸也走通（边界）
+bullets = [{ x: 640, y: 360, vx: 0, vy: 0, radius: 6, damage: 100, piercing: 1, element: '物理', hitZombies: [] }];
+zombies = [{ x: 641, y: 360, radius: 18, speed: 0, health: 1, maxHealth: 1, damage: 0, color: '#0f0',
+  exp: 1, type: 'normal', frozenUntil: 0, slowUntil: 0, stunUntil: 0, _residualSlowUntil: 0,
+  _inTornado: false, slowFactor: 0.5, vulnUntil: 0, vulnMul: 1 }];
+threw = null;
+try { updateBullets(); } catch (e) { threw = e; }
+assert(threw === null, '单只僵尸场景也不抛异常');
+
+console.log(FAILED ? '\n结果: 有失败项 ❌' : '\n结果: 全部通过 ✅');
+process.exit(FAILED ? 1 : 0);

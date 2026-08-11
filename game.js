@@ -3538,7 +3538,10 @@ function updateBullets() {
                         applyBurn(zombie, player.damage * _em.burnDmgMul, BURN_DURATION);
                     }
 
-                    for (const z of zombies) {
+                    // 倒序索引遍历：循环内 damageZombie 可能把 z 从 zombies 立即 splice，
+                    // 升序 for...of 会在删除位置<当前索引时下一步读到 undefined（z.x 报错）；倒序可避免
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
                         if (z !== zombie) {
                             const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
                             if (d < explosionRadius) {
@@ -3550,7 +3553,7 @@ function updateBullets() {
                                     z.vulnMul = 1 + _em.armorBreakF;
                                 }
                                 checkCombos(z, '火');
-                                if (_em.explIncinerate) {                   // 焚身：对引燃目标追加最大生命%伤害
+                                if (_em.explIncinerate && z.health > 0) {   // 焚身：对仍存活的引燃目标追加最大生命%伤害（避免对已死目标二次结算/重复击杀计数）
                                     damageZombie(z, z.maxHealth * 0.03 * _em.explIncinerate, false, '火');
                                 }
                             }
@@ -3606,14 +3609,16 @@ function updateBullets() {
 
                 // 穿透溅射（火树「烈焰穿透」满级质变）
                 if (skills.explosive && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
-                    for (const z of zombies) {
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '物理');
                     }
                 }
                 // 暴击小爆炸（火树「火焰暴击」满级质变）
                 if (isCrit && skills.explosive && skills.explosive._mods && skills.explosive._mods.critExplode) {
                     createExplosion(zombie.x, zombie.y, 50);
-                    for (const z of zombies) {
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, player.damage * 0.3, false, '火'); checkCombos(z, '火'); }
                     }
                 }
@@ -3996,7 +4001,8 @@ function updateFields(dt) {
                 createExplosion(m.x, m.y, m.radius);
                 let dmg = player.damage * (0.5 + m.level * 0.12) * 2;
                 if (skills.mine._dmgBonus) dmg *= (1 + skills.mine._dmgBonus);   // Lv3 伤害 +50%
-                for (const z of zombies) {
+                for (let k = zombies.length - 1; k >= 0; k--) {   // 倒序：damageZombie 可能 splice 移除僵尸
+                    const z = zombies[k];
                     if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) {
                         damageZombie(z, dmg, false, '物理');
                         if (skills.mine._slow) z.slowUntil = Math.max(z.slowUntil || 0, now + 1500);  // Lv5 爆炸附加减速
@@ -4031,7 +4037,8 @@ function updateFields(dt) {
             if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
             let pull = 0.02 * (1 + t.level * 0.3);
             if (skills.tornado._pullBonus) pull *= (1 + skills.tornado._pullBonus);   // Lv3 牵引增强
-            for (const z of zombies) {
+            for (let k = zombies.length - 1; k >= 0; k--) {   // 倒序：风系 DPS 的 damageZombie 可能 splice 移除僵尸
+                const z = zombies[k];
                 const d = Math.hypot(t.x - z.x, t.y - z.y);
                 if (d < t.radius && d > 1) {
                     z.x += (t.x - z.x) * pull;
@@ -4691,7 +4698,7 @@ function update(dt) {
         if (talentMods.deathrayTimer >= 8000) {
             talentMods.deathrayTimer = 0;
             const dmg = player.damage * (2 + talentMods.deathrayLevel);
-            for (const z of zombies) damageZombie(z, dmg);
+            for (let k = zombies.length - 1; k >= 0; k--) damageZombie(zombies[k], dmg);  // 倒序：damageZombie 可能 splice 移除僵尸
             deathRayEffects.push({ x: player.x, y: player.y, life: 400 });
             AudioSystem.playShoot();
         }
