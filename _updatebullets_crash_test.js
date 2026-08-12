@@ -51,6 +51,11 @@ function getEffBulletPiercing() { return 1; }
 function spawnSplitBullets() {}
 function spawnChainFrost() {}
 function getBulletElement() { return '物理'; }
+// 元素视觉调色板（damageZombie 飘字取 core 色；与 game - 副本.js ELEMENT_VISUAL 一致）
+const ELEMENT_VISUAL = {
+  '物理': { core: '#ff4d4d' }, '火': { core: '#ff6a14' }, '水': { core: '#37c6ff' },
+  '金': { core: '#ffd23a' }, '木': { core: '#46d35a' }, '土': { core: '#c8915a' }
+};
 
 eval(extractFn('freezeMods'));
 // 属性技能独立 cd 机制（updateBullets 现按 bullet.skillType 取 attrModsForBullet）

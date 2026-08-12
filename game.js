@@ -881,8 +881,8 @@ const SKILL_DEFS = {
                     incinerate: { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.explIncinerate += bl; } }
                   } },
-    lightning:  { type:'lightning',  name:'跃迁电子', icon:'⚡', element:'金',   category:'bullet', maxLevel:99, desc:'命中弹射/麻痹/电伤领域',
-                  // 金属性树（对应五行中的金）：参考《向僵尸开炮》跃迁电子，弹射、导电、麻痹、电伤领域
+    lightning:  { type:'lightning',  name:'雷弧链',   icon:'⚡', element:'金',   category:'bullet', maxLevel:99, desc:'命中弹射/麻痹/电伤领域',
+                  // 金属性树（对应五行中的金）：玩法参考《向僵尸开炮》跃迁电子，已重命名为「雷弧链」以避免重名；弹射、导电、麻痹、电伤领域
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水树同名同结构）——
@@ -976,8 +976,8 @@ let bombExplosionEffects = [];
 let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
-let electricFields = [];            // 跃迁电子「静电场」生成的持续电伤区域
-// 静电场（跃迁电子 Lv4 分支）领域参数：范围/时长随「静电场」等级小幅扩大
+let electricFields = [];            // 雷弧链「静电场」生成的持续电伤区域
+// 静电场（雷弧链 Lv4 分支）领域参数：范围/时长随「静电场」等级小幅扩大
 const STATIC_FIELD_BASE_RADIUS = 55;     // Lv1 基础半径(px)
 const STATIC_FIELD_RADIUS_PER_LV = 12;   // 每级 +12(px)：Lv1≈67 → Lv5≈115
 const STATIC_FIELD_BASE_LIFE = 2600;     // Lv1 基础持续(ms)
@@ -1227,7 +1227,7 @@ function recomputeFreezeMods() {
     if (skills.freeze) skills.freeze._mods = m;
 }
 
-// 由已选分支派生 跃迁电子（金属性树）的实时修正（弹射/麻痹/电伤领域/超导/雷霆）；每次选分支/开局重算
+// 由已选分支派生 雷弧链（金属性树）的实时修正（弹射/麻痹/电伤领域/超导/雷霆）；每次选分支/开局重算
 function recomputeLightningMods() {
     const b = (skills.lightning && skills.lightning.branches) || {};
     const def = SKILL_DEFS.lightning;
@@ -2056,9 +2056,9 @@ function drawFields() {
         const lifeRatio = f.life / 3000;
         const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);
         const halo = ctx.createRadialGradient(f.x, f.y, f.radius * 0.4, f.x, f.y, f.radius);
-        halo.addColorStop(0, 'rgba(180,235,255,' + (0.25 * lifeRatio * pulse) + ')');
-        halo.addColorStop(0.6, 'rgba(120,210,255,' + (0.12 * lifeRatio * pulse) + ')');
-        halo.addColorStop(1, 'rgba(120,210,255,0)');
+        halo.addColorStop(0, 'rgba(55,198,255,' + (0.28 * lifeRatio * pulse) + ')');
+        halo.addColorStop(0.6, 'rgba(55,198,255,' + (0.14 * lifeRatio * pulse) + ')');
+        halo.addColorStop(1, 'rgba(55,198,255,0)');
         ctx.fillStyle = halo;
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
@@ -2071,7 +2071,7 @@ function drawFields() {
         ctx.stroke();
     }
 
-    // 静电场（跃迁电子 Lv4 分支）：金色电脉冲场
+    // 静电场（雷弧链 Lv4 分支）：金色电脉冲场
     for (const f of electricFields) {
         const lifeRatio = f.life / (f.maxLife || STATIC_FIELD_BASE_LIFE);
         const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 80);
@@ -2339,15 +2339,15 @@ function drawDamageNumbers() {
         ctx.textAlign = 'center';
         ctx.globalAlpha = dn.life / 800;
         if (dn.isCrit) {
-            // 暴击：放大加粗 + 深色描边，强化视觉冲击
-            ctx.font = 'bold 24px Arial';
+            // 暴击：仅放大加粗 + 深色描边强化视觉冲击；颜色仍随元素，不使用红色
+            ctx.font = 'bold 26px Arial';
             ctx.lineJoin = 'round';
             ctx.lineWidth = 4;
-            ctx.strokeStyle = 'rgba(110, 0, 0, 0.95)';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
             ctx.strokeText(dn.text, dn.x, dn.y);
             ctx.fillText(dn.text, dn.x, dn.y);
         } else {
-            ctx.font = 'bold 14px Arial';
+            ctx.font = 'bold 15px Arial';
             ctx.fillText(dn.text, dn.x, dn.y);
         }
     }
@@ -2367,11 +2367,11 @@ function drawLightnings() {
                 ctx.lineTo(lightning.points[j].x, lightning.points[j].y);
             }
             
-            ctx.strokeStyle = `rgba(150, 220, 255, ${alpha * 0.5})`;
+            ctx.strokeStyle = `rgba(255, 210, 70, ${alpha * 0.5})`;
             ctx.lineWidth = 8;
             ctx.stroke();
             
-            ctx.strokeStyle = `rgba(100, 200, 255, ${alpha * 0.7})`;
+            ctx.strokeStyle = `rgba(255, 225, 130, ${alpha * 0.75})`;
             ctx.lineWidth = 4;
             ctx.stroke();
             
@@ -2431,7 +2431,7 @@ function drawBombExplosions() {
 
         ctx.beginPath();
         ctx.arc(effect.x, effect.y, ringR, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 100, 50, ${alpha * 0.8})`;
+        ctx.strokeStyle = `rgba(255, 106, 20, ${alpha * 0.8})`;
         ctx.lineWidth = lineW;
         ctx.stroke();
 
@@ -3951,7 +3951,7 @@ function updateBullets() {
                 // 命中时间戳（闪电链/冰冻/减速/领域/麻痹 共用）
                 const nowHit = Date.now();
 
-                // 跃迁电子（仅金属性树自身的子弹触发）
+                // 雷弧链（仅金属性树自身的子弹触发）
                 if (bullet.skillType === 'lightning') {
                     const _lm = lightningMods();
                     // 导电 = 冻结/减速/麻痹（金树自身电磁脉冲即可施加麻痹，纯金流也能触发超导，无需依赖水树减速/冻结）
@@ -4120,7 +4120,7 @@ function damageZombie(zombie, damage, isCrit, element) {
         text: Math.round(damage).toString(),
         life: 800,
         vy: -2.5,
-        color: isCrit ? '#ff3b3b' : (element === '火' ? '#ff7a1a' : (element === '水' ? '#4ecfff' : (damage > player.damage ? '#ffff00' : '#ffffff'))),
+        color: (element && ELEMENT_VISUAL[element] ? ELEMENT_VISUAL[element].core : (damage > player.damage ? '#ffff00' : '#ffffff')),
         isCrit: isCrit
     });
     
@@ -4241,9 +4241,9 @@ function drawHitEffects() {
         ctx.translate(e.x, e.y);
 
         if (e.type === 'crit') {
-            // 暴击：红色冲击环（十字星光已按需求移除）
+            // 暴击：金色冲击环（颜色随元素风格，不使用红色）
             ctx.rotate(e.rot);
-            ctx.strokeStyle = '#ff3b3b';
+            ctx.strokeStyle = '#ffd23a';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.arc(0, 0, 16 * grow, 0, Math.PI * 2);
@@ -4322,7 +4322,7 @@ function createExplosion(x, y, radius) {
             vy: Math.sin(angle) * sp,
             radius: 4 + radius / 30,
             life: 300,
-            color: '#ff6600'
+            color: '#ff6a14'
         });
     }
 }
