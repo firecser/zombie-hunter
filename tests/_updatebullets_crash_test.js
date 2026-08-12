@@ -32,6 +32,15 @@ const skills = {
 };
 const AudioSystem = { playZombieDeath() {}, playLevelUp() {}, playBombExplosion() {}, playShoot() {} };
 
+// 波次系统全局（onZombieRemoved/awardWaveExp 依赖；本测试只验证「多杀不崩溃」，不校验升级，故 levelUp 置桩）
+let gameState = 'playing';
+let wavesCleared = 0;
+const WAVE_COUNT = 20, MAX_LEVEL = 20;
+let waveAlive = {}, waveAwarded = {};
+player.level = 1; player.exp = 0; player.expToLevel = 50;
+function levelUp() {}
+
+
 // 纯桩函数（eval 作用域内可见）
 function getCritChance() { return 0; }       // 关闭暴击/分裂/闪电/冰冻/减速分支，聚焦爆炸 AOE
 function getCritMult() { return 1; }
@@ -66,6 +75,8 @@ eval(extractFn('attrModsForType'));
 eval(extractFn('attrModsForBullet'));
 eval(extractFn('getAttrReleaseCd'));
 eval(extractFn('damageZombie'));
+eval(extractFn('onZombieRemoved'));
+eval(extractFn('awardWaveExp'));
 eval(extractFn('updateBullets'));
 
 let FAILED = false;
