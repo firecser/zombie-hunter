@@ -110,7 +110,8 @@ assert(lm.chainCountBoost === 3, 'chainConduct Lv3 → chainCountBoost=3');
 assert(lm.chainDmgMul === 1, '未选 highVoltage → chainDmgMul=1');
 assert(lm.empStunChance === 0.12 && lm.empStunDuration === 200, 'emp Lv2 → stunChance=0.12, duration=200ms');
 assert(lm.staticFieldChance === 0, '未选 staticField → staticFieldChance=0');
-assert(lm.superConductorDmgMul === 0.6 && lm.superConductorCountBoost === 2, 'superConductor Lv2 → dmgMul+0.6, count+2');
+assert(Math.abs(lm.superConductorDmgMul - 0.4) < 0.001 && lm.superConductorCountBoost === 2, 'superConductor Lv2 → dmgMul+0.4(20%/级), count+2');
+assert(Math.abs(lm.superConductorMaxHp - 0.04) < 0.001, 'superConductor Lv2 → 最大生命%追击 +0.04(2%/级)');
 assert(lm.thunderStrike === false, '未选 thunderStrike → false');
 
 skills.lightning.branches = { chainConduct: 0, highVoltage: 5, emp: 0, staticField: 4, superConductor: 0, thunderStrike: 1, crit: 5, multiShot: 0, highSpeed: 0, pierce: 0 };
@@ -123,6 +124,7 @@ assert(lm2.thunderStrike === true, 'thunderStrike 选中 → true');
 assert(lm2.critChanceBoost === 0.25 && lm2.critDamageBoost === 0.75, 'crit Lv5 → critChance+25%, critDamage+75%');
 assert(Math.abs(lm2.staticFieldRadius - (STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * 4)) < 0.001, 'staticField Lv4 → 领域半径=' + (STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * 4) + 'px');
 assert(Math.abs(lm2.staticFieldLife - (STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * 4)) < 0.001, 'staticField Lv4 → 领域时长=' + (STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * 4) + 'ms');
+assert(lm2.superConductorMaxHp === 0 && lm2.superConductorDmgMul === 0, '未选 superConductor → 超导字段全 0');
 
 console.log('== 2b. 雷霆暴击不再自带落雷（落雷仅由雷霆一击提供）==');
 skills.lightning.branches = { chainConduct: 0, highVoltage: 0, emp: 0, staticField: 0, superConductor: 0, thunderStrike: 0, crit: 5, multiShot: 0, highSpeed: 0, pierce: 0 };
@@ -130,6 +132,15 @@ recomputeLightningMods();
 const lm3 = lightningMods();
 assert(lm3.critChanceBoost === 0.25 && lm3.critDamageBoost === 0.75, 'crit Lv5 → 仅暴击属性加成');
 assert(lm3.thunderStrike === false, 'crit 满级不再自带落雷（雷霆一击才是落雷来源）');
+
+console.log('== 2c. 超导满级(与火·焚身/水·冰爆对称的最大生命%追击) ==');
+skills.lightning.branches = { chainConduct: 5, highVoltage: 0, emp: 3, staticField: 0, superConductor: 5, thunderStrike: 0, crit: 0, multiShot: 0, highSpeed: 0, pierce: 0 };
+recomputeLightningMods();
+const lm4 = lightningMods();
+assert(Math.abs(lm4.superConductorDmgMul - 1.0) < 0.001, 'superConductor Lv5 → 弹射伤害 +100%(20%/级)');
+assert(lm4.superConductorCountBoost === 5, 'superConductor Lv5 → 弹射次数 +5');
+assert(Math.abs(lm4.superConductorMaxHp - 0.10) < 0.001, 'superConductor Lv5 → 追加最大生命% 10%(2%/级)，与火/水对称(金略低因导电触发更广)');
+assert(lm4.empStunChance === 0.18 && lm4.empStunDuration === 300, 'emp Lv3 → 麻痹概率0.18, 时长300ms(麻痹=导电, 纯金流可触发超导)');
 
 console.log('== 3. 五行映射与 getBulletElement ==');
 assert(WUXING_ELEMENT['雷'] === '金' && WUXING_ELEMENT['风'] === '木' && WUXING_ELEMENT['冰'] === '水', '旧标签映射到五行');

@@ -906,8 +906,10 @@ const SKILL_DEFS = {
                     staticField:{ name:'静电场',   desc:'命中 20% 生成电伤领域/级（范围随等级扩大）', reqLevel:4, prereq:[], mutex:['emp'], maxLevel:5,
                                   effect(bl,m){ m.staticFieldChance += 0.20 * bl; m.staticFieldRadius = STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * bl; m.staticFieldLife = STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * bl; } },
                     // Lv5 质变：超导依赖「链式传导」分支；雷霆一击依赖「雷霆暴击」分支(key:crit) Lv1
-                    superConductor:{ name:'超导', desc:'对冻结/减速目标弹射伤害 +30%/级，弹射次数 +1/级', reqLevel:5, prereq:['chainConduct'], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.superConductorDmgMul += 0.30 * bl; m.superConductorCountBoost += bl; } },
+                    // 超导与火(焚身)/水(冰爆)同为"对状态目标追加最大生命%伤害"的 Lv5 对称分支；金树以"导电"为状态钩子
+                    // （导电 = 冻结/减速/麻痹），故金树自带电磁脉冲(麻痹)即可自闭环，无需依赖水树减速/冻结
+                    superConductor:{ name:'超导', desc:'对导电(冻结/减速/麻痹)目标：弹射伤害 +20%/级、弹射次数 +1/级、追加 2% 最大生命伤害/级', reqLevel:5, prereq:['chainConduct'], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.superConductorDmgMul += 0.20 * bl; m.superConductorCountBoost += bl; m.superConductorMaxHp += 0.02 * bl; } },
                     thunderStrike:{ name:'雷霆一击', desc:'暴击时 50% 召唤落雷，造成 100% 伤害', reqLevel:5, prereq:['crit'], mutex:[], maxLevel:1,
                                   effect(bl,m){ m.thunderStrike = true; } }
                   } },
@@ -1064,10 +1066,10 @@ function freezeMods() {
 }
 function lightningMods() {
     return (skills.lightning && skills.lightning._mods) ? skills.lightning._mods
-        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
-            chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
-            empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
-            superConductorDmgMul: 0, superConductorCountBoost: 0, thunderStrike: false };
+    : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
+        chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
+        empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
+        superConductorDmgMul: 0, superConductorCountBoost: 0, superConductorMaxHp: 0, thunderStrike: false };
 }
 
 // ==================== 属性技能独立释放 CD（不受火力强化射速影响）====================
@@ -1235,7 +1237,7 @@ function recomputeLightningMods() {
         // 金专属
         chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
         empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
-        superConductorDmgMul: 0, superConductorCountBoost: 0, thunderStrike: false
+        superConductorDmgMul: 0, superConductorCountBoost: 0, superConductorMaxHp: 0, thunderStrike: false
     };
     for (const bid in b) {
         const bl = b[bid];
@@ -1347,7 +1349,7 @@ function superConduct(from, count, dmg) {
 const COMBO_DEFS = [
     { id:'melt', test:(z,el)=> z.frozenUntil > Date.now() && el === '火',
       fx(z){ damageZombie(z, z.maxHealth * 0.08, false, '物理'); z.frozenUntil = 0; pushHit(z,'melt'); } },
-    { id:'superconduct', test:(z,el)=> z.frozenUntil > Date.now() && el === '金',
+    { id:'superconduct', test:(z,el)=> el === '金' && (z.frozenUntil > Date.now() || z.slowUntil > Date.now() || z.stunUntil > Date.now()),
       fx(z){ superConduct(z, 2, player.damage * 0.3); pushHit(z,'superconduct'); } },
     { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '金',
       fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '金'); pushHit(z,'conduct'); } },
@@ -3952,7 +3954,8 @@ function updateBullets() {
                 // 跃迁电子（仅金属性树自身的子弹触发）
                 if (bullet.skillType === 'lightning') {
                     const _lm = lightningMods();
-                    const isConductive = (zombie.frozenUntil > nowHit || zombie.slowUntil > nowHit);
+                    // 导电 = 冻结/减速/麻痹（金树自身电磁脉冲即可施加麻痹，纯金流也能触发超导，无需依赖水树减速/冻结）
+                    const isConductive = (zombie.frozenUntil > nowHit || zombie.slowUntil > nowHit || zombie.stunUntil > nowHit);
                     let chainCount = skills.lightning.level + 1 + _lm.chainCountBoost + (isConductive ? _lm.superConductorCountBoost : 0);
                     let chainDamage = damage * 0.4 * _lm.chainDmgMul * (isConductive ? (1 + _lm.superConductorDmgMul) : 1);
                     let chainRange = 150 + _lm.chainRangeBoost;
@@ -3976,6 +3979,9 @@ function updateBullets() {
                         if (closestChain) {
                             createLightning(lastTarget.x, lastTarget.y, closestChain.x, closestChain.y);
                             damageZombie(closestChain, chainDamage, false, '金');
+                            // 超导(金 Lv5)：对导电目标的弹射追加最大生命%伤害（与火·焚身/水·冰爆对称）
+                            if (isConductive && _lm.superConductorMaxHp > 0 && closestChain.health > 0)
+                                damageZombie(closestChain, closestChain.maxHealth * _lm.superConductorMaxHp, false, '金');
                             checkCombos(closestChain, '金');
 
                             // 电磁脉冲：命中麻痹
