@@ -80,7 +80,7 @@ skills.explosive.level = 2;
 let av = getAvailableBranches('explosive');
 // 共享模板分支（多重/疾速）+ 火专属（富燃料/热能爆炸 同档互斥二选一），均在 Lv2 解锁
 assert(av.includes('multiShot'), 'Lv2 解锁 多重爆裂(共享模板)');
-assert(av.includes('highSpeed'), 'Lv2 解锁 疾速弹道(共享模板)');
+assert(av.includes('highSpeed'), 'Lv2 解锁 急速冷却(共享模板)');
 assert(av.includes('fuelFill') && av.includes('thermalExplode'), 'Lv2 解锁 富燃料填充 / 热能爆炸（同档互斥，二选一）');
 // 选 fuelFill → 互斥排除 thermalExplode
 skills.explosive.branches.fuelFill = 1;
@@ -132,7 +132,7 @@ recomputeExplosiveMods();
 assert(skills.explosive._mods.bulletCountBoost === 5, '多重爆裂 Lv5 子弹+5');
 skills.explosive.branches = { highSpeed: 5 };
 recomputeExplosiveMods();
-assert(Math.abs(skills.explosive._mods.speedMul - Math.pow(1.20, 5)) < 1e-6, '疾速弹道 Lv5 弹速×2.49');
+assert(Math.abs(skills.explosive._mods.cdReduce - 0.40) < 1e-6, '急速冷却 Lv5 释放 cd 缩短 40%');
 skills.explosive.branches = { crit: 5 };
 recomputeExplosiveMods();
 assert(Math.abs(skills.explosive._mods.critChanceBoost - 0.25) < 1e-6, '火焰暴击 Lv5 暴击率+25%');

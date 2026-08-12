@@ -859,8 +859,8 @@ const SKILL_DEFS = {
                     // —— 通用「属性树共享模板」分支（火树先行；冰/雷/毒树后续复用同名结构）——
                     multiShot:  { name:'多重爆裂', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
-                    highSpeed:  { name:'疾速弹道', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
+                    highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
                     crit:       { name:'火焰暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发小爆炸', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.critExplode = true; } },
                     pierce:     { name:'烈焰穿透', desc:'穿透 +1/级；满级命中溅射',            reqLevel:3, prereq:[], mutex:[], maxLevel:5,
@@ -888,8 +888,8 @@ const SKILL_DEFS = {
                     // —— 通用「属性树共享模板」（与火/水树同名同结构）——
                     multiShot:  { name:'多重电子', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
-                    highSpeed:  { name:'疾速电弧', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
+                    highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
                     crit:       { name:'雷霆暴击', desc:'暴击率+5%/级、暴击伤害+15%/级（雷霆一击的前置）', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; } },
                     pierce:     { name:'电子穿透', desc:'穿透 +1/级；满级命中溅射电火花',    reqLevel:3, prereq:[], mutex:[], maxLevel:5,
@@ -922,8 +922,8 @@ const SKILL_DEFS = {
                     // —— 通用「属性树共享模板」分支（与火树同名，全局叠加）——
                     multiShot:  { name:'多重干冰', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
-                    highSpeed:  { name:'疾速弹道', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
+                    highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
                     crit:       { name:'冰霜暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发冰爆', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.iceBurst = true; } },
                     pierce:     { name:'寒冰穿透', desc:'穿透 +1/级；满级命中溅射冰刺',            reqLevel:3, prereq:[], mutex:[], maxLevel:5,
@@ -1086,7 +1086,7 @@ const ATTR_CD_CFG = {
 const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
 // 属性子弹相对普通子弹的「默认」参数：飞得更慢、个头更大（普通子弹 radius=6、speed=player.bulletSpeed）
 const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
-const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（可被自身疾速弹道提速）
+const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（属性技能不再提速子弹，释放 cd 缩短由「急速冷却」分支负责）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
@@ -1098,14 +1098,14 @@ function attrModsForType(type) {
 function attrModsForBullet(bullet) {
     return attrModsForType(bullet.skillType) || {};
 }
-// 某属性技能的实时释放 cd（独立于火力强化；可被自身「疾速弹道」进一步降低）
+// 某属性技能的实时释放 cd（独立于火力强化；可被自身「急速冷却」进一步缩短）
 function getAttrReleaseCd(type) {
     const cfg = ATTR_CD_CFG[type] || { base: 6000, min: 3000, step: 100 };
     const s = skills[type];
     if (!s) return cfg.base;
     let cd = cfg.base - (s.level || 0) * cfg.step;
     const m = attrModsForType(type);
-    if (m && m.speedMul && m.speedMul > 1) cd /= m.speedMul;   // 疾速弹道：speedMul=1.20^bl → 等效加速释放
+    if (m && m.cdReduce) cd *= (1 - m.cdReduce);   // 急速冷却：每级缩短释放 cd（封底在 cfg.min）
     return Math.max(cfg.min, cd);
 }
 
@@ -1198,7 +1198,7 @@ function recomputeExplosiveMods() {
     const def = SKILL_DEFS.explosive;
     const m = { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0,
                 // 共享模板分支派生（多重/疾速/暴击/穿透）
-                bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false };
+                bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false, cdReduce: 0 };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
@@ -1214,7 +1214,7 @@ function recomputeFreezeMods() {
     const def = SKILL_DEFS.freeze;
     const m = {
         // 共享模板
-        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false,
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false, cdReduce: 0,
         // 水专属
         freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, shatterBonus: 0, polarFieldChance: 0, chainFrost: false
     };
@@ -1233,7 +1233,7 @@ function recomputeLightningMods() {
     const def = SKILL_DEFS.lightning;
     const m = {
         // 共享模板
-        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false, cdReduce: 0,
         // 金专属
         chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
         empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,

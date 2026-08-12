@@ -1,5 +1,5 @@
 // 回归测试：属性技能（爆炸/干冰/闪电链）独立于基础「火力强化」释放
-// 1) 各属性技能有自身释放 cd（初始长、随等级降低、受自身疾速弹道降低），不受火力强化 fireRate 影响
+// 1) 各属性技能有自身释放 cd（初始长、随等级降低、受自身急速冷却缩短），不受火力强化 fireRate 影响
 // 2) 基础武器 shootBase 发射物理子弹(skillType:'damage')；属性技能 shootAttribute 发射自身元素子弹
 // 3) 多重 Lv5 质变：属性子弹 canSplit 且数量 +1/级
 const fs = require('fs');
@@ -25,7 +25,7 @@ const SKILL_DEFS = {
   damage:    { type: 'damage', name: '火力强化', element: '物理', branches: {} },
   explosive: { type: 'explosive', name: '爆炸弹', element: '火',
                branches: { multiShot: { effect(bl, m){ m.bulletCountBoost += bl; } },
-                           highSpeed: { effect(bl, m){ m.speedMul *= Math.pow(1.20, bl); } } } },
+                           highSpeed: { effect(bl, m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } } } },
   freeze:    { type: 'freeze', name: '干冰弹', element: '水', branches: {} },
   lightning: { type: 'lightning', name: '跃迁电子', element: '金', branches: {} }
 };
@@ -78,10 +78,10 @@ console.log('== 2. cd 不受火力强化 fireRate 影响 ==');
 skills.damage._mods.fireMul = 50;          // 火力强化把射速拉到极快
 assert(getAttrReleaseCd('explosive') === 6000 - 5 * 100, '火力强化 fireMul=50 时，爆炸弹 cd 仍为 5500（独立）');
 skills.damage._mods.fireMul = 1;
-// 自身疾速弹道进一步降低 cd
+// 自身急速冷却进一步缩短 cd
 skills.explosive.branches = { highSpeed: 5 };
 recomputeExplosiveMods();
-assert(getAttrReleaseCd('explosive') < 5500, '自身疾速弹道 Lv5 后 cd 进一步降低(<5500)');
+assert(getAttrReleaseCd('explosive') < 5500, '自身急速冷却 Lv5 后 cd 进一步缩短(<5500)');
 skills.explosive.branches = {};
 recomputeExplosiveMods();
 
@@ -138,13 +138,14 @@ const attrB = bullets[0];
 const attrSpeed = Math.hypot(attrB.vx, attrB.vy);
 assert(attrSpeed < baseSpeed, `属性子弹速度(${attrSpeed}) < 普通子弹速度(${baseSpeed})`);
 assert(attrB.radius > baseB.radius, `属性子弹半径(${attrB.radius}) > 普通子弹半径(${baseB.radius})`);
-// 疾速弹道可提速，但仍按 0.7 系数起步（不慢于普通则失败）
+// 急速冷却缩短释放 cd，不再影响子弹飞行速度
 skills.explosive.branches = { highSpeed: 5 };
 recomputeExplosiveMods();
 bullets = [];
 shootAttribute('explosive');
 const fastSpeed = Math.hypot(bullets[0].vx, bullets[0].vy);
-assert(fastSpeed > attrSpeed, `自身疾速弹道 Lv5 后提速(${fastSpeed} > ${attrSpeed})`);
+assert(Math.abs(fastSpeed - attrSpeed) < 0.001, `急速冷却不再提速子弹(${fastSpeed} ≈ ${attrSpeed})`);
+assert(getAttrReleaseCd('explosive') < 5500, '急速冷却 Lv5 缩短释放 cd(<5500)');
 
 console.log(FAILED ? '\n结果: 有失败项 ❌' : '\n结果: 全部通过 ✅');
 process.exit(FAILED ? 1 : 0);
