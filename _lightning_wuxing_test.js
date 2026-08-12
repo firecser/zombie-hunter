@@ -55,6 +55,17 @@ const WUXING_OVERCOME = eval(extractConst('WUXING_OVERCOME'));
 const WUXING_GENERATE = eval(extractConst('WUXING_GENERATE'));
 const WUXING_OVERCOME_BONUS = 0.30, WUXING_GENERATE_BONUS = 0.15;
 
+// 注入标量常量（静电场领域参数，随源文件同步）
+function extractScalar(name) {
+    const m = src.match(new RegExp('const\\s+' + name + '\\s*=\\s*([^;]+);'));
+    if (!m) throw new Error('未找到常量 ' + name);
+    return eval(m[1]);
+}
+const STATIC_FIELD_BASE_RADIUS = extractScalar('STATIC_FIELD_BASE_RADIUS');
+const STATIC_FIELD_RADIUS_PER_LV = extractScalar('STATIC_FIELD_RADIUS_PER_LV');
+const STATIC_FIELD_BASE_LIFE = extractScalar('STATIC_FIELD_BASE_LIFE');
+const STATIC_FIELD_LIFE_PER_LV = extractScalar('STATIC_FIELD_LIFE_PER_LV');
+
 // 初始化技能实例
 for (const _t in SKILL_DEFS) {
     const _d = SKILL_DEFS[_t];
@@ -110,6 +121,15 @@ assert(lm2.chainRangeBoost === 40, 'highVoltage Lv5 → chainRangeBoost=40');
 assert(lm2.staticFieldChance === 0.8, 'staticField Lv4 → staticFieldChance=0.8');
 assert(lm2.thunderStrike === true, 'thunderStrike 选中 → true');
 assert(lm2.critChanceBoost === 0.25 && lm2.critDamageBoost === 0.75, 'crit Lv5 → critChance+25%, critDamage+75%');
+assert(Math.abs(lm2.staticFieldRadius - (STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * 4)) < 0.001, 'staticField Lv4 → 领域半径=' + (STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * 4) + 'px');
+assert(Math.abs(lm2.staticFieldLife - (STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * 4)) < 0.001, 'staticField Lv4 → 领域时长=' + (STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * 4) + 'ms');
+
+console.log('== 2b. 雷霆暴击不再自带落雷（落雷仅由雷霆一击提供）==');
+skills.lightning.branches = { chainConduct: 0, highVoltage: 0, emp: 0, staticField: 0, superConductor: 0, thunderStrike: 0, crit: 5, multiShot: 0, highSpeed: 0, pierce: 0 };
+recomputeLightningMods();
+const lm3 = lightningMods();
+assert(lm3.critChanceBoost === 0.25 && lm3.critDamageBoost === 0.75, 'crit Lv5 → 仅暴击属性加成');
+assert(lm3.thunderStrike === false, 'crit 满级不再自带落雷（雷霆一击才是落雷来源）');
 
 console.log('== 3. 五行映射与 getBulletElement ==');
 assert(WUXING_ELEMENT['雷'] === '金' && WUXING_ELEMENT['风'] === '木' && WUXING_ELEMENT['冰'] === '水', '旧标签映射到五行');

@@ -890,8 +890,8 @@ const SKILL_DEFS = {
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'疾速电弧', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
-                    crit:       { name:'雷霆暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击召唤落雷', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.thunderStrike = true; } },
+                    crit:       { name:'雷霆暴击', desc:'暴击率+5%/级、暴击伤害+15%/级（雷霆一击的前置）', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; } },
                     pierce:     { name:'电子穿透', desc:'穿透 +1/级；满级命中溅射电火花',    reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.pierceSpark = true; } },
                     // —— 金专属分支 ——
@@ -903,8 +903,8 @@ const SKILL_DEFS = {
                     // 电磁脉冲 / 静电场 同档(Lv4)互斥：单体硬控路线 vs 群体领域路线
                     emp:        { name:'电磁脉冲', desc:'命中麻痹概率 +6%/级，麻痹时长 +0.1s/级', reqLevel:4, prereq:[], mutex:['staticField'], maxLevel:5,
                                   effect(bl,m){ m.empStunChance += 0.06 * bl; m.empStunDuration += 100 * bl; } },
-                    staticField:{ name:'静电场',   desc:'命中 20% 生成持续电伤领域/级',     reqLevel:4, prereq:[], mutex:['emp'], maxLevel:5,
-                                  effect(bl,m){ m.staticFieldChance += 0.20 * bl; } },
+                    staticField:{ name:'静电场',   desc:'命中 20% 生成电伤领域/级（范围随等级扩大）', reqLevel:4, prereq:[], mutex:['emp'], maxLevel:5,
+                                  effect(bl,m){ m.staticFieldChance += 0.20 * bl; m.staticFieldRadius = STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * bl; m.staticFieldLife = STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * bl; } },
                     // Lv5 质变：超导依赖链式传导；雷霆一击依赖暴击分支
                     superConductor:{ name:'超导', desc:'对冻结/减速目标弹射伤害 +30%/级，弹射次数 +1/级', reqLevel:5, prereq:['chainConduct'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.superConductorDmgMul += 0.30 * bl; m.superConductorCountBoost += bl; } },
@@ -975,6 +975,11 @@ let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
 let electricFields = [];            // 跃迁电子「静电场」生成的持续电伤区域
+// 静电场（跃迁电子 Lv4 分支）领域参数：范围/时长随「静电场」等级小幅扩大
+const STATIC_FIELD_BASE_RADIUS = 55;     // Lv1 基础半径(px)
+const STATIC_FIELD_RADIUS_PER_LV = 12;   // 每级 +12(px)：Lv1≈67 → Lv5≈115
+const STATIC_FIELD_BASE_LIFE = 2600;     // Lv1 基础持续(ms)
+const STATIC_FIELD_LIFE_PER_LV = 200;    // 每级 +200(ms)：Lv1≈2.8s → Lv5≈3.6s
 let invincibleUntil = 0;            // 不朽之身复活后的「真无敌」截止时间
 const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 
@@ -1061,7 +1066,7 @@ function lightningMods() {
     return (skills.lightning && skills.lightning._mods) ? skills.lightning._mods
         : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
             chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
-            empStunChance: 0, empStunDuration: 0, staticFieldChance: 0,
+            empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
             superConductorDmgMul: 0, superConductorCountBoost: 0, thunderStrike: false };
 }
 
@@ -1229,7 +1234,7 @@ function recomputeLightningMods() {
         bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
         // 金专属
         chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
-        empStunChance: 0, empStunDuration: 0, staticFieldChance: 0,
+        empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
         superConductorDmgMul: 0, superConductorCountBoost: 0, thunderStrike: false
     };
     for (const bid in b) {
@@ -2066,7 +2071,7 @@ function drawFields() {
 
     // 静电场（跃迁电子 Lv4 分支）：金色电脉冲场
     for (const f of electricFields) {
-        const lifeRatio = f.life / 3000;
+        const lifeRatio = f.life / (f.maxLife || STATIC_FIELD_BASE_LIFE);
         const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 80);
         const halo = ctx.createRadialGradient(f.x, f.y, f.radius * 0.3, f.x, f.y, f.radius);
         halo.addColorStop(0, 'rgba(255,230,120,' + (0.22 * lifeRatio * pulse) + ')');
@@ -3983,9 +3988,9 @@ function updateBullets() {
                         }
                     }
 
-                    // 静电场：命中概率生成持续电伤领域
+                    // 静电场：命中概率生成持续电伤领域（范围/时长随静电场等级）
                     if (_lm.staticFieldChance > 0 && Math.random() < _lm.staticFieldChance) {
-                        electricFields.push({ x: bullet.x, y: bullet.y, radius: 55, life: 3000, born: nowHit });
+                        electricFields.push({ x: bullet.x, y: bullet.y, radius: _lm.staticFieldRadius, life: _lm.staticFieldLife, maxLife: _lm.staticFieldLife, born: nowHit });
                     }
 
                     // 雷霆一击：暴击时 50% 召唤落雷
