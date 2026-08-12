@@ -44,6 +44,8 @@ eval(extractFn('freezeMods'));
 eval(extractFn('attrModsForType'));
 eval(extractFn('attrModsForBullet'));
 eval(extractFn('getAttrReleaseCd'));
+eval(extractFn('elementVisual'));
+const ELEMENT_VISUAL = { '物理': { size: 1 }, '火': { size: 1.2 }, '水': { size: 0.92 }, '金': { size: 1.05 }, '木': { size: 1 }, '土': { size: 1.14 } };
 eval(extractFn('recomputeExplosiveMods'));
 eval(extractFn('recomputeFreezeMods'));
 eval(extractFn('shootBase'));

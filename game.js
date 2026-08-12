@@ -1726,18 +1726,24 @@ function drawZombie(zombie) {
     }
 }
 
-// 单颗子弹应叠加哪些视觉元素（按 bullet.skillType 取，基础物理弹与属性弹外观分离）
+// 五行 + 物理 元素视觉（颜色 / 形状 / 体型），子弹彻底按元素区分，不再从普通子弹演化
+const ELEMENT_VISUAL = {
+    '物理': { core: '#ff4d4d', core2: '#ffd6d6', glow: 'rgba(255,80,80,0.55)',  shape: 'round',   size: 1.00, name: '物理' },
+    '火':   { core: '#ff6a14', core2: '#ffd27a', glow: 'rgba(255,120,30,0.62)', shape: 'flame',   size: 1.20, name: '火' },
+    '水':   { core: '#37c6ff', core2: '#daffff', glow: 'rgba(70,200,255,0.62)', shape: 'crystal', size: 0.92, name: '水' },
+    '金':   { core: '#ffd23a', core2: '#fff7c8', glow: 'rgba(255,210,70,0.62)', shape: 'bolt',    size: 1.05, name: '金' },
+    '木':   { core: '#46d35a', core2: '#cdf7d2', glow: 'rgba(80,210,90,0.55)',  shape: 'leaf',    size: 1.00, name: '木' },
+    '土':   { core: '#c8915a', core2: '#f1d4ad', glow: 'rgba(200,145,90,0.55)', shape: 'chunk',   size: 1.14, name: '土' }
+};
+function elementVisual(el) { return ELEMENT_VISUAL[el] || ELEMENT_VISUAL['物理']; }
+
+// 单颗子弹应叠加哪些「通用特效」元素（暴击/穿透/疾速），元素本身的颜色形状由 ELEMENT_VISUAL 决定
 function getBulletVisual(bullet) {
-    const st = (bullet && bullet.skillType) || 'damage';
     const m = attrModsForBullet(bullet || { skillType: 'damage' });
     return {
         crit: getCritChance(m) > 0,                                         // 暴击：金色描边（按本弹属性树）
-        freeze: st === 'freeze' && getFreezeChance() > 0,                   // 冰霜弹：霜环 + 冰晶
-        slow: st === 'freeze' && getSlowChance() > 0,                       // 缓速弹：紫色黏稠尾迹
         pierce: (player.bulletPiercing + (m.pierceBoost || 0)) > 1,         // 穿透：拉长 + 尖锐弹头
-        fast: player.bulletSpeed * (m.speedMul || 1) > player.bulletSpeed + 0.001,  // 疾速弹道：残影
-        boom: st === 'explosive',                                           // 爆炸弹：尾部火花
-        bolt: st === 'lightning'                                            // 闪电链：弹身电弧
+        fast: player.bulletSpeed * (m.speedMul || 1) > player.bulletSpeed + 0.001  // 疾速弹道：残影
     };
 }
 
@@ -2000,22 +2006,25 @@ function drawFields() {
     for (const t of tornadoes) drawTornado(t);
 }
 
+// 绘制子弹：颜色 / 形状 / 体型 完全由元素决定（ELEMENT_VISUAL），不再从普通子弹演化
 function drawBullets() {
     const t = Date.now();
     for (const bullet of bullets) {
         const v = getBulletVisual(bullet);
+        const ev = elementVisual(bullet.element);
         const ang = Math.atan2(bullet.vy, bullet.vx);
-        const len = bullet.radius * (v.pierce ? 5.2 : 4);   // 子弹拉成细长条，明显区别于圆形掉落物
-        const w = bullet.radius * 1.5;
+        const sz = bullet.radius * ev.size;
+        const len = sz * (v.pierce ? 4.6 : 3.4);   // 子弹拉成细长条，明显区别于圆形掉落物
+        const w = sz * 1.5;
         ctx.save();
         ctx.translate(bullet.x, bullet.y);
         ctx.rotate(ang);
 
-        // 高速子弹：后方残影
+        // 高速子弹：后方残影（使用元素色，而非固定红）
         if (v.fast) {
             for (let k = 1; k <= 3; k++) {
                 ctx.globalAlpha = 0.24 / k;
-                ctx.fillStyle = '#ff6b6b';
+                ctx.fillStyle = ev.core;
                 ctx.beginPath();
                 ctx.ellipse(-k * len * 0.42, 0, (len / 2) * (1 - k * 0.18), (w / 2) * (1 - k * 0.18), 0, 0, Math.PI * 2);
                 ctx.fill();
@@ -2023,41 +2032,95 @@ function drawBullets() {
             ctx.globalAlpha = 1;
         }
 
-        // 缓速弹：紫色黏稠尾迹
-        if (v.slow) {
-            ctx.fillStyle = 'rgba(160, 107, 255, 0.55)';
-            for (let k = 1; k <= 3; k++) {
+        // 元素光晕
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, sz * 3);
+        glow.addColorStop(0, ev.glow);
+        glow.addColorStop(1, ev.glow.replace(/[\d.]+\)$/, '0)'));
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, sz * 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 弹体：按元素形状绘制
+        ctx.fillStyle = ev.core;
+        ctx.beginPath();
+        switch (ev.shape) {
+            case 'flame': {   // 火：尾部尖、头部圆的泪滴火苗
+                ctx.moveTo(-len * 0.5, 0);
+                ctx.quadraticCurveTo(-len * 0.1, -w * 0.72, len * 0.5, 0);
+                ctx.quadraticCurveTo(-len * 0.1, w * 0.72, -len * 0.5, 0);
+                ctx.closePath();
+                break;
+            }
+            case 'crystal': { // 水：六边形冰晶
+                for (let i = 0; i < 6; i++) {
+                    const a = Math.PI / 6 + i * Math.PI / 3;
+                    const px = Math.cos(a) * len * 0.5;
+                    const py = Math.sin(a) * w * 0.5;
+                    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                break;
+            }
+            case 'bolt': {    // 金：闪电箭形（锯齿）
+                ctx.moveTo(len * 0.5, 0);
+                ctx.lineTo(-len * 0.05, -w * 0.5);
+                ctx.lineTo(-len * 0.32, -w * 0.2);
+                ctx.lineTo(-len * 0.5, 0);
+                ctx.lineTo(-len * 0.32, w * 0.2);
+                ctx.lineTo(-len * 0.05, w * 0.5);
+                ctx.closePath();
+                break;
+            }
+            case 'leaf': {    // 木：叶形（细长椭圆）
+                ctx.ellipse(0, 0, len / 2, w * 0.42, 0, 0, Math.PI * 2);
+                break;
+            }
+            case 'chunk': {   // 土：圆角石块
+                const r = Math.min(w * 0.4, len * 0.3);
+                roundRectPath(-len / 2, -w / 2, len, w, r);
+                break;
+            }
+            default: {        // 物理：红色能量弹（标准椭圆）
+                ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
+            }
+        }
+        ctx.fill();
+
+        // 高光内核（元素亮色）
+        ctx.fillStyle = ev.core2;
+        ctx.beginPath();
+        ctx.ellipse(-len * 0.04, 0, len * 0.2, w * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 元素专属点缀
+        if (ev.shape === 'flame') {          // 火：尾部火星
+            ctx.fillStyle = '#ffcf6a';
+            for (let k = 0; k < 2; k++) {
                 ctx.beginPath();
-                ctx.arc(-len * 0.32 * k, Math.sin(t * 0.02 + k) * 1.5, w * 0.34 * (1 - k * 0.2), 0, Math.PI * 2);
+                ctx.arc(-len * (0.5 + k * 0.18), Math.sin(t * 0.03 + k * 2) * w * 0.3, w * 0.18, 0, Math.PI * 2);
                 ctx.fill();
+            }
+        } else if (ev.shape === 'crystal') { // 水：冰面刻线
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(-len * 0.3, 0); ctx.lineTo(len * 0.3, 0);
+            ctx.moveTo(0, -w * 0.42); ctx.lineTo(0, w * 0.42);
+            ctx.stroke();
+        } else if (ev.shape === 'bolt') {    // 金：两侧电弧
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+            ctx.lineWidth = 1.1;
+            for (const sgn of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-len * 0.3, sgn * w * 0.5);
+                ctx.lineTo(-len * 0.05, sgn * w * 0.95);
+                ctx.lineTo(len * 0.2, sgn * w * 0.45);
+                ctx.stroke();
             }
         }
 
-        // 红色光晕
-        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, bullet.radius * 3);
-        glow.addColorStop(0, 'rgba(255, 70, 70, 0.55)');
-        glow.addColorStop(1, 'rgba(255, 70, 70, 0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(0, 0, bullet.radius * 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 冰霜弹：外层霜环（保持弹体红色，避免与青色经验球混淆）
-        if (v.freeze) {
-            ctx.strokeStyle = 'rgba(180, 240, 255, 0.85)';
-            ctx.lineWidth = 1.6;
-            ctx.beginPath();
-            ctx.ellipse(0, 0, len * 0.62, w * 0.85, 0, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-
-        // 红色弹体（细长椭圆，沿运动方向）
-        ctx.fillStyle = '#ff4d4d';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 致命暴击：金色描边
+        // 致命暴击：金色描边（覆盖在弹体之上）
         if (v.crit) {
             ctx.strokeStyle = '#ffd24a';
             ctx.lineWidth = 1.6;
@@ -2065,12 +2128,6 @@ function drawBullets() {
             ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2);
             ctx.stroke();
         }
-
-        // 白热核心
-        ctx.fillStyle = '#fff0f0';
-        ctx.beginPath();
-        ctx.ellipse(-len * 0.05, 0, len * 0.22, w * 0.32, 0, 0, Math.PI * 2);
-        ctx.fill();
 
         // 穿透弹：尖锐弹头
         if (v.pierce) {
@@ -2083,45 +2140,19 @@ function drawBullets() {
             ctx.fill();
         }
 
-        // 冰霜弹：两侧小冰晶
-        if (v.freeze) {
-            ctx.strokeStyle = '#eaffff';
-            ctx.lineWidth = 1.4;
-            for (const sgn of [-1, 1]) {
-                ctx.beginPath();
-                ctx.moveTo(-len * 0.1, sgn * w * 0.35);
-                ctx.lineTo(-len * 0.1, sgn * w * 0.95);
-                ctx.moveTo(-len * 0.1, sgn * w * 0.7);
-                ctx.lineTo(-len * 0.3, sgn * w * 0.92);
-                ctx.stroke();
-            }
-        }
-
-        // 爆炸弹：尾部橙色火花
-        if (v.boom) {
-            ctx.fillStyle = '#ffa73a';
-            for (let k = 0; k < 2; k++) {
-                ctx.beginPath();
-                ctx.arc(-len * (0.55 + k * 0.2), Math.sin(t * 0.03 + k * 2) * w * 0.35, w * 0.2, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        // 闪电链：弹身两侧电弧
-        if (v.bolt) {
-            ctx.strokeStyle = '#8fe3ff';
-            ctx.lineWidth = 1.2;
-            for (const sgn of [-1, 1]) {
-                ctx.beginPath();
-                ctx.moveTo(-len * 0.3, sgn * w * 0.5);
-                ctx.lineTo(-len * 0.05, sgn * w * 0.95);
-                ctx.lineTo(len * 0.2, sgn * w * 0.45);
-                ctx.stroke();
-            }
-        }
-
         ctx.restore();
     }
+}
+
+// 圆角矩形路径（土属性石块用）
+function roundRectPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
 }
 
 // 绘制经验球和金币（青蓝经验 + 金色硬币，与红色子弹强区分）
@@ -3665,7 +3696,7 @@ function shootAttribute(type) {
             y: player.y + Math.sin(baseAngle) * gunLength,
             vx: Math.cos(bulletAngle) * _spd,
             vy: Math.sin(bulletAngle) * _spd,
-            radius: 6,
+            radius: 6 * elementVisual(def.element).size,   // 体型按元素区分（同时影响碰撞与绘制）
             damage: dmg,
             piercing: player.bulletPiercing + (m.pierceBoost || 0),
             element: def.element,          // 火/水/雷 —— 由属性树自身元素决定
