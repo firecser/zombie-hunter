@@ -76,7 +76,7 @@ eval(extractFn('attrModsForBullet'));
 eval(extractFn('getAttrReleaseCd'));
 eval(extractFn('damageZombie'));
 eval(extractFn('onZombieRemoved'));
-eval(extractFn('awardWaveExp'));
+eval(extractFn('updatePendingSpawns'));
 eval(extractFn('updateBullets'));
 
 let FAILED = false;

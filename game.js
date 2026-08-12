@@ -225,17 +225,36 @@ const MAX_LEVEL = 20;
 
 // ==================== 波次系统（v1.1.1）====================
 // 通关条件改为「消灭 20 波敌人」。20 波在约 5 分钟内按时间轴全部出现（重叠波次，不等待上一波清完）；
-// 出怪间隔越来越长、出怪数量越来越多；每清完一波刚好够升 1 级（触发一次三选一），共 19 次（初始算 1 级）。
+// 通关条件：消灭全部 20 波敌人即胜利。
+// 耦合设计（用户指定）：每波怪物经验总和 = 该波升级所需经验 → 清完一波经验条刚好填满、自动升 1 级、触发一次三选一。
+// 升级所需 cost(L→L+1) = 2L（1→2需2、2→3需4、3→4需6…），故第 i 波经验总和 = 2i。
+// 出怪间隔越来越长、出怪数量越来越多（数量≈2i，随坦克/Boss 组合变化）；同波怪错峰出现，不成一排。
 const WAVE_COUNT = 20;
+const STAGGER_MS = 280;       // 同一波内每只怪的出怪间隔（ms），制造时间差
+const STAGGER_JITTER = 200;   // 出怪抖动，避免机械等距
 function buildWavePlan() {
     const plan = [];
     let t = 1500;   // 第一波出现前的初始延迟(ms)
     for (let i = 1; i <= WAVE_COUNT; i++) {
-        const gap = 6500 + (i - 1) * 850;             // 出怪间隔越来越长
-        const count = Math.round(8 + (i - 1) * 1.7);  // 出怪数量越来越多
-        const tankChance = Math.min(0.05 + i * 0.012, 0.35);
-        const fastChance = Math.min(0.12 + i * 0.010, 0.35);
-        plan.push({ i, spawnAt: t, gap, count, tankChance, fastChance, boss: (i % 5 === 0) });
+        const gap = 6500 + (i - 1) * 850;             // 波与波之间的间隔越来越长
+        const targetExp = 2 * i;                       // 该波升级所需经验 = 怪物经验总和
+        const isBoss = (i % 5 === 0);
+        const comp = [];                               // 怪物类型组成（普通1/精英2/BOSS4 经验）
+        let remaining = targetExp;
+        if (isBoss) { comp.push('boss'); remaining -= 4; }
+        // 中后期加入精英(坦克, 2经验)增加厚度
+        if (i >= 3) {
+            const tanks = Math.min(Math.floor(i / 3), Math.floor(remaining / 2));
+            for (let k = 0; k < tanks; k++) { comp.push('tank'); remaining -= 2; }
+        }
+        // 速度感：偶数非Boss波加几个快速怪(1经验)
+        if (i >= 2 && !isBoss && i % 2 === 0) {
+            const fast = Math.min(3, remaining);
+            for (let k = 0; k < fast; k++) { comp.push('fast'); remaining -= 1; }
+        }
+        // 剩余用普通怪(1经验)填满，保证经验总和精确等于 targetExp
+        while (remaining > 0) { comp.push('normal'); remaining -= 1; }
+        plan.push({ i, spawnAt: t, gap, comp, boss: isBoss });
         t += gap;
     }
     return plan;
@@ -1020,11 +1039,13 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 // ==================== 僵尸类型 ====================
 // 移动速度为 px/帧（约 60fps）。v1.1.1 起大幅下调：
 // 营造「僵尸大军压境」的压迫感，给玩家充足时间体验各种技能（原速过快、来不及反应）
+// 经验值与血量严格成正比（用户设计）：普通=1经验/40血，精英(tank)=2经验/80血，BOSS=4经验/160血
+// → 击杀所需伤害 ∝ 经验（1:2:4）。fast 为高速脆皮（同 1 经验，血略低），不在比例关系约束内
 const zombieTypes = {
-    normal: { health: 30, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 10, gold: 5 },
-    fast:   { health: 20, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 15, gold: 8 },
-    tank:   { health: 80, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 25, gold: 15 },
-    boss:   { health: 200, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 100, gold: 50 }
+    normal: { health: 40, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 5 },
+    fast:   { health: 25, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 8 },
+    tank:   { health: 80, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 15 },
+    boss:   { health: 160, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 4, gold: 50 }
 };
 
 // ==================== 升级选项 ====================
@@ -1489,9 +1510,10 @@ let spawnInterval = 1500;
 // 波次系统运行时状态
 let wavesSpawned = 0;       // 已生成的波次数
 let nextWaveIdx = 0;        // 下一个待生成波次下标（0-based）
-let waveAlive = {};         // 每波当前存活僵尸数
-let waveAwarded = {};       // 该波是否已发放过清波经验（防重复）
+let waveAlive = {};         // 每波当前存活僵尸数（含待生成 pending）
+let waveAwarded = {};       // 该波是否已计入已清波（防重复）
 let wavesCleared = 0;       // 已清波数
+let pendingSpawns = [];     // 同波错峰出怪的待生成队列：{at, type, zElement, stage, wave}
 
 // ==================== 绘制函数 ====================
 
@@ -4187,7 +4209,16 @@ function damageZombie(zombie, damage, isCrit, element) {
         // 播放僵尸死亡音效
         AudioSystem.playZombieDeath();
         
-        // 经验改为「每清一波刚好升 1 级」（见 awardWaveExp），不再由击杀掉经验球发放，故此处不再掉落经验球
+        // 恢复经验球掉落（左上角经验条随拾取逐步填充）；半径缩小到 4（原 8 的一半）以减小视觉体积
+        // 普通=1经验、精英=2、BOSS=4，与 zombieTypes.exp 一致；素材演示僵尸不掉经验球
+        if (!zombie.isAdZombie) {
+            expOrbs.push({
+                x: zombie.x + (Math.random() - 0.5) * 12,
+                y: zombie.y + (Math.random() - 0.5) * 12,
+                radius: 4,
+                exp: zombie.exp || 1
+            });
+        }
 
         // 掉落金币（素材演示僵尸100%掉落）
         if (zombie.isAdZombie || Math.random() < 0.3) {
@@ -4619,11 +4650,16 @@ function updateOrbs() {
         }
         
         if (dist < player.radius + orb.radius) {
-            // 经验已由清波结算（awardWaveExp）统一发放，经验球不再提供经验
+            // 经验球提供经验：拾取后经验条逐步填充，满了自动升级（触发三选一）
+            player.exp += (orb.exp || 1) * talentMods.expMult;
             expOrbs.splice(i, 1);
             
             // 播放拾取音效
             AudioSystem.playPickup();
+            
+            if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
+                levelUp();
+            }
         }
     }
     
@@ -4668,42 +4704,51 @@ function spawnZombies(dt) {
         wavesSpawned++;
         nextWaveIdx++;
     }
+    updatePendingSpawns();   // 把到点的待生成怪推入战场（同波错峰）
 }
 
 function spawnWave(w, stage) {
-    waveAlive[w.i] = 0;
-    const gameTimeSec = gameTime / 1000;
-    // 血量膨胀：分母交由 stage.hpGrow 控制（默认 50 保持旧关兼容）；因波次按 5 分钟时间轴生成，
-    // 末波出现时 gameTimeSec≈270 → (1+270/hpGrow)，第一关 hpGrow=150 即约 2.8 倍，封顶可控（详见 v1.1.1）
-    const healthMult = (1 + gameTimeSec / (stage.hpGrow || 50)) * stage.healthMult;
+    waveAlive[w.i] = w.comp.length;
     const wuxingPool = ['金', '木', '水', '火', '土'];
-
-    for (let s = 0; s < w.count; s++) {
-        let type = 'normal';
-        if (w.boss && s === 0) {
-            type = 'boss';                       // 每 5 波首只强制为 Boss
-        } else {
-            const roll = Math.random();
-            if (roll < w.tankChance) type = 'tank';
-            else if (roll < w.tankChance + w.fastChance) type = 'fast';
-        }
-
-        const template = zombieTypes[type];
+    // 同一波的所有怪错峰入队：每只间隔 STAGGER_MS±抖动，避免一排同时入场
+    for (let s = 0; s < w.comp.length; s++) {
+        const type = w.comp[s];
         const zElement = wuxingPool[Math.floor(Math.random() * wuxingPool.length)];
+        pendingSpawns.push({
+            at: gameTime + s * STAGGER_MS + Math.random() * STAGGER_JITTER,
+            type: type,
+            zElement: zElement,
+            stage: stage,
+            wave: w.i
+        });
+    }
+}
 
+// 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀，五行随机）
+function updatePendingSpawns() {
+    if (pendingSpawns.length === 0) return;
+    for (let i = pendingSpawns.length - 1; i >= 0; i--) {
+        const p = pendingSpawns[i];
+        if (gameTime < p.at) continue;
+        const stage = p.stage;
+        const template = zombieTypes[p.type];
+        // 血量膨胀：分母交由 stage.hpGrow 控制（默认 50 保持旧关兼容）；因波次按 5 分钟时间轴生成，
+        // 末波出现时 gameTimeSec≈270 → (1+270/hpGrow)，第一关 hpGrow=150 即约 2.8 倍，封顶可控（详见 v1.1.1）
+        const healthMult = (1 + (gameTime / 1000) / (stage.hpGrow || 50)) * stage.healthMult;
         zombies.push({
             x: Math.random() * screenWidth,
             y: -50,
-            element: zElement,
+            element: p.zElement,
             radius: template.radius,
             speed: template.speed * stage.speedMult,
             health: template.health * healthMult,
             maxHealth: template.health * healthMult,
             damage: template.damage * stage.damageMult,
             color: template.color,
+            exp: template.exp,
             gold: template.gold || 5,
-            type: type,
-            wave: w.i,                            // 标记所属波次，用于清波经验结算
+            type: p.type,
+            wave: p.wave,
             frozenUntil: 0,
             slowUntil: 0,
             stunUntil: 0,
@@ -4711,28 +4756,19 @@ function spawnWave(w, stage) {
             _inTornado: false,
             slowFactor: 0.5
         });
-        waveAlive[w.i]++;
+        pendingSpawns.splice(i, 1);
     }
 }
 
-// 僵尸死亡后统一做波次存活计数 + 清波经验结算（damageZombie 与炸弹清屏均调用）
+// 僵尸死亡后统一做波次存活计数（damageZombie 与炸弹清屏均调用）。
+// 注：升级不再由清波结算发放——每波怪物经验总和已设计成正好等于该波升级所需，
+//     击杀掉的经验球被拾取后经验条自然填满并自动升级（见 updateOrbs / damageZombie）。
 function onZombieRemoved(z) {
     if (z.wave == null) return;
     waveAlive[z.wave] = (waveAlive[z.wave] || 0) - 1;
     if (waveAlive[z.wave] <= 0 && !waveAwarded[z.wave]) {
         waveAwarded[z.wave] = true;
         wavesCleared++;
-        awardWaveExp();
-    }
-}
-
-// 清完一波：经验刚好够升 1 级（触发一次三选一）。共 20 波 → 19 次三选一（初始算 1 级，第 20 波时已达 MAX_LEVEL）
-function awardWaveExp() {
-    if (player.level >= MAX_LEVEL) return;
-    player.exp += player.expToLevel;   // 刚好够升一级
-    // 若正处于三选一暂停中，applyUpgrade 的连锁升级逻辑会在选完后补触发，这里不重复弹
-    if (gameState === 'playing' && player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
-        levelUp();
     }
 }
 
@@ -4749,7 +4785,7 @@ function levelUp() {
     
     player.level++;
     player.exp -= player.expToLevel;
-    player.expToLevel = Math.floor(player.expToLevel * 1.3);
+    player.expToLevel = 2 * player.level;   // 升级所需 cost(L→L+1) = 2L（1→2需2、2→3需4…）
     
     // 每5级获得炸弹（5级、10级、15级、20级）
     justGotBomb = false;
@@ -4873,6 +4909,11 @@ function applyUpgrade(upgrade) {
     gameState = 'playing';
     gameRunning = true;
     lastTime = Date.now();
+
+    // 连锁升级：本次经验溢出跨多级时，选完上一项后立即继续弹下一级三选一，让玩家逐级都选
+    if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
+        levelUp();
+    }
     
     // 重置炸弹获得标志
     justGotBomb = false;
@@ -4906,11 +4947,21 @@ function useBomb() {
         }, wave * 100);
     }
     
-    // 清除所有僵尸（经验由清波结算，炸弹只清场并结算各波存活计数）
+    // 清除所有僵尸：炸弹只清场并结算各波存活计数；经验以经验球形式掉落由玩家拾取（与普攻一致）
     for (const zombie of zombies) {
         player.gold += Math.round((zombie.gold || 5) * talentMods.goldMult);
         player.kills++;
         onZombieRemoved(zombie);
+
+        // 掉经验球（素材演示僵尸不掉），保证炸弹击杀的经验也被拾取升级
+        if (!zombie.isAdZombie) {
+            expOrbs.push({
+                x: zombie.x + (Math.random() - 0.5) * 20,
+                y: zombie.y + (Math.random() - 0.5) * 20,
+                radius: 4,
+                exp: zombie.exp || 1
+            });
+        }
 
         for (let i = 0; i < 8; i++) {
             particles.push({
@@ -4997,7 +5048,7 @@ function startGame() {
     player.maxHealth = 100;
     player.exp = 0;
     player.level = 1;
-    player.expToLevel = 50;
+    player.expToLevel = 2;   // cost(1→2) = 2*1 = 2
     player.gold = 0;  // 重置为0用于计算本次关卡获得金币
     player.kills = 0;
     player.damage = 10;
@@ -5075,6 +5126,7 @@ function startGame() {
     waveAlive = {};
     waveAwarded = {};
     wavesCleared = 0;
+    pendingSpawns = [];   // 同波错峰出怪的待生成队列
 
     // 素材演示模式特殊处理
     // 整个玩家生命周期只出现一次：首次以演示模式进入第一关后，立即置位并持久化，
@@ -5167,11 +5219,11 @@ function adDemoBombExplosion() {
                 });
             }
         } else {
-            // 正常僵尸：仅掉金币（经验由清波结算统一发放，不再掉经验球）
+            // 买量演示：正常僵尸仅掉金币，不掉经验球（演示模式不依赖经验升级）
             if (Math.random() < 0.3) {
                 goldOrbs.push({ x: z.x, y: z.y, radius: 10 });
             }
-            onZombieRemoved(z);   // 素材演示炸弹也走波次结算
+            onZombieRemoved(z);   // 素材演示炸弹也走波次存活计数
         }
     }
 
@@ -5197,8 +5249,8 @@ function adDemoBombExplosion() {
 
 // ==================== 游戏更新 ====================
 function update(dt) {
-    // 通关条件（v1.1.1）：消灭全部 20 波敌人即胜利（20 波均已生成且场上僵尸清空）
-    if (!isSkillLab && wavesSpawned >= WAVE_COUNT && zombies.length === 0) {
+    // 通关条件：消灭全部 20 波敌人即胜利（20 波均已生成、场上僵尸清空、且同波错峰队列也空）
+    if (!isSkillLab && wavesSpawned >= WAVE_COUNT && zombies.length === 0 && pendingSpawns.length === 0) {
         victory();
         return;
     }
