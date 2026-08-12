@@ -78,6 +78,13 @@
 - 报错由 DevTools 文件监听触发增量重编译、走 `SummerCompiler.getFile(undefined)` 偶发 race，故时有时无；不要用 `git push` 当"是否报错"的判定测试（必触发重编译且只是偶发）。
 - 缓解（不保证根除）：DevTools 内关闭"编辑时自动编译"。
 
+## 微信开发者工具「文章推荐」parent not found 同类 bug（2026-08-12 确诊）
+- **现象**：控制台/报错面板出现 `文章推荐` 前缀，随后一串 `insertTextView:fail parent 32773 not found` / `updateTextView:fail 32774 not found` / `insertImageView:fail parent 32776 not found` / `updateImageView:fail 32777 not found` …… parent id 连续递增（32773→32783）。
+- **根因**：这是**微信平台自身注入的「文章/游戏推荐」浮层**原生组件（TextView/ImageView）在刷新时父容器被回收，报 parent not found。与游戏代码无关——游戏里创建原生视图的只有 `wx.createGameClubButton`（游戏圈，已优化为仅建一次）和 `wx.createRewardedVideoAd`（激励视频），**没有任何"文章推荐"调用**。
+- **判定要点**：日志带「文章推荐」场景标记 = 平台组件；不带场景、由 `createGameClubButton` 引发 = 游戏圈按钮（见「微信游戏圈入口限制」段）。两者报错形态相似但来源不同。
+- **结论**：平台/引擎侧 bug（lib 3.15.2 + DevTools 2.01.2510290），无法靠改游戏代码修复；真机通常正常，属开发者工具运行时告警。缓解同 SummerCompiler bug：升级微信开发者工具到最新 nightly 版、或关闭"编辑时自动编译"。
+- ⚠️ 不要把它和"游戏圈按钮每帧重建"混淆而反复改游戏圈按钮代码——那是另一回事，v1.0.97 已针对性优化。
+
 ## 🔄 回退到 v1.0.69（2026-08-09，用户拍板）
 - **原因**：用户判定 v1.0.70–v1.0.78 这套「核心战斗重构」（坦克横移+竖直射击+倍增门+墙体失败+多重射击扇面化）**机制不成熟**，整体回退。
 - **操作**：`git reset --hard v1.0.69`（HEAD 现在停在 `7dc6da5 油渍再优化 + 全盘DPS平衡`）。工作区代码、双文件（`game - 副本.js`/`game.js`）已完全回到 v1.0.69 状态，与 v1.0.69 标签零差异。
@@ -107,3 +114,8 @@
   4. 衍生词条间有**互斥**（如连发 vs 齐射）：已选其一，则另一个不再出现在后续三选一池。
   5. 衍生词条间有**前置**（需先选某词条才解锁下一分支）。
 - **对当前游戏 15 技能改造的映射**：每个现有技能应视作一个「大类」，内部要有自己的衍生词条树（前置+互斥）；三选一要从「随机抽 3 个新技能」改成「已拥有大类的下一派生分支 + （未满 5 槽时）可选新大类」；选派生分支不改变槽位占用。这是个**系统级重构**，动手前必须先纸面建模（见「工作方式修正」段要求）。
+
+## 微信游戏圈入口限制（重要，平台硬约束）
+- **不存在 `wx.openGameClub` API**；微信官方明确限制：打开游戏圈的动作**只能由 `wx.createGameClubButton` 创建的原生按钮点击触发**，自定义（canvas）按钮无法跳转游戏圈。
+- 原生按钮若每帧 `show()`/`destroy()` 会造成微信反复重建原生 TextView/ImageView，报 `insertTextView/updateTextView/insertImageView/updateImageView:fail parent X not found` 并卡顿。**正确做法**：原生视图只创建一次，`show/hide` 由切 Tab/进出菜单事件驱动，**绝不在渲染循环里每帧调用任何 wx 方法**。
+- 若坚持要自定义跳转入口而不用官方按钮：可行替代是 `wx.createPageManager().load({openlink}).show()`，但需后台游戏圈 openlink 配置，依赖配置且仍走原生视图。
