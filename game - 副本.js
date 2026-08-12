@@ -25,19 +25,29 @@ try {
 const SAFE_TOP_OFFSET = statusBarHeight + 10;
 
 // ==================== 关卡系统 ====================
+// 第一章（新手教学 + 五行入门）：每关有明确主题，难度平滑上升；
+// 设计已纳入现有技能系统——五行克制(+30%)、属性技能独立cd(群伤/控场/弹射)、急速冷却、组合技。
+// 注：僵尸血量会随时间线性增长（最高 ≈ 基础×(1+300/50)=7 倍），故此处 healthMult 为基础倍率；
+// bossTime 单位秒（>该秒数后有 8% 概率刷 Boss），999=本章不出 Boss。
 const STAGES = [
-    { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡', difficulty: 1, descColor: '#88cc88',
-      speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 1.0, bossTime: 120, tankChance: 0.18, fastChance: 0.28 },
-    { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '僵尸速度+30%', difficulty: 2, descColor: '#88aacc',
-      speedMult: 1.3, healthMult: 1.0, damageMult: 1.1, spawnMult: 1.1, bossTime: 100, tankChance: 0.22, fastChance: 0.35 },
-    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '僵尸血量+50%', difficulty: 3, descColor: '#66bbcc',
-      speedMult: 1.1, healthMult: 1.5, damageMult: 1.2, spawnMult: 1.2, bossTime: 90, tankChance: 0.25, fastChance: 0.30 },
-    { id: 4, name: '冰霜要塞', icon: '🏔️', desc: 'Boss提前出现', difficulty: 4, descColor: '#aaaacc',
-      speedMult: 1.2, healthMult: 1.3, damageMult: 1.3, spawnMult: 1.3, bossTime: 60, tankChance: 0.30, fastChance: 0.32 },
-    { id: 5, name: '永冻之巅', icon: '👑', desc: '全属性增强', difficulty: 5, descColor: '#cc88cc',
-      speedMult: 1.4, healthMult: 1.8, damageMult: 1.5, spawnMult: 1.5, bossTime: 50, tankChance: 0.35, fastChance: 0.35 },
-    { id: 6, name: '极寒地狱', icon: '👾', desc: '究极挑战', difficulty: 6, descColor: '#ff6666',
-      speedMult: 1.6, healthMult: 2.2, damageMult: 1.8, spawnMult: 1.8, bossTime: 40, tankChance: 0.40, fastChance: 0.40 }
+    // 关1 新手教学：最低压力，纯练手熟悉操作与五行元素；几乎不出 Boss
+    { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡·教学', difficulty: 1, descColor: '#88cc88',
+      speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 0.9, bossTime: 240, tankChance: 0.10, fastChance: 0.15 },
+    // 关2 速度关：快速僵尸占比高，考验干冰弹(水)减速/控场与快速清场
+    { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '速度+25%·快速僵尸多', difficulty: 2, descColor: '#88aacc',
+      speedMult: 1.25, healthMult: 1.05, damageMult: 1.1, spawnMult: 1.05, bossTime: 150, tankChance: 0.12, fastChance: 0.45 },
+    // 关3 厚血关：重甲僵尸占比高，考验火力强化(穿甲)与爆炸弹(火)群伤破厚血
+    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '血量+50%·重甲僵尸多', difficulty: 3, descColor: '#66bbcc',
+      speedMult: 1.05, healthMult: 1.5, damageMult: 1.15, spawnMult: 1.1, bossTime: 120, tankChance: 0.35, fastChance: 0.20 },
+    // 关4 五行实战：Boss 提前，随机五行僵尸要求用克制属性(+30%)破防；综合中等压力
+    { id: 4, name: '冰霜要塞', icon: '🏔️', desc: 'Boss提前·五行克制实战', difficulty: 4, descColor: '#aaaacc',
+      speedMult: 1.2, healthMult: 1.3, damageMult: 1.25, spawnMult: 1.2, bossTime: 60, tankChance: 0.25, fastChance: 0.28 },
+    // 关5 高强度综合：全属性增强，考验火力强化+属性技能+五行克制+急速冷却全套协同
+    { id: 5, name: '永冻之巅', icon: '👑', desc: '全属性增强·技能协同', difficulty: 5, descColor: '#cc88cc',
+      speedMult: 1.4, healthMult: 1.7, damageMult: 1.5, spawnMult: 1.4, bossTime: 50, tankChance: 0.32, fastChance: 0.33 },
+    // 关6 第一章压轴：最高强度，高坦克+高快速+Boss 高频，考验完整 build
+    { id: 6, name: '极寒地狱', icon: '👾', desc: '究极挑战·高频Boss', difficulty: 6, descColor: '#ff6666',
+      speedMult: 1.55, healthMult: 2.1, damageMult: 1.8, spawnMult: 1.7, bossTime: 35, tankChance: 0.38, fastChance: 0.38 }
 ];
 
 let currentStage = 1;
