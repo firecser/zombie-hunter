@@ -5427,6 +5427,7 @@ let rankDragStartScrollY = 0; // 拖动开始时的滚动偏移
 
 // 游戏圈按钮（原生覆盖层）
 let gameClubButton = null;
+let gameClubButtonVisible = false;   // 避免每帧重复 show/hide 触发原生视图重建
 
 // 模拟全服排行榜数据（本地前100名）
 const rankCityData = [
@@ -5658,9 +5659,9 @@ function upgradeTalent(talentId) {
 let highestUnlockedChapter = 2;
 
 function drawMainMenu() {
-    // 确保游戏圈按钮只在圈子Tab显示
+    // 确保游戏圈按钮只在圈子Tab显示（离开时隐藏而非销毁，避免反复重建原生视图）
     if (mainMenuTab !== 'club') {
-        destroyGameClubButton();
+        hideGameClubButton();
     }
 
     // 皇室战争风深蓝渐变背景
@@ -7107,50 +7108,53 @@ function drawMainMenuClub() {
 
 // 游戏圈原生按钮管理
 function showGameClubButton() {
-    if (gameClubButton) {
-        gameClubButton.show();
-        return;
-    }
+    if (gameClubButtonVisible) return;   // 已显示则跳过，避免每帧 show 触发原生视图重建(parent not found)
     if (!wx.createGameClubButton) {
         console.log('当前环境不支持游戏圈');
         return;
     }
 
-    const btnW = screenWidth - 60;
-    const btnH = 48;
-    const btnX = 30;
-    const btnY = SAFE_TOP_OFFSET + 230;
+    if (!gameClubButton) {
+        const btnW = screenWidth - 60;
+        const btnH = 48;
+        const btnX = 30;
+        const btnY = SAFE_TOP_OFFSET + 230;
 
-    gameClubButton = wx.createGameClubButton({
-        type: 'text',
-        text: '   进入游戏圈互动',
-        icon: 'green',
-        style: {
-            left: btnX,
-            top: btnY - 10,
-            width: btnW,
-            height: btnH,
-            borderRadius: 10,
-            backgroundColor: '#4fc3f7',
-            color: '#ffffff',
-            fontSize: 16,
-            lineHeight: btnH,
-            textAlign: 'center'
-        }
-    });
+        gameClubButton = wx.createGameClubButton({
+            type: 'text',
+            text: '   进入游戏圈互动',
+            icon: 'green',
+            style: {
+                left: btnX,
+                top: btnY - 10,
+                width: btnW,
+                height: btnH,
+                borderRadius: 10,
+                backgroundColor: '#4fc3f7',
+                color: '#ffffff',
+                fontSize: 16,
+                lineHeight: btnH,
+                textAlign: 'center'
+            }
+        });
+    }
+    // 微信引擎在部分基础库版本下 show 偶发 parent not found，吞掉避免刷屏卡顿
+    try { gameClubButton.show(); } catch (e) { /* ignore native view rebuild error */ }
+    gameClubButtonVisible = true;
 }
 
 function hideGameClubButton() {
-    if (gameClubButton) {
-        gameClubButton.hide();
-    }
+    if (!gameClubButton || !gameClubButtonVisible) return;
+    try { gameClubButton.hide(); } catch (e) { /* ignore */ }
+    gameClubButtonVisible = false;
 }
 
 function destroyGameClubButton() {
     if (gameClubButton) {
-        gameClubButton.destroy();
+        try { gameClubButton.destroy(); } catch (e) { /* ignore */ }
         gameClubButton = null;
     }
+    gameClubButtonVisible = false;
 }
 
 // ========== 商城Tab ==========
@@ -12141,9 +12145,9 @@ function handleMainMenuTouch(x, y) {
             const newTab = MAIN_MENU_TABS[tabIndex].id;
             // 屏蔽商城Tab点击
             if (newTab === 'shop') return;
-            // 离开游戏圈Tab时销毁原生按钮
+            // 离开游戏圈Tab时隐藏原生按钮
             if (mainMenuTab === 'club' && newTab !== 'club') {
-                destroyGameClubButton();
+                hideGameClubButton();
             }
             mainMenuTab = newTab;
             if (mainMenuTab === 'level') {
@@ -12375,9 +12379,9 @@ wx.onTouchStart((e) => {
             if (tabIndex >= 0 && tabIndex < MAIN_MENU_TABS.length) {
                 const newTab = MAIN_MENU_TABS[tabIndex].id;
                 if (newTab !== mainMenuTab) {  // Tab有变化时才切换
-                    // 离开游戏圈Tab时销毁原生按钮
+                    // 离开游戏圈Tab时隐藏原生按钮
                     if (mainMenuTab === 'club') {
-                        destroyGameClubButton();
+                        hideGameClubButton();
                     }
                     mainMenuTab = newTab;
                     if (mainMenuTab === 'level') {
