@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>制霸新手村的骷髅怪 - 主界面UE设计 V2</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        .phone-frame {
+            width: 375px;
+            height: 667px;
+            margin: 20px auto;
+            background: #16213e;
+            border-radius: 30px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 0 40px rgba(0, 150, 255, 0.2), inset 0 0 60px rgba(0,0,0,0.3);
+        }
+
+        .notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 25px;
+            background: #16213e;
+            border-radius: 0 0 20px 20px;
+            z-index: 100;
+        }
+
+        .screen {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 导航栏 */
+        .top-nav {
+            height: 50px;
+            background: linear-gradient(180deg, #0f3460 0%, #16213e 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-top: 25px;
+        }
+
+        .top-nav h1 {
+            font-size: 16px;
+            color: #e8d5b7;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        /* 主内容区 */
+        .main-content {
+            height: calc(100% - 50px - 70px);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .page {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 15px;
+            overflow-y: auto;
+            transition: opacity 0.3s ease;
+        }
+
+        .page.active {
+            display: flex;
+        }
+
+        /* 底部导航 */
+        .bottom-nav {
+            height: 70px;
+            background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 10px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .nav-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 60px;
+            height: 55px;
+            border-radius: 12px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .nav-btn:active {
+            transform: scale(0.95);
+        }
+
+        .nav-btn.active {
+            background: linear-gradient(180deg, #1e3a5f 0%, #0f3460 100%);
+            box-shadow: 0 0 15px rgba(0, 150, 255, 0.3);
+        }
+
+        .nav-btn .icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .nav-btn .label {
+            font-size: 10px;
+            color: #888;
+        }
+
+        .nav-btn.active .label {
+            color: #4fc3f7;
+        }
+
+        /* ========== 主角界面 ========== */
+        #page-hero {
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        }
+
+        .hero-equipment-ring {
+            position: relative;
+            width: 100%;
+            height: 160px;
+            margin: 5px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-character {
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle, #2a4a6a 0%, #1a3a5a 100%);
+            border-radius: 50%;
+            border: 3px solid #4fc3f7;
+            box-shadow: 0 0 30px rgba(79, 195, 247, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            z-index: 2;
+            flex-shrink: 0;
+        }
+
+        /* 6个装备栏 - 左右各3个 */
+        .equipment-side {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .equipment-side.left {
+            margin-right: 15px;
+        }
+
+        .equipment-side.right {
+            margin-left: 15px;
+        }
+
+        .equipment-slot {
+            width: 48px;
+            height: 48px;
+            background: rgba(50, 50, 60, 0.8);
+            border: 2px solid #444;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 3;
+        }
+
+        .equipment-slot.locked {
+            position: relative;
+        }
+
+        .hero-info {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+
+        .hero-info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .hero-info-item:last-child {
+            border-bottom: none;
+        }
+
+        .hero-info-item .label {
+            color: #888;
+            font-size: 13px;
+        }
+
+        .hero-info-item .value {
+            color: #4fc3f7;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .page-desc {
+            margin-top: 10px;
+            background: rgba(79, 195, 247, 0.1);
+            border: 1px solid rgba(79, 195, 247, 0.3);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 10px;
+            color: #4fc3f7;
+        }
+
+        /* ========== 关卡界面 ========== */
+        #page-level {
+            background: linear-gradient(180deg, #0f3460 0%, #16213e 100%);
+            padding: 10px 12px;
+        }
+
+        .chapters-list {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .chapter {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .chapter-header {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            cursor: pointer;
+            background: linear-gradient(90deg, rgba(15, 52, 96, 0.8) 0%, rgba(30, 58, 95, 0.6) 100%);
+        }
+
+        .chapter-header:active {
+            background: rgba(79, 195, 247, 0.2);
+        }
+
+        .chapter-toggle {
+            font-size: 14px;
+            margin-right: 10px;
+            transition: transform 0.2s ease;
+        }
+
+        .chapter.expanded .chapter-toggle {
+            transform: rotate(90deg);
+        }
+
+        .chapter-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #1e3a5f 0%, #0f3460 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            margin-right: 12px;
+        }
+
+        .chapter-info {
+            flex: 1;
+        }
+
+        .chapter-title {
+            font-size: 14px;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .chapter-progress {
+            font-size: 11px;
+            color: #888;
+            margin-top: 2px;
+        }
+
+        .chapter-status {
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+
+        .chapter-status.unlocked {
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+        }
+
+        .chapter-status.locked {
+            background: rgba(100, 100, 100, 0.3);
+            color: #888;
+        }
+
+        .chapter-levels {
+            display: none;
+            padding: 10px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .chapter.expanded .chapter-levels {
+            display: grid;
+        }
+
+        .level-card {
+            background: linear-gradient(135deg, rgba(30, 58, 95, 0.8) 0%, rgba(15, 52, 96, 0.8) 100%);
+            border-radius: 10px;
+            border: 2px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .level-card:active {
+            transform: scale(0.95);
+        }
+
+        .level-card.unlocked {
+            border-color: #4fc3f7;
+        }
+
+        .level-card.locked {
+            opacity: 0.5;
+        }
+
+        .level-card .num {
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .level-card .icon {
+            font-size: 20px;
+            margin: 5px 0;
+        }
+
+        .level-card .stars {
+            font-size: 10px;
+            color: #ffd700;
+        }
+
+        /* ========== 天赋界面 ========== */
+        #page-talent {
+            background: linear-gradient(180deg, #0a1628 0%, #16213e 100%);
+            padding: 5px;
+        }
+
+        .talent-tree {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 5px 0;
+        }
+
+        /* 天赋树结构 */
+        .talent-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 2px 0;
+            position: relative;
+        }
+
+        .talent-connector-v {
+            width: 2px;
+            height: 15px;
+            background: linear-gradient(180deg, #4fc3f7, #2a7ab0);
+        }
+
+        .talent-connector-h {
+            height: 2px;
+            width: 30px;
+            background: linear-gradient(90deg, #4fc3f7, #2a7ab0);
+        }
+
+        .talent-branch {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 顶级天赋节点 */
+        .talent-root {
+            width: 70px;
+            height: 70px;
+            background: radial-gradient(circle, #3a7aca 0%, #1e5a9a 100%);
+            border: 3px solid #ffd700;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4), 0 0 40px rgba(79, 195, 247, 0.2);
+            margin: 5px 0;
+        }
+
+        .talent-root .icon {
+            font-size: 28px;
+        }
+
+        .talent-root .name {
+            font-size: 9px;
+            color: #fff;
+            margin-top: 2px;
+        }
+
+        .talent-root .level {
+            font-size: 8px;
+            color: #ffd700;
+        }
+
+        /* 普通天赋节点 */
+        .talent-node {
+            width: 56px;
+            height: 56px;
+            background: radial-gradient(circle, #1e3a5f 0%, #0f3460 100%);
+            border: 2px solid #4fc3f7;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin: 0 4px;
+        }
+
+        .talent-node:active {
+            transform: scale(0.95);
+            box-shadow: 0 0 15px rgba(79, 195, 247, 0.5);
+        }
+
+        .talent-node.locked {
+            border-color: #444;
+            opacity: 0.6;
+        }
+
+        .talent-node.locked::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.4);
+            border-radius: 12px;
+        }
+
+        .talent-node.maxed {
+            border-color: #ffd700;
+            box-shadow: 0 0 12px rgba(255, 215, 0, 0.4);
+        }
+
+        .talent-node .icon {
+            font-size: 22px;
+        }
+
+        .talent-node .name {
+            font-size: 8px;
+            color: #fff;
+            margin-top: 2px;
+        }
+
+        .talent-node .level {
+            font-size: 7px;
+            color: #4fc3f7;
+        }
+
+        .talent-node.maxed .level {
+            color: #ffd700;
+        }
+
+        /* 分支标签 */
+        .branch-label {
+            position: absolute;
+            font-size: 8px;
+            color: rgba(79, 195, 247, 0.6);
+            white-space: nowrap;
+        }
+
+        /* 天赋分组 */
+        .talent-section {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 3px 0;
+            position: relative;
+        }
+
+        .section-title {
+            font-size: 10px;
+            color: #4fc3f7;
+            margin: 5px 0 2px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .section-title::before,
+        .section-title::after {
+            content: '';
+            width: 40px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #4fc3f7, transparent);
+        }
+
+        /* 升级弹窗 */
+        .upgrade-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upgrade-modal.show {
+            display: flex;
+        }
+
+        .upgrade-card {
+            width: 280px;
+            background: linear-gradient(180deg, #1e3a5f 0%, #16213e 100%);
+            border-radius: 15px;
+            border: 2px solid #4fc3f7;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(79, 195, 247, 0.3);
+        }
+
+        .upgrade-card .icon {
+            font-size: 50px;
+            margin-bottom: 10px;
+        }
+
+        .upgrade-card .name {
+            font-size: 18px;
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .upgrade-card .current {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 15px;
+        }
+
+        .upgrade-card .next-level {
+            background: rgba(79, 195, 247, 0.1);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .upgrade-card .next-level .desc {
+            font-size: 13px;
+            color: #4fc3f7;
+            margin-bottom: 5px;
+        }
+
+        .upgrade-card .cost {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 18px;
+            color: #ffd700;
+            margin-bottom: 15px;
+        }
+
+        .upgrade-card .buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .upgrade-card .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .upgrade-card .btn:active {
+            transform: scale(0.95);
+        }
+
+        .upgrade-card .btn-cancel {
+            background: rgba(255,255,255,0.1);
+            color: #888;
+        }
+
+        .upgrade-card .btn-confirm {
+            background: linear-gradient(180deg, #4fc3f7 0%, #2196f3 100%);
+            color: #fff;
+        }
+
+        .upgrade-card .btn-confirm:disabled {
+            background: #444;
+            color: #888;
+        }
+
+        .gold-display {
+            margin-top: 10px;
+            padding: 8px 20px;
+            background: rgba(255, 215, 0, 0.1);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .gold-display .icon {
+            font-size: 16px;
+        }
+
+        .gold-display .amount {
+            font-size: 14px;
+            color: #ffd700;
+            font-weight: bold;
+        }
+
+        /* ========== 排行榜界面 ========== */
+        #page-ranking {
+            background: linear-gradient(180deg, #0f3460 0%, #16213e 100%);
+            padding: 10px;
+        }
+
+        .ranking-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            width: 100%;
+        }
+
+        .ranking-tab {
+            flex: 1;
+            padding: 10px;
+            background: rgba(255,255,255,0.05);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .ranking-tab.active {
+            background: rgba(79, 195, 247, 0.1);
+            border-color: #4fc3f7;
+            color: #4fc3f7;
+        }
+
+        .ranking-list {
+            width: 100%;
+            background: rgba(255,255,255,0.03);
+            border-radius: 15px;
+            overflow: hidden;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .ranking-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .ranking-item.me {
+            background: rgba(79, 195, 247, 0.1);
+            border: 1px solid rgba(79, 195, 247, 0.3);
+            border-radius: 10px;
+            margin: 5px;
+        }
+
+        .ranking-item .rank {
+            width: 30px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #ffd700;
+            text-align: center;
+        }
+
+        .ranking-item .rank.top3 {
+            font-size: 20px;
+        }
+
+        .ranking-item .avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #4fc3f7 0%, #0f3460 100%);
+            border-radius: 50%;
+            margin: 0 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .ranking-item .info {
+            flex: 1;
+        }
+
+        .ranking-item .name {
+            font-size: 13px;
+            color: #fff;
+        }
+
+        .ranking-item .location {
+            font-size: 10px;
+            color: #888;
+        }
+
+        .ranking-item .score {
+            font-size: 14px;
+            color: #4fc3f7;
+            font-weight: bold;
+        }
+
+        /* ========== 世界界面 ========== */
+        #page-world {
+            background: linear-gradient(180deg, #0a1a2e 0%, #16213e 100%);
+            padding: 10px;
+        }
+
+        .map-container {
+            width: 100%;
+            position: relative;
+            margin-top: 10px;
+        }
+
+        .china-map {
+            width: 100%;
+            filter: drop-shadow(0 0 15px rgba(79, 195, 247, 0.2));
+        }
+
+        .province {
+            stroke: #0a2a4a;
+            stroke-width: 2;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .province:hover {
+            filter: brightness(1.2) drop-shadow(0 0 6px rgba(79, 195, 247, 0.6));
+            stroke: #4fc3f7;
+            stroke-width: 2;
+        }
+
+        .province.active {
+            stroke: #ffd700;
+            stroke-width: 3;
+            filter: brightness(1.3) drop-shadow(0 0 10px rgba(255, 215, 0, 0.6));
+        }
+
+        .province-label {
+            fill: rgba(255, 255, 255, 0.85);
+            font-size: 7px;
+            font-weight: bold;
+            pointer-events: none;
+            text-anchor: middle;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+
+        .map-stats {
+            width: 100%;
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .stat-card .number {
+            font-size: 18px;
+            color: #4fc3f7;
+            font-weight: bold;
+        }
+
+        .stat-card .label {
+            font-size: 10px;
+            color: #888;
+            margin-top: 3px;
+        }
+
+        /* 省份信息弹窗 */
+        .province-info {
+            display: none;
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(180deg, #1e3a5f 0%, #16213e 100%);
+            border: 1px solid #4fc3f7;
+            border-radius: 12px;
+            padding: 12px 20px;
+            z-index: 100;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(79, 195, 247, 0.3);
+        }
+
+        .province-info.show {
+            display: block;
+        }
+
+        .province-info .name {
+            font-size: 14px;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+
+        .province-info .players {
+            font-size: 12px;
+            color: #4fc3f7;
+        }
+
+        /* 提示框 */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            z-index: 200;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="phone-frame">
+        <div class="notch"></div>
+        <div class="screen">
+            <!-- 顶部导航 -->
+            <div class="top-nav">
+                <h1 id="nav-title">主角</h1>
+            </div>
+
+            <!-- 主内容区 -->
+            <div class="main-content">
+                <!-- 主角界面 -->
+                <div id="page-hero" class="page active">
+                    <div class="hero-equipment-ring">
+                        <!-- 左侧3个装备栏 -->
+                        <div class="equipment-side left">
+                            <div class="equipment-slot locked" title="武器">🔒</div>
+                            <div class="equipment-slot locked" title="头盔">🔒</div>
+                            <div class="equipment-slot locked" title="护甲">🔒</div>
+                        </div>
+                        
+                        <div class="hero-character">💀</div>
+                        
+                        <!-- 右侧3个装备栏 -->
+                        <div class="equipment-side right">
+                            <div class="equipment-slot locked" title="戒指">🔒</div>
+                            <div class="equipment-slot locked" title="鞋子">🔒</div>
+                            <div class="equipment-slot locked" title="护符">🔒</div>
+                        </div>
+                    </div>
+                    <div class="hero-info">
+                        <div class="hero-info-item">
+                            <span class="label">玩家名字</span>
+                            <span class="value">冰雪骷髅王</span>
+                        </div>
+                        <div class="hero-info-item">
+                            <span class="label">天赋等级</span>
+                            <span class="value">Lv.15</span>
+                        </div>
+                        <div class="hero-info-item">
+                            <span class="label">排行榜名次</span>
+                            <span class="value">第 23 名</span>
+                        </div>
+                        <div class="hero-info-item">
+                            <span class="label">总战力</span>
+                            <span class="value">128,450</span>
+                        </div>
+                    </div>
+                    <div class="page-desc">中央角色+6个装备栏位</div>
+                </div>
+
+                <!-- 关卡界面 -->
+                <div id="page-level" class="page">
+                    <div class="chapters-list" id="chapters-container">
+                        <!-- 章节由JS生成 -->
+                    </div>
+                    <div class="page-desc">10章×6关，点击章节展开</div>
+                </div>
+
+                <!-- 天赋界面 -->
+                <div id="page-talent" class="page">
+                    <div class="talent-tree">
+                        <!-- 关卡进度提示 -->
+                        <div style="font-size:10px;color:#4fc3f7;margin-bottom:5px;">📍 当前: 第1-2章 · 入门篇</div>
+
+                        <!-- 第一层: 核心天赋 -->
+                        <div class="talent-root" onclick="openUpgradeModal('core')">
+                            <span class="icon">💀</span>
+                            <span class="name">骷髅之心</span>
+                            <span class="level">核心 Lv.5</span>
+                        </div>
+
+                        <div class="talent-connector-v"></div>
+
+                        <!-- 第二层: 章节1-2解锁 · 基础属性 -->
+                        <div class="section-title">📖 第二章 · 基础属性</div>
+                        <div class="talent-row" style="gap: 8px;">
+                            <div class="talent-node" onclick="openUpgradeModal('damage')">
+                                <span class="icon">⚔️</span>
+                                <span class="name">攻击</span>
+                                <span class="level">Lv.5</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('health')">
+                                <span class="icon">❤️</span>
+                                <span class="name">生命</span>
+                                <span class="level">Lv.5</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('goldearn')">
+                                <span class="icon">🪙</span>
+                                <span class="name">金币</span>
+                                <span class="level">Lv.3</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('expearn')">
+                                <span class="icon">⭐</span>
+                                <span class="name">经验</span>
+                                <span class="level">Lv.3</span>
+                            </div>
+                        </div>
+
+                        <div class="talent-connector-v"></div>
+
+                        <!-- 第三层: 章节3-4解锁 · 进阶战斗 -->
+                        <div class="section-title">📖 第四章 · 进阶战斗</div>
+                        <div class="talent-row" style="gap: 8px;">
+                            <div class="talent-node" onclick="openUpgradeModal('attackspeed')">
+                                <span class="icon">⚡</span>
+                                <span class="name">攻速</span>
+                                <span class="level">Lv.3</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('crit')">
+                                <span class="icon">💥</span>
+                                <span class="name">暴击</span>
+                                <span class="level">Lv.2</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('piercing')">
+                                <span class="icon">🗡️</span>
+                                <span class="name">穿透</span>
+                                <span class="level">Lv.1</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('shield')">
+                                <span class="icon">🛡️</span>
+                                <span class="name">护盾</span>
+                                <span class="level">Lv.1</span>
+                            </div>
+                        </div>
+
+                        <div class="talent-connector-v"></div>
+
+                        <!-- 第四层: 章节5-6解锁 · 技能强化 -->
+                        <div class="section-title">📖 第六章 · 技能强化</div>
+                        <div class="talent-row" style="gap: 8px;">
+                            <div class="talent-node" onclick="openUpgradeModal('explosive')">
+                                <span class="icon">💣</span>
+                                <span class="name">爆炸</span>
+                                <span class="level">Lv.1</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('freeze')">
+                                <span class="icon">❄️</span>
+                                <span class="name">冰冻</span>
+                                <span class="level">Lv.1</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('slow')">
+                                <span class="icon">🐌</span>
+                                <span class="name">减速</span>
+                                <span class="level">Lv.1</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('bombcount')">
+                                <span class="icon">💣</span>
+                                <span class="name">炸弹</span>
+                                <span class="level">Lv.1</span>
+                            </div>
+                        </div>
+
+                        <div class="talent-connector-v"></div>
+
+                        <!-- 第五层: 章节7-8解锁 · 高级技能 -->
+                        <div class="section-title">📖 第八章 · 高级技能</div>
+                        <div class="talent-row" style="gap: 8px;">
+                            <div class="talent-node" onclick="openUpgradeModal('lightning')">
+                                <span class="icon">⚡</span>
+                                <span class="name">闪电链</span>
+                                <span class="level">未解锁</span>
+                            </div>
+                            <div class="talent-node" onclick="openUpgradeModal('multishot')">
+                                <span class="icon">🏹</span>
+                                <span class="name">连射</span>
+                                <span class="level">未解锁</span>
+                            </div>
+                        </div>
+
+                        <div class="talent-connector-v"></div>
+
+                        <!-- 第六层: 终极天赋 -->
+                        <div class="section-title">👑 终极天赋 (章节10)</div>
+                        <div class="talent-row" style="gap: 10px;">
+                            <div class="talent-node locked">
+                                <span class="icon">☠️</span>
+                                <span class="name">死亡射线</span>
+                                <span class="level">章节10</span>
+                            </div>
+                            <div class="talent-node locked">
+                                <span class="icon">🔮</span>
+                                <span class="name">不朽之身</span>
+                                <span class="level">章节10</span>
+                            </div>
+                            <div class="talent-node locked">
+                                <span class="icon">🌪️</span>
+                                <span class="name">吞噬万物</span>
+                                <span class="level">章节10</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="gold-display">
+                        <span class="icon">🪙</span>
+                        <span class="amount">12,580</span>
+                    </div>
+                    <div class="page-desc">按章节递进解锁 · 点击节点升级</div>
+                </div>
+
+                <!-- 排行榜界面 -->
+                <div id="page-ranking" class="page">
+                    <div class="ranking-tabs">
+                        <div class="ranking-tab active" onclick="switchRankTab('global')">全服排行</div>
+                        <div class="ranking-tab" onclick="switchRankTab('friend')">好友排行</div>
+                    </div>
+                    <div class="ranking-list">
+                        <div class="ranking-item">
+                            <span class="rank top3">🥇</span>
+                            <div class="avatar">🐻</div>
+                            <div class="info">
+                                <div class="name">北极熊先生</div>
+                                <div class="location">黑龙江省哈尔滨市</div>
+                            </div>
+                            <span class="score">Lv.28</span>
+                        </div>
+                        <div class="ranking-item">
+                            <span class="rank top3">🥈</span>
+                            <div class="avatar">🦊</div>
+                            <div class="info">
+                                <div class="name">冰霜女王</div>
+                                <div class="location">吉林省长春市</div>
+                            </div>
+                            <span class="score">Lv.25</span>
+                        </div>
+                        <div class="ranking-item">
+                            <span class="rank top3">🥉</span>
+                            <div class="avatar">🐺</div>
+                            <div class="info">
+                                <div class="name">雪域狼王</div>
+                                <div class="location">辽宁省沈阳市</div>
+                            </div>
+                            <span class="score">Lv.22</span>
+                        </div>
+                        <div class="ranking-item me">
+                            <span class="rank">23</span>
+                            <div class="avatar">💀</div>
+                            <div class="info">
+                                <div class="name">冰雪骷髅王</div>
+                                <div class="location">广东省深圳市</div>
+                            </div>
+                            <span class="score">Lv.15</span>
+                        </div>
+                        <div class="ranking-item">
+                            <span class="rank">24</span>
+                            <div class="avatar">🦁</div>
+                            <div class="info">
+                                <div class="name">寒冰射手</div>
+                                <div class="location">浙江省杭州市</div>
+                            </div>
+                            <span class="score">Lv.14</span>
+                        </div>
+                        <div class="ranking-item">
+                            <span class="rank">25</span>
+                            <div class="avatar">🐯</div>
+                            <div class="info">
+                                <div class="name">雪域猛虎</div>
+                                <div class="location">江苏省南京市</div>
+                            </div>
+                            <span class="score">Lv.14</span>
+                        </div>
+                    </div>
+                    <div class="page-desc">本地前100名+微信好友排行</div>
+                </div>
+
+                <!-- 世界界面 -->
+                <div id="page-world" class="page">
+                    <div class="map-container">
+                        <svg class="china-map" viewBox="0 0 340 340" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="provinceGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#2a5a8a" />
+                                    <stop offset="100%" style="stop-color:#1e3a5a" />
+                                </linearGradient>
+                                <linearGradient id="provinceGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#3a7aca" />
+                                    <stop offset="100%" style="stop-color:#1e5a8a" />
+                                </linearGradient>
+                            </defs>
+                            
+                            <!-- 完美网格：34块无缝拼接成正方形 -->
+                            <!-- 7行布局: 5+6+5+5+5+5+3 = 34 -->
+                            
+                            <!-- 第1行: 5块 y:0-48 -->
+                            <path class="province" data-name="黑龙江" data-players="128" d="M0,0 L68,0 L68,48 L0,48 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="34" y="28">黑龙江</text>
+                            
+                            <path class="province" data-name="吉林" data-players="96" d="M68,0 L130,0 L130,48 L68,48 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="99" y="28">吉林</text>
+                            
+                            <path class="province" data-name="辽宁" data-players="112" d="M130,0 L200,0 L200,48 L130,48 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="165" y="28">辽宁</text>
+                            
+                            <path class="province" data-name="内蒙古" data-players="67" d="M200,0 L280,0 L280,48 L200,48 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="240" y="28">内蒙古</text>
+                            
+                            <path class="province" data-name="河北" data-players="178" d="M280,0 L340,0 L340,48 L280,48 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="310" y="28">河北</text>
+                            
+                            <!-- 第2行: 6块 y:48-96 -->
+                            <path class="province" data-name="北京" data-players="234" d="M0,48 L55,48 L55,96 L0,96 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="27" y="76">北京</text>
+                            
+                            <path class="province" data-name="天津" data-players="156" d="M55,48 L100,48 L100,96 L55,96 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="77" y="76">天津</text>
+                            
+                            <path class="province" data-name="山东" data-players="201" d="M100,48 L170,48 L170,96 L100,96 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="135" y="76">山东</text>
+                            
+                            <path class="province" data-name="山西" data-players="89" d="M170,48 L230,48 L230,96 L170,96 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="200" y="76">山西</text>
+                            
+                            <path class="province" data-name="陕西" data-players="112" d="M230,48 L290,48 L290,96 L230,96 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="260" y="76">陕西</text>
+                            
+                            <path class="province" data-name="宁夏" data-players="23" d="M290,48 L340,48 L340,96 L290,96 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="315" y="76">宁夏</text>
+                            
+                            <!-- 第3行: 5块 y:96-144 -->
+                            <path class="province" data-name="江苏" data-players="356" d="M0,96 L70,96 L70,144 L0,144 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="35" y="124">江苏</text>
+                            
+                            <path class="province" data-name="安徽" data-players="198" d="M70,96 L135,96 L135,144 L70,144 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="102" y="124">安徽</text>
+                            
+                            <path class="province" data-name="河南" data-players="312" d="M135,96 L210,96 L210,144 L135,144 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="172" y="124">河南</text>
+                            
+                            <path class="province" data-name="甘肃" data-players="45" d="M210,96 L280,96 L280,144 L210,144 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="245" y="124">甘肃</text>
+                            
+                            <path class="province" data-name="青海" data-players="18" d="M280,96 L340,96 L340,144 L280,144 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="310" y="124">青海</text>
+                            
+                            <!-- 第4行: 5块 y:144-192 -->
+                            <path class="province" data-name="上海" data-players="423" d="M0,144 L55,144 L55,192 L0,192 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="27" y="172">上海</text>
+                            
+                            <path class="province" data-name="浙江" data-players="298" d="M55,144 L115,144 L115,192 L55,192 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="85" y="172">浙江</text>
+                            
+                            <path class="province" data-name="江西" data-players="145" d="M115,144 L180,144 L180,192 L115,192 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="147" y="172">江西</text>
+                            
+                            <path class="province" data-name="湖北" data-players="267" d="M180,144 L250,144 L250,192 L180,192 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="215" y="172">湖北</text>
+                            
+                            <path class="province" data-name="四川" data-players="289" d="M250,144 L340,144 L340,192 L250,192 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="295" y="172">四川</text>
+                            
+                            <!-- 第5行: 5块 y:192-240 -->
+                            <path class="province" data-name="福建" data-players="187" d="M0,192 L75,192 L75,240 L0,240 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="37" y="220">福建</text>
+                            
+                            <path class="province" data-name="湖南" data-players="234" d="M75,192 L150,192 L150,240 L75,240 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="112" y="220">湖南</text>
+                            
+                            <path class="province" data-name="重庆" data-players="312" d="M150,192 L215,192 L215,240 L150,240 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="182" y="220">重庆</text>
+                            
+                            <path class="province" data-name="贵州" data-players="98" d="M215,192 L285,192 L285,240 L215,240 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="250" y="220">贵州</text>
+                            
+                            <path class="province" data-name="云南" data-players="156" d="M285,192 L340,192 L340,240 L285,240 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="312" y="220">云南</text>
+                            
+                            <!-- 第6行: 5块 y:240-288 -->
+                            <path class="province" data-name="广东" data-players="567" d="M0,240 L110,240 L110,288 L0,288 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="55" y="268">广东</text>
+                            
+                            <path class="province" data-name="广西" data-players="134" d="M110,240 L200,240 L200,288 L110,288 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="155" y="268">广西</text>
+                            
+                            <path class="province" data-name="海南" data-players="67" d="M200,240 L260,240 L260,288 L200,288 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="230" y="268">海南</text>
+                            
+                            <path class="province" data-name="新疆" data-players="56" d="M260,240 L310,240 L310,288 L260,288 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="285" y="268">新疆</text>
+                            
+                            <path class="province" data-name="西藏" data-players="12" d="M310,240 L340,240 L340,288 L310,288 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="325" y="268">西藏</text>
+                            
+                            <!-- 第7行: 3块 y:288-340 -->
+                            <path class="province" data-name="香港" data-players="45" d="M0,288 L60,288 L60,340 L0,340 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="30" y="318">香港</text>
+                            
+                            <path class="province" data-name="澳门" data-players="12" d="M60,288 L100,288 L100,340 L60,340 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="80" y="318">澳门</text>
+                            
+                            <path class="province" data-name="台湾" data-players="89" d="M100,288 L175,288 L175,340 L100,340 Z" fill="url(#provinceGrad1)"/>
+                            <text class="province-label" x="137" y="318">台湾</text>
+                            
+                            <!-- 台湾右边的区域 -->
+                            <path class="province" data-name="其他" data-players="0" d="M175,288 L340,288 L340,340 L175,340 Z" fill="url(#provinceGrad2)"/>
+                            <text class="province-label" x="257" y="318">其他</text>
+                            
+                        </svg>
+                    </div>
+                    
+                    <div class="map-stats">
+                        <div class="stat-card">
+                            <div class="number">34</div>
+                            <div class="label">省市区</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="number">12.8k</div>
+                            <div class="label">全国玩家</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="number">567</div>
+                            <div class="label">广东人数</div>
+                        </div>
+                    </div>
+                    
+                    <div class="province-info" id="province-info">
+                        <div class="name" id="province-name">广东</div>
+                        <div class="players" id="province-players">567 名玩家</div>
+                    </div>
+                    <div class="page-desc">点击省份查看区域数据</div>
+                </div>
+            </div>
+
+            <!-- 底部导航 -->
+            <div class="bottom-nav">
+                <button class="nav-btn active" onclick="switchPage('hero')" data-page="hero">
+                    <span class="icon">👤</span>
+                    <span class="label">主角</span>
+                </button>
+                <button class="nav-btn" onclick="switchPage('level')" data-page="level">
+                    <span class="icon">🎮</span>
+                    <span class="label">关卡</span>
+                </button>
+                <button class="nav-btn" onclick="switchPage('talent')" data-page="talent">
+                    <span class="icon">⚡</span>
+                    <span class="label">天赋</span>
+                </button>
+                <button class="nav-btn" onclick="switchPage('ranking')" data-page="ranking">
+                    <span class="icon">🏆</span>
+                    <span class="label">排行</span>
+                </button>
+                <button class="nav-btn" onclick="switchPage('world')" data-page="world">
+                    <span class="icon">🌏</span>
+                    <span class="label">世界</span>
+                </button>
+            </div>
+
+            <!-- 升级弹窗 -->
+            <div class="upgrade-modal" id="upgrade-modal">
+                <div class="upgrade-card">
+                    <div class="icon" id="upgrade-icon">⚔️</div>
+                    <div class="name" id="upgrade-name">攻击力</div>
+                    <div class="current" id="upgrade-current">当前等级: Lv.15</div>
+                    <div class="next-level">
+                        <div class="desc" id="upgrade-desc">升级到Lv.16: 攻击力+5%</div>
+                    </div>
+                    <div class="cost">
+                        <span>🪙</span>
+                        <span id="upgrade-cost">500</span>
+                    </div>
+                    <div class="buttons">
+                        <button class="btn btn-cancel" onclick="closeUpgradeModal()">取消</button>
+                        <button class="btn btn-confirm" onclick="confirmUpgrade()" id="upgrade-confirm-btn">升级</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 提示 -->
+            <div id="toast" class="toast"></div>
+        </div>
+    </div>
+
+    <script>
+        // 天赋配置 - 按章节解锁顺序
+        const talents = {
+            'core': { name: '骷髅之心', icon: '💀', level: 5, max: 20, cost: 2000, effect: '全体属性+2%', chapter: 1 },
+            // 章节1-2 基础属性
+            'damage': { name: '攻击力', icon: '⚔️', level: 5, max: 30, cost: 300, effect: '攻击力+3%', chapter: 2 },
+            'health': { name: '生命', icon: '❤️', level: 5, max: 30, cost: 300, effect: '生命+30', chapter: 2 },
+            'goldearn': { name: '金币获取', icon: '🪙', level: 3, max: 20, cost: 400, effect: '金币+8%', chapter: 2 },
+            'expearn': { name: '经验获取', icon: '⭐', level: 3, max: 20, cost: 400, effect: '经验+8%', chapter: 2 },
+            // 章节3-4 进阶战斗
+            'attackspeed': { name: '攻击速度', icon: '⚡', level: 3, max: 20, cost: 500, effect: '攻速+2%', chapter: 4 },
+            'crit': { name: '暴击率', icon: '💥', level: 2, max: 25, cost: 500, effect: '暴击+1.5%', chapter: 4 },
+            'piercing': { name: '穿透', icon: '🗡️', level: 1, max: 10, cost: 800, effect: '穿透+1', chapter: 4 },
+            'shield': { name: '护盾', icon: '🛡️', level: 1, max: 20, cost: 500, effect: '护盾+20', chapter: 4 },
+            // 章节5-6 技能强化
+            'explosive': { name: '爆炸', icon: '💣', level: 1, max: 10, cost: 1000, effect: '范围+10%', chapter: 6 },
+            'freeze': { name: '冰冻', icon: '❄️', level: 1, max: 15, cost: 800, effect: '冰冻+1.5%', chapter: 6 },
+            'slow': { name: '减速', icon: '🐌', level: 1, max: 15, cost: 800, effect: '减速+2%', chapter: 6 },
+            'bombcount': { name: '炸弹上限', icon: '💣', level: 1, max: 8, cost: 1200, effect: '上限+1', chapter: 6 },
+            // 章节7-8 高级技能
+            'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, effect: '弹射+1', chapter: 8 },
+            'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, effect: '子弹+1', chapter: 8 },
+            // 章节10 终极天赋
+            'deathray': { name: '死亡射线', icon: '☠️', level: 0, max: 5, cost: 5000, effect: '全屏伤害', chapter: 10 },
+            'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, effect: '复活1次', chapter: 10 },
+            'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, effect: '吸收伤害', chapter: 10 }
+        };
+
+        const titles = {
+            'hero': '主角',
+            'level': '关卡',
+            'talent': '天赋',
+            'ranking': '排行榜',
+            'world': '世界'
+        };
+
+        // 章节数据
+        const chapters = [
+            { id: 1, name: '冰雪初现', icon: '❄️', levels: [1,2,3,4,5,6], unlocked: 6 },
+            { id: 2, name: '暴风骤起', icon: '🌨️', levels: [7,8,9,10,11,12], unlocked: 6 },
+            { id: 3, name: '冰川裂缝', icon: '🧊', levels: [13,14,15,16,17,18], unlocked: 5 },
+            { id: 4, name: '寒霜要塞', icon: '🏔️', levels: [19,20,21,22,23,24], unlocked: 0 },
+            { id: 5, name: '永冻深渊', icon: '👑', levels: [25,26,27,28,29,30], unlocked: 0 },
+            { id: 6, name: '极寒地狱', icon: '💀', levels: [31,32,33,34,35,36], unlocked: 0 },
+            { id: 7, name: '冰封王座', icon: '👑', levels: [37,38,39,40,41,42], unlocked: 0 },
+            { id: 8, name: '末日冰河', icon: '🌊', levels: [43,44,45,46,47,48], unlocked: 0 },
+            { id: 9, name: '冰川之心', icon: '💎', levels: [49,50,51,52,53,54], unlocked: 0 },
+            { id: 10, name: '冰神降临', icon: '❄️', levels: [55,56,57,58,59,60], unlocked: 0 }
+        ];
+
+        let currentTalent = null;
+
+        // 生成章节列表
+        function generateChapters() {
+            const container = document.getElementById('chapters-container');
+            chapters.forEach((chapter, index) => {
+                const chapterEl = document.createElement('div');
+                chapterEl.className = 'chapter' + (index === 2 ? ' expanded' : '');
+                chapterEl.dataset.chapter = chapter.id;
+                
+                const isUnlocked = chapter.unlocked > 0;
+                const statusClass = isUnlocked ? 'unlocked' : 'locked';
+                const statusText = isUnlocked ? `已解锁 ${chapter.unlocked}/6` : '未解锁';
+                
+                let levelsHtml = '';
+                chapter.levels.forEach((levelNum, levelIdx) => {
+                    const isLevelUnlocked = levelIdx < chapter.unlocked;
+                    const cardClass = isLevelUnlocked ? 'unlocked' : 'locked';
+                    const stars = isLevelUnlocked ? '⭐⭐⭐' : '🔒';
+                    
+                    levelsHtml += `
+                        <div class="level-card ${cardClass}" onclick="selectLevel(${levelNum})">
+                            <span class="num">${levelNum}</span>
+                            <span class="icon">${chapter.icon}</span>
+                            <span class="stars">${stars}</span>
+                        </div>
+                    `;
+                });
+                
+                chapterEl.innerHTML = `
+                    <div class="chapter-header" onclick="toggleChapter(${chapter.id})">
+                        <span class="chapter-toggle">▶</span>
+                        <div class="chapter-icon">${chapter.icon}</div>
+                        <div class="chapter-info">
+                            <div class="chapter-title">第${chapter.id}章 ${chapter.name}</div>
+                            <div class="chapter-progress">关卡 ${chapter.levels[0]}-${chapter.levels[5]}</div>
+                        </div>
+                        <span class="chapter-status ${statusClass}">${statusText}</span>
+                    </div>
+                    <div class="chapter-levels">
+                        ${levelsHtml}
+                    </div>
+                `;
+                
+                container.appendChild(chapterEl);
+            });
+        }
+
+        function toggleChapter(chapterId) {
+            document.querySelectorAll('.chapter').forEach(ch => {
+                ch.classList.toggle('expanded', parseInt(ch.dataset.chapter) === chapterId);
+            });
+        }
+
+        function selectLevel(levelNum) {
+            showToast('进入关卡 ' + levelNum);
+        }
+
+        function switchPage(page) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('page-' + page).classList.add('active');
+            
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.page === page);
+            });
+            
+            document.getElementById('nav-title').textContent = titles[page];
+        }
+
+        function switchRankTab(tab) {
+            document.querySelectorAll('.ranking-tab').forEach(t => {
+                t.classList.toggle('active', t.textContent.includes(tab === 'global' ? '全服' : '好友'));
+            });
+            showToast(tab === 'global' ? '切换到全服排行榜' : '切换到好友排行榜');
+        }
+
+        function openUpgradeModal(talentId) {
+            currentTalent = talentId;
+            const talent = talents[talentId];
+            
+            document.getElementById('upgrade-icon').textContent = talent.icon;
+            document.getElementById('upgrade-name').textContent = talent.name;
+            
+            if (talent.level >= talent.max) {
+                document.getElementById('upgrade-current').textContent = `当前等级: Lv.${talent.level} MAX`;
+                document.getElementById('upgrade-desc').textContent = '已达到最高等级';
+                document.getElementById('upgrade-cost').textContent = '-';
+                document.getElementById('upgrade-confirm-btn').disabled = true;
+                document.getElementById('upgrade-confirm-btn').textContent = '已满级';
+            } else {
+                document.getElementById('upgrade-current').textContent = `当前等级: Lv.${talent.level}`;
+                document.getElementById('upgrade-desc').textContent = `升级到Lv.${talent.level + 1}: ${talent.effect}`;
+                document.getElementById('upgrade-cost').textContent = talent.cost;
+                document.getElementById('upgrade-confirm-btn').disabled = false;
+                document.getElementById('upgrade-confirm-btn').textContent = '升级';
+            }
+            
+            document.getElementById('upgrade-modal').classList.add('show');
+        }
+
+        function closeUpgradeModal() {
+            document.getElementById('upgrade-modal').classList.remove('show');
+            currentTalent = null;
+        }
+
+        function confirmUpgrade() {
+            if (!currentTalent) return;
+            
+            const talent = talents[currentTalent];
+            if (talent.level < talent.max) {
+                talent.level++;
+                showToast(`${talent.name} 升级到 Lv.${talent.level}!`);
+                closeUpgradeModal();
+                // 实际游戏中这里需要刷新UI显示
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 1500);
+        }
+
+        // 省份选择
+        document.querySelectorAll('.province').forEach(province => {
+            province.addEventListener('click', function() {
+                document.querySelectorAll('.province').forEach(p => p.classList.remove('active'));
+                this.classList.add('active');
+                
+                const name = this.dataset.name;
+                const players = this.dataset.players;
+                
+                document.getElementById('province-name').textContent = name;
+                document.getElementById('province-players').textContent = `${players} 名玩家`;
+                document.getElementById('province-info').classList.add('show');
+                
+                setTimeout(() => {
+                    document.getElementById('province-info').classList.remove('show');
+                }, 3000);
+            });
+        });
+
+        // 初始化
+        generateChapters();
+    </script>
+</body>
+</html>

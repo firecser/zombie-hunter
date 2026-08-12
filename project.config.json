@@ -1,7 +1,28 @@
 {
   "description": "制霸新手村的骷髅怪小游戏",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {"type": "folder", "value": "tests"},
+      {"type": "folder", "value": "scripts"},
+      {"type": "folder", "value": "docs"},
+      {"type": "folder", "value": ".vscode"},
+      {"type": "folder", "value": ".workbuddy"},
+      {"type": "folder", "value": "generated-images"},
+      {"type": "folder", "value": "js"},
+      {"type": "file", "value": "game - 副本.js"},
+      {"type": "file", "value": "game.js.map"},
+      {"type": "file", "value": "code.fortify.config.json"},
+      {"type": "file", "value": "project.private.config.json"},
+      {"type": "file", "value": "private.wx82946280a9b98e78.key"},
+      {"type": "file", "value": ".pat"},
+      {"type": "file", "value": "_*.js"},
+      {"type": "file", "value": "_*.py"},
+      {"type": "file", "value": "_*.ps1"},
+      {"type": "file", "value": "_*.txt"},
+      {"type": "file", "value": "*.xlsx"},
+      {"type": "file", "value": "*.md"},
+      {"type": "file", "value": "*.html"}
+    ],
     "include": []
   },
   "setting": {
