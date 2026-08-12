@@ -39,6 +39,7 @@ const skills = {
 // cd 常量（模块作用域，供注入的函数可见）+ 函数
 const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
 const ATTR_CD_CFG = { explosive: { base: 6000, min: 3000, step: 100 }, freeze: { base: 10000, min: 4000, step: 200 }, lightning: { base: 4000, min: 3000, step: 50 } };
+const ATTR_BULLET_BASE_RADIUS = 11, ATTR_BULLET_SPEED_MUL = 0.7;
 eval(extractFn('explosiveMods'));
 eval(extractFn('freezeMods'));
 eval(extractFn('attrModsForType'));
@@ -122,6 +123,26 @@ assert(bullets.length === 6, '多重爆裂 Lv5 → 1+5=6 发');
 assert(bullets[0].canSplit === true, '多重 Lv5 标记 canSplit=true（命中可分裂）');
 skills.explosive.branches = {};
 recomputeExplosiveMods();
+
+console.log('== 5. 属性子弹默认比普通子弹慢、个头明显更大 ==');
+bullets = [];
+skills.explosive.level = 0;
+shootBase();
+const baseB = bullets[0];
+const baseSpeed = Math.hypot(baseB.vx, baseB.vy);
+bullets = [];
+shootAttribute('explosive');
+const attrB = bullets[0];
+const attrSpeed = Math.hypot(attrB.vx, attrB.vy);
+assert(attrSpeed < baseSpeed, `属性子弹速度(${attrSpeed}) < 普通子弹速度(${baseSpeed})`);
+assert(attrB.radius > baseB.radius, `属性子弹半径(${attrB.radius}) > 普通子弹半径(${baseB.radius})`);
+// 疾速弹道可提速，但仍按 0.7 系数起步（不慢于普通则失败）
+skills.explosive.branches = { highSpeed: 5 };
+recomputeExplosiveMods();
+bullets = [];
+shootAttribute('explosive');
+const fastSpeed = Math.hypot(bullets[0].vx, bullets[0].vy);
+assert(fastSpeed > attrSpeed, `自身疾速弹道 Lv5 后提速(${fastSpeed} > ${attrSpeed})`);
 
 console.log(FAILED ? '\n结果: 有失败项 ❌' : '\n结果: 全部通过 ✅');
 process.exit(FAILED ? 1 : 0);

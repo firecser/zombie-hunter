@@ -1041,6 +1041,9 @@ const ATTR_CD_CFG = {
 };
 // 子弹类属性技能列表：按自身 cd 释放，与基础武器（火力强化）完全独立
 const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
+// 属性子弹相对普通子弹的「默认」参数：飞得更慢、个头更大（普通子弹 radius=6、speed=player.bulletSpeed）
+const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
+const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（可被自身疾速弹道提速）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
@@ -2014,12 +2017,23 @@ function drawFields() {
 // 绘制子弹：颜色 / 形状 / 体型 完全由元素决定（ELEMENT_VISUAL），不再从普通子弹演化
 function drawBullets() {
     const t = Date.now();
+    // 第一遍：基础物理子弹（skillType='damage'）画在底层
     for (const bullet of bullets) {
-        const v = getBulletVisual(bullet);
-        const ev = elementVisual(bullet.element);
-        const ang = Math.atan2(bullet.vy, bullet.vx);
-        const sz = bullet.radius * ev.size;
-        const len = sz * (v.pierce ? 4.6 : 3.4);   // 子弹拉成细长条，明显区别于圆形掉落物
+        if (bullet.skillType === 'damage') paintBullet(bullet, t);
+    }
+    // 第二遍：属性技能子弹画在普通子弹之上（更大更醒目，层级优先）
+    for (const bullet of bullets) {
+        if (bullet.skillType !== 'damage') paintBullet(bullet, t);
+    }
+}
+
+// 单颗子弹绘制（颜色/形状/体型按元素；radius 已含元素体型系数，不再二次乘 ev.size）
+function paintBullet(bullet, t) {
+    const v = getBulletVisual(bullet);
+    const ev = elementVisual(bullet.element);
+    const ang = Math.atan2(bullet.vy, bullet.vx);
+    const sz = bullet.radius;
+    const len = sz * (v.pierce ? 4.6 : 3.4);   // 子弹拉成细长条，明显区别于圆形掉落物
         const w = sz * 1.5;
         ctx.save();
         ctx.translate(bullet.x, bullet.y);
@@ -2146,7 +2160,6 @@ function drawBullets() {
         }
 
         ctx.restore();
-    }
 }
 
 // 圆角矩形路径（土属性石块用）
@@ -3693,7 +3706,7 @@ function shootAttribute(type) {
     const m = attrModsForType(type) || {};
 
     const n = 1 + (m.bulletCountBoost || 0);                 // 多重爆裂/多重干冰
-    const _spd = player.bulletSpeed * (m.speedMul || 1);     // 疾速弹道（自身分支，非火力强化）
+    const _spd = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * (m.speedMul || 1);  // 默认比普通子弹慢；疾速弹道（自身分支）可提速，仍独立于火力强化
     const dmg = player.damage;                               // 随英雄基础伤害成长（含火力强化 apply 基础增幅），不吃火力强化每发分支修正
     const canSplit = (m.bulletCountBoost || 0) >= 5;         // 多重 Lv5 质变：命中分裂
 
@@ -3707,7 +3720,7 @@ function shootAttribute(type) {
             y: player.y + Math.sin(baseAngle) * gunLength,
             vx: Math.cos(bulletAngle) * _spd,
             vy: Math.sin(bulletAngle) * _spd,
-            radius: 6 * elementVisual(def.element).size,   // 体型按元素区分（同时影响碰撞与绘制）
+            radius: ATTR_BULLET_BASE_RADIUS * elementVisual(def.element).size,   // 明显大于普通子弹；体型按元素区分（同时影响碰撞与绘制）
             damage: dmg,
             piercing: player.bulletPiercing + (m.pierceBoost || 0),
             element: def.element,          // 火/水/雷 —— 由属性树自身元素决定
