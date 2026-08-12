@@ -5659,10 +5659,9 @@ function upgradeTalent(talentId) {
 let highestUnlockedChapter = 2;
 
 function drawMainMenu() {
-    // 确保游戏圈按钮只在圈子Tab显示（离开时隐藏而非销毁，避免反复重建原生视图）
-    if (mainMenuTab !== 'club') {
-        hideGameClubButton();
-    }
+    // 游戏圈入口（原生按钮）采用“仅创建一次、事件驱动显隐”策略：
+    // 原生视图只在首次进入圈子Tab时创建并 show 一次，切Tab离开时 hide、离开主菜单才 destroy，
+    // 渲染循环里绝不每帧调用任何 wx 方法，从机制上杜绝原生视图反复重建导致的报错卡顿。
 
     // 皇室战争风深蓝渐变背景
     drawRoyaleBackground();
