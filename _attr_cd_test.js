@@ -27,13 +27,13 @@ const SKILL_DEFS = {
                branches: { multiShot: { effect(bl, m){ m.bulletCountBoost += bl; } },
                            highSpeed: { effect(bl, m){ m.speedMul *= Math.pow(1.20, bl); } } } },
   freeze:    { type: 'freeze', name: '干冰弹', element: '水', branches: {} },
-  lightning: { type: 'lightning', name: '闪电链', element: '雷', branches: {} }
+  lightning: { type: 'lightning', name: '跃迁电子', element: '金', branches: {} }
 };
 const skills = {
   damage:    { level: 1, _mods: { dmgMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0, fireMul: 1 } },
   explosive: { level: 0, _mods: {}, branches: {} },
   freeze:    { level: 0, _mods: {}, branches: {} },
-  lightning: { level: 0, _mods: {}, _chainBonus: 0, _conduct: 0 }
+  lightning: { level: 0, _mods: {}, _lastFire: 0 }
 };
 
 // cd 常量（模块作用域，供注入的函数可见）+ 函数
@@ -42,6 +42,7 @@ const ATTR_CD_CFG = { explosive: { base: 6000, min: 3000, step: 100 }, freeze: {
 const ATTR_BULLET_BASE_RADIUS = 11, ATTR_BULLET_SPEED_MUL = 0.7;
 eval(extractFn('explosiveMods'));
 eval(extractFn('freezeMods'));
+eval(extractFn('lightningMods'));
 eval(extractFn('attrModsForType'));
 eval(extractFn('attrModsForBullet'));
 eval(extractFn('getAttrReleaseCd'));
@@ -50,6 +51,7 @@ eval(extractFn('elementVisual'));
 const ELEMENT_VISUAL = { '物理': { size: 1 }, '火': { size: 1.2 }, '水': { size: 0.92 }, '金': { size: 1.05 }, '木': { size: 1 }, '土': { size: 1.14 } };
 eval(extractFn('recomputeExplosiveMods'));
 eval(extractFn('recomputeFreezeMods'));
+eval(extractFn('recomputeLightningMods'));
 eval(extractFn('shootBase'));
 eval(extractFn('shootAttribute'));
 
@@ -112,7 +114,7 @@ assert(bullets.length === 1 && bullets[0].skillType === 'freeze' && bullets[0].e
 bullets = [];
 skills.lightning.level = 2;
 shootAttribute('lightning');
-assert(bullets.length === 1 && bullets[0].skillType === 'lightning' && bullets[0].element === '雷', '闪电链发射雷属性子弹(skillType=lightning)');
+assert(bullets.length === 1 && bullets[0].skillType === 'lightning' && bullets[0].element === '金', '闪电链发射金属性子弹(skillType=lightning)');
 
 console.log('== 4. 多重 Lv5 质变：属性子弹分裂 ==');
 bullets = [];

@@ -881,8 +881,36 @@ const SKILL_DEFS = {
                     incinerate: { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.explIncinerate += bl; } }
                   } },
-    lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'雷',   category:'bullet', maxLevel:99, desc:'弹射攻击',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'链目标 +2', apply(){ skills.lightning._chainBonus = 2; } }, 5:{ desc:'链命中触发导电', apply(){ skills.lightning._conduct = true; } } } },
+    lightning:  { type:'lightning',  name:'跃迁电子', icon:'⚡', element:'金',   category:'bullet', maxLevel:99, desc:'命中弹射/麻痹/电伤领域',
+                  // 金属性树（对应五行中的金）：参考《向僵尸开炮》跃迁电子，弹射、导电、麻痹、电伤领域
+                  apply(lv){},
+                  branches: {
+                    // —— 通用「属性树共享模板」（与火/水树同名同结构）——
+                    multiShot:  { name:'多重电子', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.bulletCountBoost += bl; } },
+                    highSpeed:  { name:'疾速电弧', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
+                    crit:       { name:'雷霆暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击召唤落雷', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.thunderStrike = true; } },
+                    pierce:     { name:'电子穿透', desc:'穿透 +1/级；满级命中溅射电火花',    reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.pierceSpark = true; } },
+                    // —— 金专属分支 ——
+                    // 链式传导 / 高压电弧 同档(Lv2)互斥：多目标路线 vs 高伤远程路线
+                    chainConduct:{ name:'链式传导', desc:'弹射目标 +1/级',                   reqLevel:2, prereq:[], mutex:['highVoltage'], maxLevel:5,
+                                  effect(bl,m){ m.chainCountBoost += bl; } },
+                    highVoltage:{ name:'高压电弧', desc:'弹射伤害 +20%/级，弹射距离 +8/级', reqLevel:2, prereq:[], mutex:['chainConduct'], maxLevel:5,
+                                  effect(bl,m){ m.chainDmgMul *= Math.pow(1.20, bl); m.chainRangeBoost += 8 * bl; } },
+                    // 电磁脉冲 / 静电场 同档(Lv4)互斥：单体硬控路线 vs 群体领域路线
+                    emp:        { name:'电磁脉冲', desc:'命中麻痹概率 +6%/级，麻痹时长 +0.1s/级', reqLevel:4, prereq:[], mutex:['staticField'], maxLevel:5,
+                                  effect(bl,m){ m.empStunChance += 0.06 * bl; m.empStunDuration += 100 * bl; } },
+                    staticField:{ name:'静电场',   desc:'命中 20% 生成持续电伤领域/级',     reqLevel:4, prereq:[], mutex:['emp'], maxLevel:5,
+                                  effect(bl,m){ m.staticFieldChance += 0.20 * bl; } },
+                    // Lv5 质变：超导依赖链式传导；雷霆一击依赖暴击分支
+                    superConductor:{ name:'超导', desc:'对冻结/减速目标弹射伤害 +30%/级，弹射次数 +1/级', reqLevel:5, prereq:['chainConduct'], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.superConductorDmgMul += 0.30 * bl; m.superConductorCountBoost += bl; } },
+                    thunderStrike:{ name:'雷霆一击', desc:'暴击时 50% 召唤落雷，造成 100% 伤害', reqLevel:5, prereq:['crit'], mutex:[], maxLevel:1,
+                                  effect(bl,m){ m.thunderStrike = true; } }
+                  } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
                   qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
     freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中附带冰冻/减速', apply(lv){},
@@ -946,6 +974,7 @@ let bombExplosionEffects = [];
 let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
+let electricFields = [];            // 跃迁电子「静电场」生成的持续电伤区域
 let invincibleUntil = 0;            // 不朽之身复活后的「真无敌」截止时间
 const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 
@@ -1028,6 +1057,13 @@ function freezeMods() {
         : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false,
             freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, shatterBonus: 0, polarFieldChance: 0, chainFrost: false };
 }
+function lightningMods() {
+    return (skills.lightning && skills.lightning._mods) ? skills.lightning._mods
+        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
+            chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
+            empStunChance: 0, empStunDuration: 0, staticFieldChance: 0,
+            superConductorDmgMul: 0, superConductorCountBoost: 0, thunderStrike: false };
+}
 
 // ==================== 属性技能独立释放 CD（不受火力强化射速影响）====================
 // 每个「子弹类」属性技能（爆炸/干冰/闪电链）按自身 cd 独立释放子弹；
@@ -1048,7 +1084,7 @@ const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
     if (type === 'freeze')    return freezeMods();
-    if (type === 'lightning') return { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0 };
+    if (type === 'lightning') return lightningMods();
     return null;
 }
 // 由子弹的 skillType 取其实时修正（基础物理弹返回空表，不触发任何属性效果）
@@ -1097,7 +1133,7 @@ function getShieldReduce() {
 // 异常状态 × 元素 被动增伤表（命中结算前乘倍率）
 const STATUS_ELEMENT_BONUS = {
     frozen:  { '火': 1.0 },   // 冰冻中受火伤 +100%（融化蒸发）
-    slow:    { '雷': 0.3 },   // 减速中受雷伤 +30%（导电）
+    slow:    { '金': 0.3 },   // 减速中受金伤 +30%（导电）
     burning: { '风': 0.2 }    // 灼烧中受风伤 +20%（风助火势）
 };
 
@@ -1182,6 +1218,27 @@ function recomputeFreezeMods() {
         if (bd && bd.effect) bd.effect(bl, m);
     }
     if (skills.freeze) skills.freeze._mods = m;
+}
+
+// 由已选分支派生 跃迁电子（金属性树）的实时修正（弹射/麻痹/电伤领域/超导/雷霆）；每次选分支/开局重算
+function recomputeLightningMods() {
+    const b = (skills.lightning && skills.lightning.branches) || {};
+    const def = SKILL_DEFS.lightning;
+    const m = {
+        // 共享模板
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false,
+        // 金专属
+        chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
+        empStunChance: 0, empStunDuration: 0, staticFieldChance: 0,
+        superConductorDmgMul: 0, superConductorCountBoost: 0, thunderStrike: false
+    };
+    for (const bid in b) {
+        const bl = b[bid];
+        if (!bl) continue;
+        const bd = def.branches[bid];
+        if (bd && bd.effect) bd.effect(bl, m);
+    }
+    if (skills.lightning) skills.lightning._mods = m;
 }
 
 // ==================== 五行系统（金木水火土）====================
@@ -1277,7 +1334,7 @@ function superConduct(from, count, dmg) {
                 if (d < bestD) { bestD = d; best = z; }
             }
         }
-        if (best) { createLightning(last.x, last.y, best.x, best.y); damageZombie(best, dmg, false, '雷'); chained.push(best); last = best; }
+        if (best) { createLightning(last.x, last.y, best.x, best.y); damageZombie(best, dmg, false, '金'); chained.push(best); last = best; }
     }
 }
 
@@ -1285,10 +1342,10 @@ function superConduct(from, count, dmg) {
 const COMBO_DEFS = [
     { id:'melt', test:(z,el)=> z.frozenUntil > Date.now() && el === '火',
       fx(z){ damageZombie(z, z.maxHealth * 0.08, false, '物理'); z.frozenUntil = 0; pushHit(z,'melt'); } },
-    { id:'superconduct', test:(z,el)=> z.frozenUntil > Date.now() && el === '雷',
+    { id:'superconduct', test:(z,el)=> z.frozenUntil > Date.now() && el === '金',
       fx(z){ superConduct(z, 2, player.damage * 0.3); pushHit(z,'superconduct'); } },
-    { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '雷',
-      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '雷'); pushHit(z,'conduct'); } },
+    { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '金',
+      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '金'); pushHit(z,'conduct'); } },
     { id:'mire', test:(z,el)=> z.burningUntil > Date.now() && el === '水',
       fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+600); pushHit(z,'mire'); } },
     { id:'storm', test:(z,el)=> z._inTornado && el === '风',
@@ -2004,6 +2061,33 @@ function drawFields() {
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.radius * 0.45, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    // 静电场（跃迁电子 Lv4 分支）：金色电脉冲场
+    for (const f of electricFields) {
+        const lifeRatio = f.life / 3000;
+        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 80);
+        const halo = ctx.createRadialGradient(f.x, f.y, f.radius * 0.3, f.x, f.y, f.radius);
+        halo.addColorStop(0, 'rgba(255,230,120,' + (0.22 * lifeRatio * pulse) + ')');
+        halo.addColorStop(0.6, 'rgba(255,210,80,' + (0.10 * lifeRatio * pulse) + ')');
+        halo.addColorStop(1, 'rgba(255,210,80,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+        ctx.fill();
+        // 电弧内圈
+        ctx.strokeStyle = 'rgba(255,245,180,' + (0.45 * lifeRatio) + ')';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const t = Date.now() / 120;
+        for (let k = 0; k < 6; k++) {
+            const a0 = k * Math.PI / 3 + t;
+            const r0 = f.radius * 0.25;
+            const r1 = f.radius * 0.55;
+            ctx.moveTo(f.x + Math.cos(a0) * r0, f.y + Math.sin(a0) * r0);
+            ctx.lineTo(f.x + Math.cos(a0 + 0.4) * r1, f.y + Math.sin(a0 + 0.4) * r1);
+        }
         ctx.stroke();
     }
 
@@ -3857,19 +3941,25 @@ function updateBullets() {
                     }
                 }
                 
-                // 闪电链（仅闪电链自身的子弹触发）
+                // 命中时间戳（闪电链/冰冻/减速/领域/麻痹 共用）
+                const nowHit = Date.now();
+
+                // 跃迁电子（仅金属性树自身的子弹触发）
                 if (bullet.skillType === 'lightning') {
-                    const chainCount = skills.lightning.level + 1 + (skills.lightning._chainBonus || 0);  // Lv3 链目标 +2
-                    const chainDamage = damage * 0.4 * (1 + (skills.lightning._conduct || 0));              // Lv5 链伤 +30%
+                    const _lm = lightningMods();
+                    const isConductive = (zombie.frozenUntil > nowHit || zombie.slowUntil > nowHit);
+                    let chainCount = skills.lightning.level + 1 + _lm.chainCountBoost + (isConductive ? _lm.superConductorCountBoost : 0);
+                    let chainDamage = damage * 0.4 * _lm.chainDmgMul * (isConductive ? (1 + _lm.superConductorDmgMul) : 1);
+                    let chainRange = 150 + _lm.chainRangeBoost;
                     let lastTarget = zombie;
                     let chainedTargets = [zombie];
-                    
+
                     for (let c = 0; c < chainCount; c++) {
                         let closestChain = null;
-                        let closestDist = 150;
-                        
+                        let closestDist = chainRange;
+
                         for (const z of zombies) {
-                            if (!chainedTargets.includes(z)) {
+                            if (z.health > 0 && !chainedTargets.includes(z)) {
                                 const d = Math.hypot(lastTarget.x - z.x, lastTarget.y - z.y);
                                 if (d < closestDist) {
                                     closestDist = d;
@@ -3877,19 +3967,44 @@ function updateBullets() {
                                 }
                             }
                         }
-                        
+
                         if (closestChain) {
                             createLightning(lastTarget.x, lastTarget.y, closestChain.x, closestChain.y);
-                            damageZombie(closestChain, chainDamage, false, '雷');
-                            checkCombos(closestChain, '雷');
+                            damageZombie(closestChain, chainDamage, false, '金');
+                            checkCombos(closestChain, '金');
+
+                            // 电磁脉冲：命中麻痹
+                            if (_lm.empStunChance > 0 && Math.random() < _lm.empStunChance) {
+                                closestChain.stunUntil = Math.max(closestChain.stunUntil || 0, nowHit + _lm.empStunDuration);
+                            }
+
                             chainedTargets.push(closestChain);
                             lastTarget = closestChain;
                         }
                     }
+
+                    // 静电场：命中概率生成持续电伤领域
+                    if (_lm.staticFieldChance > 0 && Math.random() < _lm.staticFieldChance) {
+                        electricFields.push({ x: bullet.x, y: bullet.y, radius: 55, life: 3000, born: nowHit });
+                    }
+
+                    // 雷霆一击：暴击时 50% 召唤落雷
+                    if (isCrit && _lm.thunderStrike && Math.random() < 0.5) {
+                        createLightning(bullet.x, bullet.y - 80, bullet.x, bullet.y);
+                        damageZombie(zombie, damage, false, '金');
+                    }
                 }
-                
+
                 damageZombie(zombie, damage, isCrit, bullet.element);
                 checkCombos(zombie, bullet.element);
+
+                // 电磁脉冲：主目标也被麻痹
+                if (bullet.skillType === 'lightning') {
+                    const _lm = lightningMods();
+                    if (_lm.empStunChance > 0 && Math.random() < _lm.empStunChance) {
+                        zombie.stunUntil = Math.max(zombie.stunUntil || 0, nowHit + _lm.empStunDuration);
+                    }
+                }
 
                 // 火力强化·后坐力：命中后将存活目标沿子弹来向击退一小段
                 if (skills.damage && skills.damage._mods && skills.damage._mods.knock && zombies.indexOf(zombie) > -1) {
@@ -3905,6 +4020,7 @@ function updateBullets() {
 
                 // 穿透溅射 / 冰系质变（仅对应属性树的子弹触发）
                 const _fm = (bullet.skillType === 'freeze') ? freezeMods() : null;
+                const _lm = (bullet.skillType === 'lightning') ? lightningMods() : null;
                 if (bullet.skillType === 'explosive' && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
@@ -3915,6 +4031,12 @@ function updateBullets() {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '水'); checkCombos(z, '水'); }
+                    }
+                }
+                if (_lm && _lm.pierceSpark) {
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '金'); checkCombos(z, '金'); }
                     }
                 }
                 // 暴击小爆炸 / 冰霜暴击（火/水属性树「暴击」满级质变）
@@ -3934,7 +4056,6 @@ function updateBullets() {
                 }
 
                 // 命中附带：冰冻 / 减速（仅干冰弹水属性树的子弹触发）
-                const nowHit = Date.now();
                 if (bullet.skillType === 'freeze') {
                     const freezeChance = getFreezeChance();
                     if (freezeChance > 0 && Math.random() < freezeChance) {
@@ -4399,6 +4520,23 @@ function updateFields(dt) {
             }
         }
     }
+
+    // 静电场：持续电伤领域内僵尸（每 300ms 一跳）
+    for (let i = electricFields.length - 1; i >= 0; i--) {
+        const f = electricFields[i];
+        f.life -= dt;
+        if (f.life <= 0) { electricFields.splice(i, 1); continue; }
+        f._dpsTimer = (f._dpsTimer || 0) + dt;
+        if (f._dpsTimer >= 300) {
+            f._dpsTimer = 0;
+            for (const z of zombies) {
+                if (Math.hypot(f.x - z.x, f.y - z.y) < f.radius + z.radius) {
+                    damageZombie(z, player.damage * 0.15, false, '金');
+                    checkCombos(z, '金');
+                }
+            }
+        }
+    }
 }
 
 // 更新粒子
@@ -4679,6 +4817,7 @@ function applyUpgrade(upgrade) {
         if (upgrade.type === 'damage') recomputeDamageMods();
         else if (upgrade.type === 'explosive') recomputeExplosiveMods();
         else if (upgrade.type === 'freeze') recomputeFreezeMods();
+        else if (upgrade.type === 'lightning') recomputeLightningMods();
     }
 
     // 五行相生协同：获得/升级任何技能后重新计算
@@ -4858,6 +4997,7 @@ function startGame() {
     recomputeDamageMods();
     recomputeExplosiveMods();
     recomputeFreezeMods();
+    recomputeLightningMods();
     // 五行相生协同：开局按初始已拥有技能计算
     recomputeWuxingSynergy();
     talentMods.deathrayTimer = 0;
@@ -4880,6 +5020,7 @@ function startGame() {
     oilPatches = [];
     tornadoes = [];
     iceFields = [];
+    electricFields = [];
     
     // 重置炸弹
     bombCount = 0;
