@@ -21,6 +21,7 @@ const BURN_DURATION = 1500;
 let bullets = [];
 let zombies = [];
 const particles = [], damageNumbers = [], expOrbs = [], goldOrbs = [], hitEffects = [];
+let iceFields = [];
 const talentMods = { lifestealPerKill: 0 };
 const player = { x: 640, y: 360, damage: 100, _splitOnHit: false, kills: 0, health: 100, maxHealth: 100 };
 const skills = {
@@ -48,7 +49,10 @@ function checkCombos(z) {}
 function getEffBulletSpeed() { return 10; }
 function getEffBulletPiercing() { return 1; }
 function spawnSplitBullets() {}
+function spawnChainFrost() {}
+function getBulletElement() { return '物理'; }
 
+eval(extractFn('freezeMods'));
 eval(extractFn('damageZombie'));
 eval(extractFn('updateBullets'));
 

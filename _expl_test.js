@@ -13,6 +13,16 @@ function extractFn(name) {
   }
   return src.slice(i, k);
 }
+function extractConst(name) {
+  const i = src.indexOf('const ' + name + ' =');
+  if (i < 0) throw new Error('未找到常量 ' + name);
+  let j = src.indexOf('{', i), depth = 0, k = j;
+  for (; k < src.length; k++) {
+    if (src[k] === '{') depth++;
+    else if (src[k] === '}') { depth--; if (depth === 0) { k++; break; } }
+  }
+  return '(' + src.slice(j, k) + ')';
+}
 // 抽取 explosive 的 branches 对象字面量（定位 explosive 定义后的第一个 branches: {）
 function extractExplosiveBranches() {
   const ex = src.indexOf("explosive:  { type:'explosive'");
@@ -28,6 +38,7 @@ function extractExplosiveBranches() {
 
 const getAvailSrc = extractFn('getAvailableBranches');
 const recomputeSrc = extractFn('recomputeExplosiveMods');
+const recomputeWuxingSrc = extractFn('recomputeWuxingSynergy');
 const applySrc = extractFn('applyUpgrade');
 const createExplSrc = extractFn('createExplosion');
 
@@ -47,11 +58,15 @@ const MAX_SKILLS = 5;
 const player = { damage: 10, fireRate: 500, bulletSpeed: 10, exp: 0, expToLevel: 100, level: 1 };
 let bombExplosionEffects = [];   // createExplosion 依赖
 let particles = [];              // createExplosion 依赖
+let wuxingSynergy = {};   // applyUpgrade 现在会调用 recomputeWuxingSynergy
+const WUXING_ELEMENT = eval(extractConst('WUXING_ELEMENT'));
+const WUXING_GENERATE = eval(extractConst('WUXING_GENERATE'));
 function fireQualNodes() {}
 function levelUp() {}
 
 eval(getAvailSrc);
 eval(recomputeSrc);
+eval(recomputeWuxingSrc);
 eval(applySrc);
 eval(createExplSrc);
 
@@ -74,7 +89,7 @@ av = getAvailableBranches('explosive');
 assert(av.includes('fuelFill'),
   '分支未升满 → 仍被提供用于继续升级');
 assert(!av.includes('thermalExplode'), '已选富燃料 → 互斥排除热能爆炸');
-assert(av.includes('fireCrit'), 'Lv3 解锁 火焰暴击(共享模板)');
+assert(av.includes('crit'), 'Lv3 解锁 火焰暴击(共享模板)');
 assert(av.includes('pierce'), 'Lv3 解锁 烈焰穿透(共享模板)');
 skills.explosive.branches.fuelFill = 2;   // 升满富燃料
 skills.explosive.level = 4;
@@ -118,7 +133,7 @@ assert(skills.explosive._mods.bulletCountBoost === 5, '多重爆裂 Lv5 子弹+5
 skills.explosive.branches = { highSpeed: 5 };
 recomputeExplosiveMods();
 assert(Math.abs(skills.explosive._mods.speedMul - Math.pow(1.20, 5)) < 1e-6, '疾速弹道 Lv5 弹速×2.49');
-skills.explosive.branches = { fireCrit: 5 };
+skills.explosive.branches = { crit: 5 };
 recomputeExplosiveMods();
 assert(Math.abs(skills.explosive._mods.critChanceBoost - 0.25) < 1e-6, '火焰暴击 Lv5 暴击率+25%');
 assert(Math.abs(skills.explosive._mods.critDamageBoost - 0.75) < 1e-6, '火焰暴击 Lv5 暴击伤害+75%');
@@ -127,7 +142,7 @@ skills.explosive.branches = { pierce: 5 };
 recomputeExplosiveMods();
 assert(skills.explosive._mods.pierceBoost === 5, '烈焰穿透 Lv5 穿透+5');
 assert(skills.explosive._mods.pierceSplash === true, '烈焰穿透 Lv5 质变：命中溅射');
-skills.explosive.branches = { fireCrit: 4 };
+skills.explosive.branches = { crit: 4 };
 recomputeExplosiveMods();
 assert(skills.explosive._mods.critExplode === false, '火焰暴击 Lv4 未质变（critExplode=false）');
 

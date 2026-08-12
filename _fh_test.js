@@ -64,6 +64,15 @@ eval(showSrc);
 eval(weightSrc);
 eval(pickSrc);
 
+// 五行系统增量（applyUpgrade 末尾统一重算协同）
+const WUXING_ELEMENT = { '金':'金','木':'木','水':'水','火':'火','土':'土','雷':'金','风':'木','冰':'水' };
+const WUXING_GENERATE = { '火':'土','土':'金','金':'水','水':'木','木':'火' };
+let wuxingSynergy = {};
+const MAX_LEVEL = 999;
+eval(extractFn('recomputeExplosiveMods'));
+eval(extractFn('recomputeFreezeMods'));
+eval(extractFn('recomputeWuxingSynergy'));
+
 // ---- 断言工具 ----
 let FAILED = false;
 function assert(cond, msg) { if (!cond) { console.log('  ✗ FAIL:', msg); FAILED = true; } else console.log('  ✓', msg); }

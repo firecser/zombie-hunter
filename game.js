@@ -852,16 +852,16 @@ const SKILL_DEFS = {
                   // 互斥规则：互斥的两分支必须处于同一 reqLevel（出现的等级不能有先后），供玩家在同一档二选一
                   // 参考《向僵尸开炮》温压弹：增伤 / 破甲 / 引燃·焚身燃烧链；火属性树（属性树之一）
                   // 温压冲击(击退)因强度过高且不适合本游戏，已重设计为「破甲」（爆炸使敌人受伤增加，纯数值增益、不干扰走位）
-                  // 阶段二（本轮）：已把多重/暴击/穿透/高速等通用效果以"共享分支模板"移入此树，
-                  // 即 multiShot/highSpeed/fireCrit/pierce 四个分支——后续冰/雷/毒属性树将复用同名结构，
-                  // 实现「基础(火力强化) + 属性(火/冰/雷/毒)」架构。慢速效果暂不在此树，留待冰属性树。
+                  // 阶段二：已把多重/暴击/穿透/高速等通用效果以"共享分支模板"移入此树，
+                  // 即 multiShot/highSpeed/crit/pierce 四个分支——后续五行属性树（金木水火土）将复用同名结构，
+                  // 实现「基础(火力强化) + 属性(五行)」架构。慢速/冻结效果暂不在此树，留待水（冰）属性树。
                   branches: {
                     // —— 通用「属性树共享模板」分支（火树先行；冰/雷/毒树后续复用同名结构）——
                     multiShot:  { name:'多重爆裂', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'疾速弹道', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
-                    fireCrit:   { name:'火焰暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发小爆炸', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                    crit:       { name:'火焰暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发小爆炸', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.critExplode = true; } },
                     pierce:     { name:'烈焰穿透', desc:'穿透 +1/级；满级命中溅射',            reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.pierceSplash = true; } },
@@ -885,8 +885,35 @@ const SKILL_DEFS = {
                   qualNodes:{ 3:{ desc:'链目标 +2', apply(){ skills.lightning._chainBonus = 2; } }, 5:{ desc:'链命中触发导电', apply(){ skills.lightning._conduct = true; } } } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
                   qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
-    freeze:     { type:'freeze',     name:'冰霜弹',   icon:'❄️', element:'冰',   category:'bullet', maxLevel:8,  desc:'冰冻几率 +6%',  apply(lv){},
-                  qualNodes:{ 3:{ desc:'冰冻残留减速', apply(){ skills.freeze._residual = true; } }, 5:{ desc:'20% 几率眩晕', apply(){ skills.freeze._stun = true; } } } },
+    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中附带冰冻/减速', apply(lv){},
+                  // 水属性树（由冰属性重命名为水，对应五行中的水）：参考《向僵尸开炮》干冰弹
+                  // 共享模板分支与火树同名同结构；水专属分支围绕冰冻/减速/冰爆/领域
+                  branches: {
+                    // —— 通用「属性树共享模板」分支（与火树同名，全局叠加）——
+                    multiShot:  { name:'多重干冰', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.bulletCountBoost += bl; } },
+                    highSpeed:  { name:'疾速弹道', desc:'子弹飞行速度 +20%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.speedMul *= Math.pow(1.20, bl); } },
+                    crit:       { name:'冰霜暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发冰爆', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.iceBurst = true; } },
+                    pierce:     { name:'寒冰穿透', desc:'穿透 +1/级；满级命中溅射冰刺',            reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.iceSpike = true; } },
+                    // —— 水专属分支 ——
+                    // 急冻 / 霜寒 同档(Lv2)互斥：单体高冻结 vs 群体强减速
+                    flashFreeze:{ name:'急冻',       desc:'冻结概率 +8%/级',                  reqLevel:2, prereq:[], mutex:['frostBite'], maxLevel:5,
+                                  effect(bl,m){ m.freezeChanceBoost += 0.08 * bl; } },
+                    frostBite:  { name:'霜寒',       desc:'减速幅度 +5%/级（移动更慢）',       reqLevel:2, prereq:[], mutex:['flashFreeze'], maxLevel:5,
+                                  effect(bl,m){ m.slowFactorBoost += 0.05 * bl; } },
+                    deepFreeze: { name:'深寒',       desc:'冻结持续时间 +20%/级',               reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.freezeDurationBoost += 0.20 * bl; } },
+                    // 冰爆 / 极寒领域 同档(Lv4)互斥：单体爆发 vs 群体领域
+                    shatter:    { name:'冰爆',       desc:'对被冻结目标追加3%最大生命伤害/级', reqLevel:4, prereq:['deepFreeze'], mutex:['polarField'], maxLevel:5,
+                                  effect(bl,m){ m.shatterBonus += bl; } },
+                    polarField: { name:'极寒领域',   desc:'命中 25% 生成持续减速/冰冻领域',    reqLevel:4, prereq:[], mutex:['shatter'], maxLevel:5,
+                                  effect(bl,m){ m.polarFieldChance += 0.25 * bl; } },
+                    chainFrost: { name:'连环霜冻',   desc:'命中后分裂为2颗小冰弹射向附近敌人', reqLevel:5, prereq:['deepFreeze'], mutex:[], maxLevel:1,
+                                  effect(bl,m){ m.chainFrost = true; } }
+                  } },
     // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
     mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
                   qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
@@ -918,6 +945,7 @@ let lightningEffects = [];
 let bombExplosionEffects = [];
 let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
+let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
 let invincibleUntil = 0;            // 不朽之身复活后的「真无敌」截止时间
 const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 
@@ -930,7 +958,7 @@ const zombieTypes = {
 };
 
 // ==================== 升级选项 ====================
-// 三选一池由 SKILL_DEFS 派生；攻击性技能架构 = 基础(火力强化) + 属性(火/冰/雷/毒)，故已删除独立的多重射击/高速子弹/穿透弹/致命暴击/缓速弹/油渍（其效果将并入各属性树分支）
+// 三选一池由 SKILL_DEFS 派生；攻击性技能架构 = 基础(火力强化) + 属性(五行：金木水火土)，故已删除独立的多重射击/高速子弹/穿透弹/致命暴击/缓速弹/油渍（其效果以"共享分支模板"并入各属性树分支）
 const upgradePool = Object.keys(SKILL_DEFS).map(type => ({
     type: type,
     name: SKILL_DEFS[type].name,
@@ -976,37 +1004,47 @@ function randomFieldPos() {
 // 天赋提供长线基础值（每级小幅），局内三选一技能提供当场高成长值（每级大幅），二者相加后封顶。
 // 所有子弹相关效果都必须走这里，保证「天赋」与「三选一」表现完全一致。
 function getCritChance() {
-    // 致命暴击独立技能已移除；暴击率 = 天赋基础值 + 火树「火焰暴击」分支加成
-    const _ec = (skills.explosive && skills.explosive._mods) ? skills.explosive._mods.critChanceBoost : 0;
-    return Math.min(0.6, talentMods.critChance + _ec);
+    // 致命暴击独立技能已移除；暴击率 = 天赋基础值 + 各属性树「暴击」分支加成（全局叠加）
+    return Math.min(0.6, talentMods.critChance + attributeMods().critChanceBoost);
 }
 function getCritMult() {
-    // 致命暴击独立技能已移除；暴击伤害倍率 = 天赋基础值 + 火树「火焰暴击」分支加成
-    const _eb = (skills.explosive && skills.explosive._mods) ? skills.explosive._mods.critDamageBoost : 0;
-    return talentMods.critDamageMult + _eb;
+    // 致命暴击独立技能已移除；暴击伤害倍率 = 天赋基础值 + 各属性树「暴击」分支加成（全局叠加）
+    return talentMods.critDamageMult + attributeMods().critDamageBoost;
 }
-// 火属性树对弹道效果的加成（多重/疾速/穿透/暴击），由 explosive._mods 派生（缺省安全值）
+function getEffBulletCount()   { return player.bulletCount + attributeMods().bulletCountBoost; }
+function getEffBulletSpeed()   { return player.bulletSpeed * attributeMods().speedMul; }
+function getEffBulletPiercing(){ return player.bulletPiercing + attributeMods().pierceBoost; }
+
+// 各属性树独立修正的便捷访问
 function explosiveMods() {
     return (skills.explosive && skills.explosive._mods) ? skills.explosive._mods
-        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false };
+        : { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0,
+            bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false };
 }
-function getEffBulletCount()   { return player.bulletCount + explosiveMods().bulletCountBoost; }
-function getEffBulletSpeed()   { return player.bulletSpeed * explosiveMods().speedMul; }
-function getEffBulletPiercing(){ return player.bulletPiercing + explosiveMods().pierceBoost; }
+function freezeMods() {
+    return (skills.freeze && skills.freeze._mods) ? skills.freeze._mods
+        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false,
+            freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, shatterBonus: 0, polarFieldChance: 0, chainFrost: false };
+}
+
 function getFreezeChance() {
-    return Math.min(0.5, talentMods.freezeChance + skills.freeze.level * 0.06);
+    // 冻结概率：天赋基础 + 干冰弹等级 + 急冻分支
+    return Math.min(0.8, talentMods.freezeChance + skills.freeze.level * 0.06 + freezeMods().freezeChanceBoost);
 }
 function getFreezeDuration() {
-    return Math.min(2600, 1000 + talentMods.freezeLevel * 40 + skills.freeze.level * 120);
+    // 冻结时长：天赋 + 干冰弹等级 + 深寒分支百分比加成
+    let base = 1000 + talentMods.freezeLevel * 40 + skills.freeze.level * 120;
+    base *= (1 + freezeMods().freezeDurationBoost);
+    return Math.min(3000, base);
 }
 function getSlowChance() {
-    // 缓速弹独立技能已移除；过渡期减速效果直接关闭，待冰属性树实现后由冰树提供（本阶段返回 0）
-    return 0;
+    // 减速概率：天赋基础 + 干冰弹等级（干冰弹本身命中附带减速）
+    return Math.min(0.8, talentMods.slowChance + skills.freeze.level * 0.05);
 }
 function getSlowFactor() {
-    // 数值越小移动越慢；缓速弹独立技能已移除，减速仅天赋提供（冰树实现后走属性树）
-    let f = 0.7 - talentMods.slowLevel * 0.01;
-    return Math.max(0.3, f);
+    // 数值越小移动越慢；天赋 + 霜寒分支
+    let f = 0.7 - talentMods.slowLevel * 0.01 - freezeMods().slowFactorBoost;
+    return Math.max(0.2, f);
 }
 function getShieldReduce() {
     // 技能护盾每级 −10%，天赋护盾每级 −2%，总减伤封顶 80%（防止负伤害回血）
@@ -1023,17 +1061,6 @@ const STATUS_ELEMENT_BONUS = {
     slow:    { '雷': 0.3 },   // 减速中受雷伤 +30%（导电）
     burning: { '风': 0.2 }    // 灼烧中受风伤 +20%（风助火势）
 };
-
-// 依据目标当前状态 + 伤害元素返回增伤倍率（默认 1）
-function getElementBonus(z, element) {
-    if (!z || !element) return 1;
-    const now = Date.now();
-    let mult = 1;
-    if (z.frozenUntil > now && STATUS_ELEMENT_BONUS.frozen[element]) mult += STATUS_ELEMENT_BONUS.frozen[element];
-    if (z.slowUntil > now && STATUS_ELEMENT_BONUS.slow[element]) mult += STATUS_ELEMENT_BONUS.slow[element];
-    if (z.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
-    return mult;
-}
 
 // 统一触发质变节点（升级到节点等级时调用一次，去重）
 function fireQualNodes(type) {
@@ -1099,6 +1126,102 @@ function recomputeExplosiveMods() {
     if (skills.explosive) skills.explosive._mods = m;
 }
 
+// 由已选分支派生 干冰弹（水属性树）的实时修正（冻结/减速/冰爆/领域）；每次选分支/开局重算
+function recomputeFreezeMods() {
+    const b = (skills.freeze && skills.freeze.branches) || {};
+    const def = SKILL_DEFS.freeze;
+    const m = {
+        // 共享模板
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false,
+        // 水专属
+        freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, shatterBonus: 0, polarFieldChance: 0, chainFrost: false
+    };
+    for (const bid in b) {
+        const bl = b[bid];
+        if (!bl) continue;
+        const bd = def.branches[bid];
+        if (bd && bd.effect) bd.effect(bl, m);
+    }
+    if (skills.freeze) skills.freeze._mods = m;
+}
+
+// ==================== 五行系统（金木水火土）====================
+// 任意伤害元素 → 五行（保留雷/风等旧标签的向下兼容）
+const WUXING_ELEMENT = {
+    '金': '金', '木': '木', '水': '水', '火': '火', '土': '土',
+    '雷': '金', '风': '木', '冰': '水'   // 旧标签映射到五行
+};
+// 相克：攻击五行 → 被克制五行 → 伤害加成倍率
+const WUXING_OVERCOME = { '火': '金', '金': '木', '木': '土', '土': '水', '水': '火' };
+const WUXING_OVERCOME_BONUS = 0.30;   // 克制时 +30% 伤害
+// 相生：A 生 B；玩家同时持有 A、B 两种属性技能时，B 属性伤害 +15% 并激活协同
+const WUXING_GENERATE = { '火': '土', '土': '金', '金': '水', '水': '木', '木': '火' };
+const WUXING_GENERATE_BONUS = 0.15;
+let wuxingSynergy = {};   // { 被生五行: true }
+
+// 重新计算当前已拥有技能的五行相生协同（在开局/获得/升级技能后调用）
+function recomputeWuxingSynergy() {
+    wuxingSynergy = {};
+    const elements = new Set();
+    for (const t of acquiredSkills) {
+        const el = SKILL_DEFS[t] && SKILL_DEFS[t].element;
+        const wx = WUXING_ELEMENT[el];
+        if (wx) elements.add(wx);
+    }
+    for (const a of elements) {
+        const b = WUXING_GENERATE[a];
+        if (b && elements.has(b)) wuxingSynergy[b] = true;
+    }
+}
+
+// 计算元素伤害倍率：状态异常加成 + 五行克制 + 五行相生协同
+function getElementBonus(zombie, element) {
+    if (!zombie || !element) return 1;
+    const now = Date.now();
+    const atkWx = WUXING_ELEMENT[element];
+    let mult = 1;
+    // Phase2 异常交互：状态 × 元素 增伤
+    if (zombie.frozenUntil > now && STATUS_ELEMENT_BONUS.frozen[element]) mult += STATUS_ELEMENT_BONUS.frozen[element];
+    if (zombie.slowUntil > now && STATUS_ELEMENT_BONUS.slow[element]) mult += STATUS_ELEMENT_BONUS.slow[element];
+    if (zombie.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
+    // 五行克制：攻击元素克目标元素
+    if (atkWx && zombie.element && WUXING_OVERCOME[atkWx] === zombie.element) mult += WUXING_OVERCOME_BONUS;
+    // 五行相生：被生元素伤害 +15%
+    if (atkWx && wuxingSynergy[atkWx]) mult += WUXING_GENERATE_BONUS;
+    return mult;
+}
+
+// 当前子弹的主属性元素：由玩家已激活的属性树等级最高者决定（水>火>雷/金>风/木），默认物理
+function getBulletElement() {
+    const scores = {};
+    if (skills.freeze && skills.freeze.level > 0) scores['水'] = skills.freeze.level;
+    if (skills.explosive && skills.explosive.level > 0) scores['火'] = skills.explosive.level;
+    if (skills.lightning && skills.lightning.level > 0) scores['金'] = skills.lightning.level;
+    if (skills.tornado && skills.tornado.level > 0) scores['木'] = skills.tornado.level;
+    // 土属性（未来）
+    let best = '物理', bestScore = 0;
+    const priority = ['水', '火', '金', '木', '土'];
+    for (const wx of priority) {
+        if (scores[wx] && scores[wx] > bestScore) { best = wx; bestScore = scores[wx]; }
+    }
+    return best;
+}
+
+// 聚合所有属性树的共享模板修正（火/水等属性树都有 multiShot/highSpeed/crit/pierce）
+function attributeMods() {
+    const all = [skills.explosive && skills.explosive._mods, skills.freeze && skills.freeze._mods];
+    const out = { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0 };
+    for (const m of all) {
+        if (!m) continue;
+        out.bulletCountBoost += (m.bulletCountBoost || 0);
+        out.speedMul *= (m.speedMul || 1);
+        out.critChanceBoost += (m.critChanceBoost || 0);
+        out.critDamageBoost += (m.critDamageBoost || 0);
+        out.pierceBoost += (m.pierceBoost || 0);
+    }
+    return out;
+}
+
 function pushHit(z, type) {
     hitEffects.push({ x: z.x, y: z.y, type: type, life: 400, maxLife: 400, rot: 0 });
 }
@@ -1127,7 +1250,7 @@ const COMBO_DEFS = [
       fx(z){ superConduct(z, 2, player.damage * 0.3); pushHit(z,'superconduct'); } },
     { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '雷',
       fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '雷'); pushHit(z,'conduct'); } },
-    { id:'mire', test:(z,el)=> z.burningUntil > Date.now() && el === '冰',
+    { id:'mire', test:(z,el)=> z.burningUntil > Date.now() && el === '水',
       fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+600); pushHit(z,'mire'); } },
     { id:'storm', test:(z,el)=> z._inTornado && el === '风',
       fx(z){ damageZombie(z, player.damage*0.4, false, '风'); const a=Math.atan2(z.y-player.y, z.x-player.x); z.x+=Math.cos(a)*20; z.y+=Math.sin(a)*20; pushHit(z,'storm'); } }
@@ -1816,6 +1939,27 @@ function drawFields() {
             ctx.fill();
         }
     }
+
+    // 极寒领域（干冰弹 Lv4 分支）：冰霜减速/冻结场，冷色柔光晕
+    for (const f of iceFields) {
+        const lifeRatio = f.life / 3000;
+        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);
+        const halo = ctx.createRadialGradient(f.x, f.y, f.radius * 0.4, f.x, f.y, f.radius);
+        halo.addColorStop(0, 'rgba(180,235,255,' + (0.25 * lifeRatio * pulse) + ')');
+        halo.addColorStop(0.6, 'rgba(120,210,255,' + (0.12 * lifeRatio * pulse) + ')');
+        halo.addColorStop(1, 'rgba(120,210,255,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+        ctx.fill();
+        // 内圈冰晶
+        ctx.strokeStyle = 'rgba(220,245,255,' + (0.35 * lifeRatio) + ')';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.radius * 0.45, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
     ctx.globalAlpha = 1;
     // 地雷（金属弹体 + 脉冲核心 + 柔和警示区）
     for (const m of mines) drawMine(m);
@@ -3463,15 +3607,15 @@ function shoot() {
             vy: Math.sin(bulletAngle) * _spd,
             radius: 6 * _dm.radiusMul,
             damage: player.damage * _dm.dmgMul,
-            piercing: getEffBulletPiercing(),   // 火树「烈焰穿透」加成在此并入
-            element: '物理',
+            piercing: getEffBulletPiercing(),   // 属性树「穿透」加成在此并入
+            element: getBulletElement(),         // 当前主属性树决定普攻元素（水/火/金/木/物理）
             hitZombies: []
         });
     }
 }
 
 // 多重射击 Lv5 质变：子弹首次命中后，在命中点向 6 个方向迸射小弹
-function spawnSplitBullets(x, y, baseDamage, exclude) {
+function spawnSplitBullets(x, y, baseDamage, exclude, element) {
     const count = 6;
     const spd = getEffBulletSpeed() * 0.95;
     const dmg = baseDamage * 0.5;   // 分裂小弹伤害减半
@@ -3485,9 +3629,34 @@ function spawnSplitBullets(x, y, baseDamage, exclude) {
             radius: 4,
             damage: dmg,
             piercing: 1,
-            element: '物理',
+            element: element || getBulletElement(),
             hitZombies: [exclude],   // 排除被命中的主目标，避免同点重复结算
             isSplit: true            // 标记：分裂弹不再触发分裂，防止级联
+        });
+    }
+}
+
+// 连环霜冻 Lv5 质变：干冰弹命中后分裂为 2 颗小冰弹射向附近敌人
+function spawnChainFrost(x, y, baseDamage, exclude) {
+    const count = 2;
+    const spd = getEffBulletSpeed() * 0.9;
+    const dmg = baseDamage * 0.4;   // 分裂小冰弹伤害 40%
+    for (let k = 0; k < count; k++) {
+        let target = null, bestD = 250;
+        for (const z of zombies) {
+            if (z !== exclude && !z._chainFrostTarget && Math.hypot(z.x - x, z.y - y) < bestD) {
+                target = z; bestD = Math.hypot(z.x - x, z.y - y);
+            }
+        }
+        if (!target) return;   // 没有附近敌人就不分裂
+        target._chainFrostTarget = true;
+        const a = Math.atan2(target.y - y, target.x - x);
+        bullets.push({
+            x: x, y: y,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+            radius: 4, damage: dmg, piercing: 1,
+            element: '水',
+            hitZombies: [], isSplit: true
         });
     }
 }
@@ -3601,8 +3770,8 @@ function updateBullets() {
                     }
                 }
                 
-                damageZombie(zombie, damage, isCrit, '物理');
-                checkCombos(zombie, '物理');
+                damageZombie(zombie, damage, isCrit, bullet.element);
+                checkCombos(zombie, bullet.element);
 
                 // 火力强化·后坐力：命中后将存活目标沿子弹来向击退一小段
                 if (skills.damage && skills.damage._mods && skills.damage._mods.knock && zombies.indexOf(zombie) > -1) {
@@ -3613,17 +3782,24 @@ function updateBullets() {
 
                 // 多重射击 Lv5 质变：首次命中后，在命中点向多方向迸射小弹（仅主弹触发，分裂弹不再级联）
                 if (isFirstHit && !bullet.isSplit && player._splitOnHit) {
-                    spawnSplitBullets(bullet.x, bullet.y, damage, zombie);
+                    spawnSplitBullets(bullet.x, bullet.y, damage, zombie, bullet.element);
                 }
 
-                // 穿透溅射（火树「烈焰穿透」满级质变）
+                // 穿透溅射（火/水属性树「穿透」满级质变：烈焰溅射 / 冰刺溅射）
+                const _fm = freezeMods();
                 if (skills.explosive && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '物理');
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '火');
                     }
                 }
-                // 暴击小爆炸（火树「火焰暴击」满级质变）
+                if (_fm.iceSpike) {
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '水'); checkCombos(z, '水'); }
+                    }
+                }
+                // 暴击小爆炸 / 冰霜暴击（火/水属性树「暴击」满级质变）
                 if (isCrit && skills.explosive && skills.explosive._mods && skills.explosive._mods.critExplode) {
                     createExplosion(zombie.x, zombie.y, 50);
                     for (let k = zombies.length - 1; k >= 0; k--) {
@@ -3631,22 +3807,43 @@ function updateBullets() {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, player.damage * 0.3, false, '火'); checkCombos(z, '火'); }
                     }
                 }
+                if (isCrit && _fm.iceBurst) {
+                    createFreezeEffect(zombie.x, zombie.y);
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 45) { damageZombie(z, player.damage * 0.25, false, '水'); checkCombos(z, '水'); }
+                    }
+                }
 
-                // 命中附带：冰冻 / 减速（天赋基础值 + 局内「冰霜弹 / 缓速弹」，仅主目标结算）
+                // 命中附带：冰冻 / 减速（干冰弹水属性树）
                 const nowHit = Date.now();
                 const freezeChance = getFreezeChance();
                 if (freezeChance > 0 && Math.random() < freezeChance) {
                     zombie.frozenUntil = nowHit + getFreezeDuration();
                     createFreezeEffect(zombie.x, zombie.y);
-                    if (skills.freeze._residual) zombie._residualSlowUntil = zombie.frozenUntil + 1500;  // Lv3 解冻后残留减速
-                    if (skills.freeze._stun && Math.random() < 0.2) zombie.stunUntil = Math.max(zombie.stunUntil || 0, nowHit + 800);  // Lv5 20% 几率眩晕
-                    checkCombos(zombie, '冰');   // 支撑泥沼（灼烧 + 冰）
+                    checkCombos(zombie, '水');   // 支撑泥沼（灼烧 + 水）
                 }
                 const slowChance = getSlowChance();
                 if (slowChance > 0 && Math.random() < slowChance) {
                     zombie.slowUntil = nowHit + 2200;
                     zombie.slowFactor = getSlowFactor();
                     createSlowEffect(zombie.x, zombie.y);
+                }
+
+                // 冰爆：对被冻结目标造成伤害时追加最大生命%（仅在目标仍冻结时触发一次/弹）
+                if (_fm.shatterBonus && zombie.frozenUntil > nowHit && !zombie._shatteredThisHit) {
+                    zombie._shatteredThisHit = true;
+                    damageZombie(zombie, zombie.maxHealth * 0.03 * _fm.shatterBonus, false, '水');
+                }
+
+                // 极寒领域：命中概率在命中点生成冰霜领域（减速圈内敌人）
+                if (_fm.polarFieldChance > 0 && Math.random() < _fm.polarFieldChance) {
+                    iceFields.push({ x: bullet.x, y: bullet.y, radius: 60, life: 3000, born: nowHit });
+                }
+
+                // 连环霜冻 Lv5 质变：命中后分裂为 2 颗小冰弹射向附近敌人（主弹首次命中触发，分裂弹不再级联）
+                if (isFirstHit && !bullet.isSplit && _fm.chainFrost) {
+                    spawnChainFrost(bullet.x, bullet.y, damage, zombie);
                 }
 
                 if (bullet.hitZombies.length >= bullet.piercing) {
@@ -3671,7 +3868,7 @@ function damageZombie(zombie, damage, isCrit, element) {
         text: Math.round(damage).toString(),
         life: 800,
         vy: -2.5,
-        color: isCrit ? '#ff3b3b' : (element === '火' ? '#ff7a1a' : (damage > player.damage ? '#ffff00' : '#ffffff')),
+        color: isCrit ? '#ff3b3b' : (element === '火' ? '#ff7a1a' : (element === '水' ? '#4ecfff' : (damage > player.damage ? '#ffff00' : '#ffffff'))),
         isCrit: isCrit
     });
     
@@ -4066,6 +4263,22 @@ function updateFields(dt) {
             }
         }
     }
+
+    // 极寒领域：持续减速/概率冻结领域内僵尸
+    for (let i = iceFields.length - 1; i >= 0; i--) {
+        const f = iceFields[i];
+        f.life -= dt;
+        if (f.life <= 0) { iceFields.splice(i, 1); continue; }
+        for (const z of zombies) {
+            if (Math.hypot(f.x - z.x, f.y - z.y) < f.radius + z.radius) {
+                z.slowUntil = Math.max(z.slowUntil || 0, now + 500);
+                z.slowFactor = getSlowFactor();
+                if (Math.random() < 0.05) {   // 每帧 5% 概率冻结
+                    z.frozenUntil = Math.max(z.frozenUntil || 0, now + getFreezeDuration());
+                }
+            }
+        }
+    }
 }
 
 // 更新粒子
@@ -4195,10 +4408,15 @@ function spawnZombies(dt) {
             
             const template = zombieTypes[type];
             const healthMult = (1 + gameTimeSec / 50) * stage.healthMult;
-            
+
+            // 僵尸五行属性：普通/快速随机五行；坦克/Boss 也有五行倾向（按波次随机），供克制/相生策略生效
+            const wuxingPool = ['金','木','水','火','土'];
+            const zElement = wuxingPool[Math.floor(Math.random() * wuxingPool.length)];
+
             zombies.push({
                 x: x,
                 y: y,
+                element: zElement,
                 radius: template.radius,
                 speed: template.speed * stage.speedMult,
                 health: template.health * healthMult,
@@ -4340,7 +4558,11 @@ function applyUpgrade(upgrade) {
         skills[upgrade.type].branches[upgrade.branch] = (skills[upgrade.type].branches[upgrade.branch] || 0) + 1;
         if (upgrade.type === 'damage') recomputeDamageMods();
         else if (upgrade.type === 'explosive') recomputeExplosiveMods();
+        else if (upgrade.type === 'freeze') recomputeFreezeMods();
     }
+
+    // 五行相生协同：获得/升级任何技能后重新计算
+    recomputeWuxingSynergy();
     
     // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
     const _def = SKILL_DEFS[upgrade.type];
@@ -4512,9 +4734,12 @@ function startGame() {
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
     for (const key of Object.keys(skills)) fireQualNodes(key);
-    // 火力强化 / 爆炸弹 分支派生修正：开局按已选分支重算（本局 branches 已清空，等价于纯基础）
+    // 属性树分支派生修正：开局按已选分支重算（本局 branches 已清空，等价于纯基础）
     recomputeDamageMods();
     recomputeExplosiveMods();
+    recomputeFreezeMods();
+    // 五行相生协同：开局按初始已拥有技能计算
+    recomputeWuxingSynergy();
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
@@ -4534,6 +4759,7 @@ function startGame() {
     mines = [];
     oilPatches = [];
     tornadoes = [];
+    iceFields = [];
     
     // 重置炸弹
     bombCount = 0;
