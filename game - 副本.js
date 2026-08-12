@@ -31,8 +31,11 @@ const SAFE_TOP_OFFSET = statusBarHeight + 10;
 // bossTime 单位秒（>该秒数后有 8% 概率刷 Boss），999=本章不出 Boss。
 const STAGES = [
     // 关1 新手教学：最低压力，纯练手熟悉操作与五行元素；几乎不出 Boss
+    // 难度机制重做(v1.1.0)：膨胀分母 hpGrow=150(旧50，90s仅1.6倍而非2.8倍)、刷怪下限 spawnFloor=650/收窄 spawnDecay=4(旧400/8)
+    // —— 仅改出怪机制维度，未动全局升级曲线，故 2~6 关行为完全不变；其余关未声明 hpGrow/spawnFloor/spawnDecay 即沿用旧默认
     { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡·教学', difficulty: 1, descColor: '#88cc88',
-      speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 0.9, bossTime: 240, tankChance: 0.10, fastChance: 0.15 },
+      speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 0.9, bossTime: 240, tankChance: 0.10, fastChance: 0.15,
+      hpGrow: 150, spawnFloor: 650, spawnDecay: 4 },
     // 关2 速度关：快速僵尸占比高，考验干冰弹(水)减速/控场与快速清场
     { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '速度+25%·快速僵尸多', difficulty: 2, descColor: '#88aacc',
       speedMult: 1.25, healthMult: 1.05, damageMult: 1.1, spawnMult: 1.05, bossTime: 150, tankChance: 0.12, fastChance: 0.45 },
@@ -4663,7 +4666,9 @@ function spawnZombies(dt) {
     
     if (spawnTimer >= spawnInterval / spawnMult) {
         spawnTimer = 0;
-        spawnInterval = Math.max(400, spawnInterval - 8);
+        // 刷怪间隔收窄：下限/收窄量交由 stage.spawnFloor / stage.spawnDecay 控制（默认 400/8 保持旧关兼容）；
+        // 第一关设宽松值，避免越往后越密导致玩家无限承压崩盘（详见 v1.1.0 难度机制重做）
+        spawnInterval = Math.max(stage.spawnFloor || 400, spawnInterval - (stage.spawnDecay || 8));
         
         for (let s = 0; s < spawnCount; s++) {
             const x = Math.random() * screenWidth;
@@ -4686,7 +4691,9 @@ function spawnZombies(dt) {
             }
             
             const template = zombieTypes[type];
-            const healthMult = (1 + gameTimeSec / 50) * stage.healthMult;
+            // 血量膨胀：分母交由 stage.hpGrow 控制（默认 50 保持旧关兼容）；第一关设为 150 使膨胀更平缓
+            // —— 旧硬编码 /50 是「撑不过 1 分半」主因：90s 即 2.8 倍、300s 达 7 倍，与玩家强弱无关（详见 v1.1.0）
+            const healthMult = (1 + gameTimeSec / (stage.hpGrow || 50)) * stage.healthMult;
 
             // 僵尸五行属性：普通/快速随机五行；坦克/Boss 也有五行倾向（按波次随机），供克制/相生策略生效
             const wuxingPool = ['金','木','水','火','土'];
