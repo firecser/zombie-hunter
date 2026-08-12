@@ -1032,9 +1032,13 @@ function freezeMods() {
 // ==================== 属性技能独立释放 CD（不受火力强化射速影响）====================
 // 每个「子弹类」属性技能（爆炸/干冰/闪电链）按自身 cd 独立释放子弹；
 // cd 初始较长，随技能等级与自身「疾速弹道」分支降低，完全不受火力强化 fireRate 影响。
-const ATTR_RELEASE_CD_BASE = 2600;   // 初始释放间隔(ms)，较长
-const ATTR_RELEASE_CD_MIN  = 700;    // 下限，避免过快
-const ATTR_RELEASE_CD_STEP = 130;    // 每级缩短(ms)
+// 各属性技能「独立释放 cd」配置：base=初始(最长)，min=下限(最短)，step=每级缩短(ms)
+// 按用户要求：最长可达 10 秒(干冰弹)，最短可到 3 秒(闪电链/爆炸弹)，各属性互不相同
+const ATTR_CD_CFG = {
+    explosive: { base: 6000,  min: 3000, step: 100 },   // 火：6s → 3s
+    freeze:    { base: 10000, min: 4000, step: 200 },   // 水：10s → 4s（最长）
+    lightning: { base: 4000,  min: 3000, step: 50 }     // 金：4s → 3s（最短）
+};
 // 子弹类属性技能列表：按自身 cd 释放，与基础武器（火力强化）完全独立
 const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
@@ -1050,12 +1054,13 @@ function attrModsForBullet(bullet) {
 }
 // 某属性技能的实时释放 cd（独立于火力强化；可被自身「疾速弹道」进一步降低）
 function getAttrReleaseCd(type) {
+    const cfg = ATTR_CD_CFG[type] || { base: 6000, min: 3000, step: 100 };
     const s = skills[type];
-    if (!s) return ATTR_RELEASE_CD_BASE;
-    let cd = ATTR_RELEASE_CD_BASE - (s.level || 0) * ATTR_RELEASE_CD_STEP;
+    if (!s) return cfg.base;
+    let cd = cfg.base - (s.level || 0) * cfg.step;
     const m = attrModsForType(type);
     if (m && m.speedMul && m.speedMul > 1) cd /= m.speedMul;   // 疾速弹道：speedMul=1.20^bl → 等效加速释放
-    return Math.max(ATTR_RELEASE_CD_MIN, cd);
+    return Math.max(cfg.min, cd);
 }
 
 function getFreezeChance() {
@@ -2785,6 +2790,12 @@ function getSkillCooldown(key) {
     if (key === 'mine') return { timer: updateFields._mineTimer || 0, interval: MINE_SPAWN_INTERVAL };
     if (key === 'oil') return { timer: updateFields._oilTimer || 0, interval: OIL_SPAWN_INTERVAL };
     if (key === 'tornado') return { timer: updateFields._tornadoCd || 0, interval: TORNADO_RELEASE_CD };
+    // 子弹类属性技能：按自身独立 cd（_lastFire 时间戳）算进度
+    if (ATTRIBUTE_BULLET_TYPES.indexOf(key) >= 0) {
+        const interval = getAttrReleaseCd(key);
+        const elapsed = Date.now() - ((skills[key] && skills[key]._lastFire) || 0);
+        return { timer: Math.min(elapsed, interval), interval: interval };
+    }
     return null;
 }
 

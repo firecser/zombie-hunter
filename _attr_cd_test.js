@@ -38,12 +38,13 @@ const skills = {
 
 // cd 常量（模块作用域，供注入的函数可见）+ 函数
 const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
-const ATTR_RELEASE_CD_BASE = 2600, ATTR_RELEASE_CD_MIN = 700, ATTR_RELEASE_CD_STEP = 130;
+const ATTR_CD_CFG = { explosive: { base: 6000, min: 3000, step: 100 }, freeze: { base: 10000, min: 4000, step: 200 }, lightning: { base: 4000, min: 3000, step: 50 } };
 eval(extractFn('explosiveMods'));
 eval(extractFn('freezeMods'));
 eval(extractFn('attrModsForType'));
 eval(extractFn('attrModsForBullet'));
 eval(extractFn('getAttrReleaseCd'));
+eval(extractFn('getSkillCooldown'));
 eval(extractFn('elementVisual'));
 const ELEMENT_VISUAL = { '物理': { size: 1 }, '火': { size: 1.2 }, '水': { size: 0.92 }, '金': { size: 1.05 }, '木': { size: 1 }, '土': { size: 1.14 } };
 eval(extractFn('recomputeExplosiveMods'));
@@ -54,25 +55,42 @@ eval(extractFn('shootAttribute'));
 let FAILED = false;
 function assert(cond, msg) { if (!cond) { console.log('  ✗ FAIL:', msg); FAILED = true; } else console.log('  ✓', msg); }
 
-console.log('== 1. 属性技能独立释放 cd ==');
+console.log('== 1. 各属性技能 cd 不同（最长10s / 最短3s）==');
 skills.explosive.level = 0;
-assert(getAttrReleaseCd('explosive') === 2600, 'Lv0 cd = 2600(初始较长)');
-skills.explosive.level = 5;
-assert(getAttrReleaseCd('explosive') === 1950, 'Lv5 cd = 2600 - 5*130 = 1950');
+assert(getAttrReleaseCd('explosive') === 6000, '爆炸弹 Lv0 = 6s（base）');
+skills.freeze.level = 0;
+assert(getAttrReleaseCd('freeze') === 10000, '干冰弹 Lv0 = 10s（最长）');
+skills.lightning.level = 0;
+assert(getAttrReleaseCd('lightning') === 4000, '闪电链 Lv0 = 4s');
+// 触底到各自下限
 skills.explosive.level = 99;
-assert(getAttrReleaseCd('explosive') === 700, 'Lv99 cd 触底到下限 700');
+assert(getAttrReleaseCd('explosive') === 3000, '爆炸弹 Lv99 触底 3s（最短之一）');
+skills.freeze.level = 99;
+assert(getAttrReleaseCd('freeze') === 4000, '干冰弹 Lv99 触底 4s');
+skills.lightning.level = 99;
+assert(getAttrReleaseCd('lightning') === 3000, '闪电链 Lv99 触底 3s（最短）');
 skills.explosive.level = 5;
 
 console.log('== 2. cd 不受火力强化 fireRate 影响 ==');
 skills.damage._mods.fireMul = 50;          // 火力强化把射速拉到极快
-assert(getAttrReleaseCd('explosive') === 1950, '火力强化 fireMul=50 时，爆炸弹 cd 仍为 1950（独立）');
+assert(getAttrReleaseCd('explosive') === 6000 - 5 * 100, '火力强化 fireMul=50 时，爆炸弹 cd 仍为 5500（独立）');
 skills.damage._mods.fireMul = 1;
 // 自身疾速弹道进一步降低 cd
 skills.explosive.branches = { highSpeed: 5 };
 recomputeExplosiveMods();
-assert(getAttrReleaseCd('explosive') < 1950, '自身疾速弹道 Lv5 后 cd 进一步降低(<1950)');
+assert(getAttrReleaseCd('explosive') < 5500, '自身疾速弹道 Lv5 后 cd 进一步降低(<5500)');
 skills.explosive.branches = {};
 recomputeExplosiveMods();
+
+console.log('== 2b. 技能图标 cd 遮罩进度（参考炸弹）==');
+skills.explosive._lastFire = Date.now() - 2000;   // 已过去 2s，interval=5500(Lv5)
+let cd = getSkillCooldown('explosive');
+assert(cd && cd.interval === 5500, 'getSkillCooldown 返回 interval=5500');
+assert(cd.timer === 2000, '已冷却 2s → timer=2000');
+assert(cd.interval - cd.timer === 3500, '剩余 3.5s 用于遮罩+倒计时');
+skills.explosive._lastFire = Date.now() - 99999;  // 早已冷却完
+cd = getSkillCooldown('explosive');
+assert(cd.timer === cd.interval, '冷却完成后 timer 封顶到 interval（不显示遮罩）');
 
 console.log('== 3. 基础武器 vs 属性子弹（skillType / element 解耦）==');
 bullets = [];
