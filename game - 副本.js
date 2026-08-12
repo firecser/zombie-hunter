@@ -905,7 +905,7 @@ const SKILL_DEFS = {
                                   effect(bl,m){ m.empStunChance += 0.06 * bl; m.empStunDuration += 100 * bl; } },
                     staticField:{ name:'静电场',   desc:'命中 20% 生成电伤领域/级（范围随等级扩大）', reqLevel:4, prereq:[], mutex:['emp'], maxLevel:5,
                                   effect(bl,m){ m.staticFieldChance += 0.20 * bl; m.staticFieldRadius = STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * bl; m.staticFieldLife = STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * bl; } },
-                    // Lv5 质变：超导依赖链式传导；雷霆一击依赖暴击分支
+                    // Lv5 质变：超导依赖「链式传导」分支；雷霆一击依赖「雷霆暴击」分支(key:crit) Lv1
                     superConductor:{ name:'超导', desc:'对冻结/减速目标弹射伤害 +30%/级，弹射次数 +1/级', reqLevel:5, prereq:['chainConduct'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.superConductorDmgMul += 0.30 * bl; m.superConductorCountBoost += bl; } },
                     thunderStrike:{ name:'雷霆一击', desc:'暴击时 50% 召唤落雷，造成 100% 伤害', reqLevel:5, prereq:['crit'], mutex:[], maxLevel:1,
