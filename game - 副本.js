@@ -1876,11 +1876,11 @@ function drawWall() {
     }
 }
 
-// 绘制城墙血条（比墙体略窄，位于城墙顶部上方，显示城墙 HP/Max）
+// 绘制城墙血条（比墙体略窄，位于城墙下方，绿色，只显示当前血量数字）
 function drawWallHealthBar() {
     const w = (WALL_X1 - WALL_X0) * 0.84;          // 比墙体略窄
     const x = (WALL_X0 + WALL_X1) / 2 - w / 2;
-    const y = WALL_Y - 26;
+    const y = WALL_Y + WALL_HEIGHT + 6;            // 移到城墙下方（怪物在城墙上方，不再遮挡）
     const h = 9;
 
     // 背板
@@ -1896,20 +1896,17 @@ function drawWallHealthBar() {
     ctx.fillStyle = 'rgba(40, 60, 80, 0.9)';
     ctx.fillRect(x, y, w, h);
 
-    // 填充（城墙蓝青，与干冰弹五行色一致）
+    // 填充（绿色）
     const pct = Math.max(0, Math.min(1, player.health / player.maxHealth));
-    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
-    grad.addColorStop(0, '#5fd0ff');
-    grad.addColorStop(1, '#37c6ff');
-    ctx.fillStyle = grad;
+    ctx.fillStyle = '#3fcf5b';
     ctx.fillRect(x, y, w * pct, h);
 
-    // 文案
+    // 文案：只显示当前血量数字
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 9px Arial';
+    ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('城墙 ' + Math.ceil(Math.max(0, player.health)) + '/' + player.maxHealth, x + w / 2, y + h / 2);
+    ctx.fillText(String(Math.max(0, Math.ceil(player.health))), x + w / 2, y + h / 2);
     ctx.textBaseline = 'alphabetic';
 }
 
@@ -2773,84 +2770,11 @@ function drawUI() {
     // 避开微信胶囊按钮区域（右上角约90像素宽度）
     drawTopRightButtons();
     
-    // ========== 底部血条（小车下方） ==========
-    drawPlayerHealthBar();
-    
     // ========== 技能栏（底部） ==========
     drawSkillUI();
     
     // ========== 炸弹按钮（右下角圆形） ==========
     drawBombButton();
-}
-
-// 绘制玩家血条（小车下方）
-function drawPlayerHealthBar() {
-    const barY = screenHeight - 65;
-    const barX = player.x - 45;
-    const barW = 90;
-    const barH = 8;
-
-    // 背景（暗底 + 金边）
-    ctx.fillStyle = 'rgba(8, 20, 36, 0.8)';
-    roundRect(ctx, barX - 4, barY - 2, barW + 8, barH + 10, 6);
-    ctx.fill();
-    ctx.strokeStyle = ROYALE.gold;
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, barX - 4, barY - 2, barW + 8, barH + 10, 6);
-    ctx.stroke();
-
-    // 心形图标
-    ctx.fillStyle = '#ff5a5f';
-    ctx.font = 'bold 10px Arial';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('❤', barX, barY + 2);
-    ctx.textBaseline = 'alphabetic';
-
-    // 血条背景
-    const healthBarX = barX + 14;
-    ctx.fillStyle = 'rgba(40, 60, 80, 0.9)';
-    ctx.fillRect(healthBarX, barY, barW - 35, 4);
-
-    // 血条填充（绿色，暗背景上清晰）
-    const healthPercent = player.health / player.maxHealth;
-    const healthGradient = ctx.createLinearGradient(healthBarX, 0, healthBarX + barW - 35, 0);
-    healthGradient.addColorStop(0, '#5dd47f');
-    healthGradient.addColorStop(1, '#34a35c');
-    ctx.fillStyle = healthGradient;
-    ctx.fillRect(healthBarX, barY, (barW - 35) * healthPercent, 4);
-
-    // 血量数字
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 9px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${Math.floor(player.health)}`, barX + barW - 12, barY + 5);
-
-    // 不朽之身：剩余复活次数（血条右侧紫色宝珠）
-    if (talentMods.immortalCharges > 0) {
-        const oX = Math.min(screenWidth - 28, barX + barW + 14);
-        const oY = barY + 3;
-        const pulse = 0.7 + Math.sin(Date.now() * 0.005) * 0.3;
-        ctx.save();
-        const og = ctx.createRadialGradient(oX, oY, 0, oX, oY, 8);
-        og.addColorStop(0, `rgba(230, 210, 255, ${pulse})`);
-        og.addColorStop(1, 'rgba(160, 107, 255, 0.15)');
-        ctx.fillStyle = og;
-        ctx.beginPath();
-        ctx.arc(oX, oY, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#c9a4ff';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(oX, oY, 6.5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 9px Arial';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`×${talentMods.immortalCharges}`, oX + 10, oY);
-        ctx.restore();
-    }
 }
 
 // 绘制炸弹按钮（圆形）
@@ -4026,6 +3950,29 @@ function drawUpgradeList() {
 
 // 射击
 // 基础武器（火力强化）：持续发射物理子弹，射速仅由火力强化决定，完全独立于属性技能
+// 计算某技能应瞄准的角度：打「离墙第 n 近」的可射击怪物。
+// n = 该技能在技能树中的解锁顺序（普通子弹占第 1 槽，之后按解锁先后递增）。
+// 离墙距离相同则进一步比较离坦克距离，取更近者。不足 n 个时取最靠后者兜底。
+function aimAngleForSlot(n) {
+    const shootable = [];
+    for (const z of zombies) {
+        if (!zombieShootable(z)) continue;
+        const wallDist = WALL_Y - z.y - z.radius;                 // 僵尸底边到城墙顶面的竖直间隙（钉墙时为 0，最优先）
+        const playerDist = Math.hypot(z.x - player.x, z.y - player.y);
+        shootable.push({ z, wallDist, playerDist });
+    }
+    if (shootable.length === 0) return null;
+    shootable.sort((a, b) => (a.wallDist - b.wallDist) || (a.playerDist - b.playerDist));
+    const target = shootable[Math.min(n - 1, shootable.length - 1)].z;
+    return Math.atan2(target.y - player.y, target.x - player.x);
+}
+
+// 技能槽序号：普通子弹(damage)=1，其余按技能树解锁顺序递增（acquiredSkills 即解锁顺序数组）
+function skillSlotOf(type) {
+    const idx = acquiredSkills.indexOf(type);
+    return idx < 0 ? 1 : idx + 1;
+}
+
 function shootBase() {
     if (zombies.length === 0) return;
 
@@ -4059,7 +4006,8 @@ function shootAttribute(type) {
     // 播放射击音效
     AudioSystem.playShoot();
 
-    const baseAngle = player.gunAngle;
+    // 五行子弹各自按技能槽序号瞄准「离墙第 n 近」的怪（不再共用坦克炮管朝向）
+    const baseAngle = aimAngleForSlot(skillSlotOf(type)) || player.gunAngle;
     const gunLength = 40;
     const def = SKILL_DEFS[type];
     const m = attrModsForType(type) || {};
@@ -5507,27 +5455,11 @@ function update(dt) {
         return;
     }
     
-    // 机枪跟踪（仅锁定可被坦克射击的怪物：已进入屏幕且下降到开火线以下）
-    // 优先打「离墙最近」的怪（保护城墙），离墙距离相同再选离坦克最近的
+    // 机枪跟踪（普通子弹占第 1 槽，瞄准「离墙最近」的可射击怪；属性子弹各自按技能槽序号独立瞄准，见 shootAttribute / aimAngleForSlot）。
+    // 这里只负责坦克炮管朝向（普通子弹目标 = 离墙第 1 近）。
     if (zombies.length > 0) {
-        let nearest = null;
-        let bestWallDist = Infinity;
-        let bestPlayerDist = Infinity;
-        for (const z of zombies) {
-            if (!zombieShootable(z)) continue;
-            // 离墙距离：僵尸底边到城墙顶面的竖直间隙（钉在墙顶时为 0，最优先）
-            const wallDist = WALL_Y - z.y - z.radius;
-            const playerDist = Math.hypot(z.x - player.x, z.y - player.y);
-            // 主排序：离墙更近优先；并列（含已钉墙的 0）时离坦克更近优先
-            if (wallDist < bestWallDist || (wallDist === bestWallDist && playerDist < bestPlayerDist)) {
-                bestWallDist = wallDist;
-                bestPlayerDist = playerDist;
-                nearest = z;
-            }
-        }
-        if (nearest) {
-            player.gunAngle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
-        }
+        const a = aimAngleForSlot(1);
+        if (a !== null) player.gunAngle = a;
     }
     
     // 自动射击（基础武器：火力强化，物理子弹，射速仅由火力强化决定，独立于属性技能）
@@ -12642,6 +12574,7 @@ function gameLoop() {
         
         drawBackground();
         drawOrbs();
+        drawWall();               // 城墙（先画，置于子弹下层；子弹绘制于城墙之上）
         drawBullets();
         drawParticles();
         drawHitEffects();
@@ -12656,8 +12589,7 @@ function gameLoop() {
         }
 
         drawPlayer();
-        drawWall();               // 城墙（遮挡坦克）
-        drawWallHealthBar();      // 城墙血条（比墙体略窄）
+        drawWallHealthBar();      // 城墙血条（比墙体略窄，位于城墙下方）
         drawDamageNumbers();
         drawUI();
 
