@@ -73,6 +73,17 @@ function getFieldTexture(type, radius) {
 //   距屏幕底部 3/4 → y = screenHeight − 0.75·screenHeight = 0.25·screenHeight（即屏幕顶部 1/4 以下才可被射击）
 const TANK_FIRE_LINE_Y = screenHeight * 0.25;
 
+// 城墙（阻挡敌人下落）：位于背景地平线处，横跨全屏；墙体承受原坦克的伤害，
+// 敌人只攻击城墙、不再攻击坦克。
+const WALL_Y = screenHeight * 0.82;   // 与背景 horizon groundY 一致（地平线处），刚好挡住坦克
+const WALL_HEIGHT = 40;               // 墙体厚度（自地平线向下延伸）
+const WALL_X0 = 0;
+const WALL_X1 = screenWidth;          // 横跨全屏，完全阻拦
+// 城墙玩法平衡：① 僵尸不再每帧啃墙，而是按间隔「啄」一次（大幅降低攻击频率，旧模型有 8px 击退等效 ~每 8/sp 帧一次）
+const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
+// ② 城墙基础血量大幅提高（替代原坦克 100），以承受竖直下落的持续堆积
+const WALL_MAX_HEALTH = 600;          // 城墙基础血量（原坦克 100 的 6 倍）
+
 // 获取微信状态栏高度（安全区域）
 let statusBarHeight = 20;
 try {
@@ -930,8 +941,8 @@ const player = {
     x: screenWidth / 2,
     y: screenHeight - 80,
     radius: 22,
-    maxHealth: 100,
-    health: 100,
+    maxHealth: WALL_MAX_HEALTH,
+    health: WALL_MAX_HEALTH,
     exp: 0,
     level: 1,
     expToLevel: 50,
@@ -1687,7 +1698,8 @@ function drawPlayer() {
     const y = player.y;
     const r = player.radius;
     const now = Date.now();
-    const hurtFlash = now - player.hurtTime < 100;
+    // 受击泛红已移至城墙（drawWall），坦克本体保持钢蓝（城墙玩法下坦克被墙遮挡）
+    const hurtFlash = false;
 
     // 阴影
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
@@ -1805,6 +1817,100 @@ function drawInvincibleShield(x, y, r, now) {
     ctx.textBaseline = 'middle';
     ctx.fillText(`🔮 无敌 ${Math.ceil(remain / 1000)}s`, x, y - R - 10);
     ctx.restore();
+}
+
+// 绘制城墙（石砖城墙 + 城垛）：位于背景地平线处，阻挡敌人下落；墙体泛红表示受击
+function drawWall() {
+    const now = Date.now();
+    const hurtFlash = now - player.hurtTime < 120;   // 墙体受击泛红（坦克不再泛红）
+    const topY = WALL_Y;
+    const h = WALL_HEIGHT;
+    const x0 = WALL_X0, x1 = WALL_X1;
+    const w = x1 - x0;
+
+    // 墙体底色（石青灰；受击泛红）
+    const baseTop = hurtFlash ? '#7a3b3b' : '#5b6b7a';
+    const baseBot = hurtFlash ? '#552020' : '#3c4856';
+    const g = ctx.createLinearGradient(0, topY, 0, topY + h);
+    g.addColorStop(0, baseTop);
+    g.addColorStop(1, baseBot);
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, topY, w, h);
+
+    // 砖缝（横向层）
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+    ctx.lineWidth = 1;
+    const brickH = 10;
+    for (let by = topY + brickH; by < topY + h; by += brickH) {
+        ctx.beginPath(); ctx.moveTo(x0, by); ctx.lineTo(x1, by); ctx.stroke();
+    }
+    // 砖缝（错位竖线，棋盘式）
+    const brickW = 28;
+    for (let bx = 0; bx < w; bx += brickW) {
+        for (let row = 0; row * brickH < h; row++) {
+            const yy = topY + row * brickH;
+            const xx = bx + (row % 2 ? brickW / 2 : 0);
+            if (xx < x1) {
+                ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + brickH); ctx.stroke();
+            }
+        }
+    }
+
+    // 城垛（顶部锯齿）
+    ctx.fillStyle = baseTop;
+    const merlonW = 26, gap = 18;
+    for (let mx = x0; mx < x1; mx += merlonW + gap) {
+        const mw = Math.min(merlonW, x1 - mx);
+        ctx.fillRect(mx, topY - 12, mw, 12);
+    }
+
+    // 顶部高光
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(x0, topY, w, 2);
+
+    // 受击高亮描边
+    if (hurtFlash) {
+        ctx.strokeStyle = 'rgba(255,80,80,0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x0, topY - 12, w, h + 12);
+    }
+}
+
+// 绘制城墙血条（比墙体略窄，位于城墙顶部上方，显示城墙 HP/Max）
+function drawWallHealthBar() {
+    const w = (WALL_X1 - WALL_X0) * 0.84;          // 比墙体略窄
+    const x = (WALL_X0 + WALL_X1) / 2 - w / 2;
+    const y = WALL_Y - 26;
+    const h = 9;
+
+    // 背板
+    ctx.fillStyle = 'rgba(8, 20, 36, 0.82)';
+    roundRect(ctx, x - 3, y - 2, w + 6, h + 8, 6);
+    ctx.fill();
+    ctx.strokeStyle = ROYALE.gold;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x - 3, y - 2, w + 6, h + 8, 6);
+    ctx.stroke();
+
+    // 底槽
+    ctx.fillStyle = 'rgba(40, 60, 80, 0.9)';
+    ctx.fillRect(x, y, w, h);
+
+    // 填充（城墙蓝青，与干冰弹五行色一致）
+    const pct = Math.max(0, Math.min(1, player.health / player.maxHealth));
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, '#5fd0ff');
+    grad.addColorStop(1, '#37c6ff');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w * pct, h);
+
+    // 文案
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('城墙 ' + Math.ceil(Math.max(0, player.health)) + '/' + player.maxHealth, x + w / 2, y + h / 2);
+    ctx.textBaseline = 'alphabetic';
 }
 
 // 绘制僵尸（冰雪风格）
@@ -4547,19 +4653,20 @@ function updateZombies(dt) {
             // 冰冻残留减速（freeze Lv3 质变）：冰冻刚结束的僵尸继续缓慢移动
             if (zombie._residualSlowUntil && zombie._residualSlowUntil > now) sp *= 0.6;
         }
-        const angle = Math.atan2(player.y - zombie.y, player.x - zombie.x);
-        zombie.x += Math.cos(angle) * sp;
-        zombie.y += Math.sin(angle) * sp;
+        // 竖直向下坠落（城墙玩法：敌人不再朝坦克 homing，改为竖直下落）
+        zombie.y += sp;
 
-        const dist = Math.hypot(player.x - zombie.x, player.y - zombie.y);
-        if (dist < player.radius + zombie.radius) {
-            // 击退（无敌期同样生效，避免僵尸糊在车上）
-            const pushAngle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
-            zombie.x += Math.cos(pushAngle) * 8;
-            zombie.y += Math.sin(pushAngle) * 8;
+        // 撞墙判定：僵尸触到城墙顶面即钉在墙顶、持续攻击城墙（城墙即坦克生命）
+        if (zombie.y + zombie.radius >= WALL_Y) {
+            // 钉在墙顶（紧贴，避免穿透）
+            zombie.y = WALL_Y - zombie.radius;
 
             // 不朽之身无敌期：完全免伤
             if (now < invincibleUntil) continue;
+
+            // 攻击间隔门控：每个僵尸按 WALL_ATTACK_INTERVAL 啄墙一次（大幅降低攻击频率，旧模型靠 8px 击退等效限速）
+            if (now < (zombie._wallHitAt || 0) + WALL_ATTACK_INTERVAL) continue;
+            zombie._wallHitAt = now;
 
             let damage = zombie.damage;
 
@@ -4581,12 +4688,13 @@ function updateZombies(dt) {
                     talentMods.immortalCharges--;
                     player.health = player.maxHealth * 0.5;
                     invincibleUntil = now + IMMORTAL_INVINCIBLE_TIME;
-                    hitEffects.push({ x: player.x, y: player.y, type: 'revive', life: 700, maxLife: 700, rot: 0 });
+                    const _wx = (WALL_X0 + WALL_X1) / 2, _wy = WALL_Y;
+                    hitEffects.push({ x: _wx, y: _wy, type: 'revive', life: 700, maxLife: 700, rot: 0 });
                     for (let i = 0; i < 26; i++) {
                         const a = Math.random() * Math.PI * 2;
                         const sp = 3 + Math.random() * 6;
                         addParticle({
-                            x: player.x, y: player.y,
+                            x: _wx, y: _wy,
                             vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
                             radius: Math.random() * 5 + 3, life: 620,
                             color: i % 2 ? '#a06bff' : '#e6d2ff'
@@ -5176,11 +5284,11 @@ function startGame() {
     // 保存进入关卡前的金币（用于胜利后累积）
     goldAtStageStart = player.gold;
     
-    // 重置玩家
+    // 重置玩家（城墙血量即玩家血量）
     player.x = screenWidth / 2;
     player.y = screenHeight - 80;
-    player.health = 100;
-    player.maxHealth = 100;
+    player.health = WALL_MAX_HEALTH;
+    player.maxHealth = WALL_MAX_HEALTH;
     player.exp = 0;
     player.level = 1;
     player.expToLevel = EXP_BASE;   // cost(1→2) = EXP_BASE*1 = EXP_BASE
@@ -5400,14 +5508,20 @@ function update(dt) {
     }
     
     // 机枪跟踪（仅锁定可被坦克射击的怪物：已进入屏幕且下降到开火线以下）
+    // 优先打「离墙最近」的怪（保护城墙），离墙距离相同再选离坦克最近的
     if (zombies.length > 0) {
         let nearest = null;
-        let minDist = Infinity;
+        let bestWallDist = Infinity;
+        let bestPlayerDist = Infinity;
         for (const z of zombies) {
             if (!zombieShootable(z)) continue;
-            const d = Math.hypot(z.x - player.x, z.y - player.y);
-            if (d < minDist) {
-                minDist = d;
+            // 离墙距离：僵尸底边到城墙顶面的竖直间隙（钉在墙顶时为 0，最优先）
+            const wallDist = WALL_Y - z.y - z.radius;
+            const playerDist = Math.hypot(z.x - player.x, z.y - player.y);
+            // 主排序：离墙更近优先；并列（含已钉墙的 0）时离坦克更近优先
+            if (wallDist < bestWallDist || (wallDist === bestWallDist && playerDist < bestPlayerDist)) {
+                bestWallDist = wallDist;
+                bestPlayerDist = playerDist;
                 nearest = z;
             }
         }
@@ -5426,13 +5540,14 @@ function update(dt) {
     }
 
     // 属性技能：各自独立 cd 释放（完全不受火力强化射速影响；cd 随等级与自身「疾速弹道」降低）
+    // 关键：仅当确有可射击目标、子弹真正射出时才重置 _lastFire，否则 CD 不转（避免无目标时空转冷却环）
     for (const type of ATTRIBUTE_BULLET_TYPES) {
         const s = skills[type];
         if (!s || s.level <= 0) continue;
         if (s._lastFire === undefined) s._lastFire = 0;
-        if (now - s._lastFire >= getAttrReleaseCd(type)) {
+        if (hasShootable && now - s._lastFire >= getAttrReleaseCd(type)) {
             s._lastFire = now;
-            if (zombies.some(zombieShootable)) shootAttribute(type);
+            shootAttribute(type);
         }
     }
 
@@ -12541,6 +12656,8 @@ function gameLoop() {
         }
 
         drawPlayer();
+        drawWall();               // 城墙（遮挡坦克）
+        drawWallHealthBar();      // 城墙血条（比墙体略窄）
         drawDamageNumbers();
         drawUI();
 
@@ -12559,6 +12676,8 @@ function gameLoop() {
             drawZombie(zombie, drawNow2);
         }
         drawPlayer();
+        drawWall();
+        drawWallHealthBar();
         drawFields();
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
@@ -12568,6 +12687,8 @@ function gameLoop() {
             drawZombie(zombie, drawNow3);
         }
         drawPlayer();
+        drawWall();
+        drawWallHealthBar();
         drawGameOver();
     } else if (gameState === 'victory') {
         drawBackground();
