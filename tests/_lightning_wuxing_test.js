@@ -39,10 +39,11 @@ const player = { x: 400, y: 300, damage: 100, radius: 20, bulletSpeed: 10, bulle
 const zombies = [];
 const bullets = [];
 const skills = {};
-const acquiredSkills = ['damage'];
+let acquiredSkills = ['damage'];
 const updateFields = {};
 const talentMods = { critChance: 0, critDamageMult: 2, critLevel: 0, freezeChance: 0, freezeLevel: 0, slowChance: 0, slowLevel: 0, shieldLevel: 0, explosiveLevel: 0, lightningLevel: 0, freezeSkillLevel: 0, damageSkillLevel: 0, explosiveSkillLevel: 0, multishotLevel: 0, piercingLevel: 0, bulletLevel: 0, speedLevel: 0, bombMaxBonus: 0 };
 let wuxingSynergy = {};
+let wuxingSynergyMult = 1;
 const particles = [], damageNumbers = [], expOrbs = [], goldOrbs = [], hitEffects = [];
 const iceFields = [], electricFields = [], lightningEffects = [];
 const BURN_DURATION = 1500;
@@ -53,7 +54,7 @@ const SKILL_DEFS = eval(extractConst('SKILL_DEFS'));
 const WUXING_ELEMENT = eval(extractConst('WUXING_ELEMENT'));
 const WUXING_OVERCOME = eval(extractConst('WUXING_OVERCOME'));
 const WUXING_GENERATE = eval(extractConst('WUXING_GENERATE'));
-const WUXING_OVERCOME_BONUS = 0.30, WUXING_GENERATE_BONUS = 0.15;
+const WUXING_OVERCOME_BONUS = 0.30, WUXING_GENERATE_BONUS = 0.20, WUXING_SPREAD_PENALTY = 0.25;
 
 // 注入标量常量（静电场领域参数，随源文件同步）
 function extractScalar(name) {
@@ -155,14 +156,20 @@ console.log('== 4. 金元素克制/相生伤害加成 ==');
 const zMetal = { element: '金', x: 0, y: 0, health: 100, maxHealth: 100, radius: 10, speed: 1, type: 'normal' };
 const zWood = { element: '木', x: 0, y: 0, health: 100, maxHealth: 100, radius: 10, speed: 1, type: 'normal' };
 const zFire = { element: '火', x: 0, y: 0, health: 100, maxHealth: 100, radius: 10, speed: 1, type: 'normal' };
+wuxingSynergyMult = 1;  // 本节仅验证克制（无相生）
 // 金克木
 assert(getElementBonus(zWood, '金') === 1 + WUXING_OVERCOME_BONUS, '金克木：金伤对木 +30%');
 // 火克金
 assert(getElementBonus(zMetal, '金') === 1, '金打金：无克制加成');
 assert(getElementBonus(zMetal, '火') === 1 + WUXING_OVERCOME_BONUS, '火克金：火伤对金 +30%');
-// 土生金：持有土+金时，金伤 +15%
+// 相生峰值校验：金+水（金生水）应为 ×1.20，4 树应为 ×1.10
+acquiredSkills = ['lightning', 'freeze'];
 recomputeWuxingSynergy();
-assert(getElementBonus(zMetal, '金') === 1, '未激活土生金时金伤无加成');
+assert(Math.abs(wuxingSynergyMult - 1.20) < 1e-9, '金+水(金生水) → ×1.20');
+acquiredSkills = ['explosive', 'lightning', 'freeze', 'tornado'];
+recomputeWuxingSynergy();
+assert(Math.abs(wuxingSynergyMult - (1 + 0.20*3 - 0.25*2)) < 1e-9, '4 树 → ×1.10（最弱）');
+wuxingSynergyMult = 1;
 
 console.log(FAILED ? '\nLIGHTNING_WUXING_TEST 失败 ❌' : '\nLIGHTNING_WUXING_TEST 全部通过 ✅');
 process.exit(FAILED ? 1 : 0);

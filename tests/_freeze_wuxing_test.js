@@ -39,7 +39,8 @@ const WUXING_OVERCOME = eval(extractConst('WUXING_OVERCOME'));
 const WUXING_GENERATE = eval(extractConst('WUXING_GENERATE'));
 // 标量常量：extractConst 按对象花括号提取，不适用于标量，这里直接用源码值
 const WUXING_OVERCOME_BONUS = 0.30;
-const WUXING_GENERATE_BONUS = 0.15;
+const WUXING_GENERATE_BONUS = 0.20;
+const WUXING_SPREAD_PENALTY = 0.25;
 
 eval(extractFn('getElementBonus'));
 eval(extractFn('recomputeWuxingSynergy'));
@@ -51,6 +52,7 @@ eval(extractFn('freezeMods'));
 eval(extractFn('recomputeFreezeMods'));
 eval(extractFn('getFreezeChance'));
 eval(extractFn('getFreezeDuration'));
+eval(extractFn('getAoeFreezeChance'));
 eval(extractFn('getSlowChance'));
 eval(extractFn('getSlowFactor'));
 
@@ -66,6 +68,7 @@ let skills = {};
 for (const k in SKILL_DEFS) skills[k] = { level:0, name:SKILL_DEFS[k].name, icon:SKILL_DEFS[k].icon, desc:SKILL_DEFS[k].desc, element:SKILL_DEFS[k].element, category:SKILL_DEFS[k].category, maxLevel:SKILL_DEFS[k].maxLevel, branches:{}, qualified:{} };
 let acquiredSkills = [];
 let wuxingSynergy = {};
+let wuxingSynergyMult = 1;
 const talentMods = { freezeChance:0, freezeLevel:0, slowChance:0, slowLevel:0, critChance:0, critDamageMult:2 };
 const STATUS_ELEMENT_BONUS = { frozen:{}, slow:{}, burning:{} };
 const player = { damage:10, fireRate:500, bulletSpeed:10, exp:0, expToLevel:100, level:1, bulletCount:1, bulletPiercing:1 };
@@ -82,31 +85,34 @@ assert(WUXING_ELEMENT['风'] === '木', '风 映射为 木');
 assert(WUXING_OVERCOME['火'] === '金', '火克金');
 assert(WUXING_OVERCOME['水'] === '火', '水克火');
 
-console.log('== 2. getElementBonus：克制与相生 ==');
+console.log('== 2. getElementBonus：克制 × 相生全局倍率 ==');
 const zGold = { element:'金' };
 const zFire = { element:'火' };
-assert(Math.abs(getElementBonus(zGold, '火') - 1.30) < 1e-9, '火攻击金目标：克制+30%');
-assert(Math.abs(getElementBonus(zFire, '水') - 1.30) < 1e-9, '水攻击火目标：克制+30%');
-assert(Math.abs(getElementBonus(zGold, '水') - 1.0) < 1e-9, '水攻击金目标：无克制');
-// 相生：全局 wuxingSynergy[被生元素]=true 时该元素伤害+15%
-// 火生土 → 土属性伤害获得+15%；火本身攻击不因此获得加成
-wuxingSynergy = { '土': true };
-assert(Math.abs(getElementBonus(zGold, '火') - 1.30) < 1e-9, '火攻击金：只有克制30%，火生土加成给土不是给火');
-const zEarth = { element: '土' };
-assert(Math.abs(getElementBonus(zEarth, '土') - 1.15) < 1e-9, '土属性攻击：火生土协同给土+15%');
-wuxingSynergy = {};
+wuxingSynergyMult = 1;  // 无相生
+assert(Math.abs(getElementBonus(zGold, '火') - 1.30) < 1e-9, '火攻击金：克制+30%（无相生=×1）');
+assert(Math.abs(getElementBonus(zFire, '水') - 1.30) < 1e-9, '水攻击火：克制+30%');
+assert(Math.abs(getElementBonus(zGold, '水') - 1.0) < 1e-9, '水攻击金：无克制也无相生=×1');
+wuxingSynergyMult = 1.20;  // 2 棵相生树
+assert(Math.abs(getElementBonus(zGold, '火') - 1.30*1.20) < 1e-9, '火攻击金：克制30% × 相生1.20');
+wuxingSynergyMult = 1;
 
-console.log('== 3. recomputeWuxingSynergy：同时持有相生技能才激活 ==');
-acquiredSkills = ['explosive'];
+console.log('== 3. recomputeWuxingSynergy：相生全局倍率（峰值在恰好 2 棵相生树）==');
+acquiredSkills = ['explosive']; // 火 单树
 recomputeWuxingSynergy();
-assert(!wuxingSynergy['土'], '只有火：未激活火生土');
-acquiredSkills = ['explosive', 'freeze']; // 火 + 水：非相生也非相克（无协同）
+assert(Math.abs(wuxingSynergyMult - 1.00) < 1e-9, '单树(火)：无相生 → ×1.00');
+acquiredSkills = ['explosive', 'freeze']; // 火 + 水：非相生（水克火，无相生）
 recomputeWuxingSynergy();
-assert(!wuxingSynergy['水'] && !wuxingSynergy['火'], '火+水：无相生协同');
-acquiredSkills = ['explosive', 'tornado']; // 火(生土) + 风→木；木生火 → 火被生
+assert(Math.abs(wuxingSynergyMult - 1.00) < 1e-9, '火+水(非相生) → ×1.00');
+acquiredSkills = ['explosive', 'tornado']; // 火 + 木：木生火 → 1 对相生
 recomputeWuxingSynergy();
-assert(wuxingSynergy['火'] === true, '木(风)+火 同时存在：木生火 → 火协同激活');
-assert(!wuxingSynergy['土'], '木+火：火生土不激活（缺土）');
+assert(Math.abs(wuxingSynergyMult - 1.20) < 1e-9, '火+木(木生火) → ×1.20（2树相生峰值）');
+assert(wuxingSynergy['火'] === true, '木(风)+火：木生火 → 火协同标记激活');
+acquiredSkills = ['freeze', 'tornado']; // 水 + 木：水生木 → 1 对相生
+recomputeWuxingSynergy();
+assert(Math.abs(wuxingSynergyMult - 1.20) < 1e-9, '水+木(水生木) → ×1.20');
+acquiredSkills = ['explosive', 'freeze', 'tornado']; // 3 树：水生木 + 木生火 = 2 对，超 2 树衰减
+recomputeWuxingSynergy();
+assert(Math.abs(wuxingSynergyMult - (1 + 0.20*2 - 0.25)) < 1e-9, '3 树(2 对相生) → ×1.15（超 2 树衰减）');
 
 console.log('== 4. getBulletElement：主属性元素随最高属性树变化 ==');
 skills.explosive.level = 3; skills.freeze.level = 0;
@@ -119,15 +125,22 @@ skills.explosive.level = 0; skills.freeze.level = 0;
 assert(getBulletElement() === '物理', '无属性树：物理');
 
 console.log('== 5. recomputeFreezeMods：水属性树派生修正 ==');
-skills.freeze.branches = { flashFreeze: 3 };
+skills.freeze.branches = { glacier: 3 };
 recomputeFreezeMods();
-assert(Math.abs(skills.freeze._mods.freezeChanceBoost - 0.24) < 1e-6, '急冻 Lv3 冻结概率+24%');
+assert(Math.abs(skills.freeze._mods.freezeChanceBoost - 0.24) < 1e-6, '冰川 Lv3 范围冻结概率+24%');
 skills.freeze.branches = { deepFreeze: 5 };
 recomputeFreezeMods();
 assert(Math.abs(skills.freeze._mods.freezeDurationBoost - 1.0) < 1e-6, '深寒 Lv5 冻结时长+100%');
 skills.freeze.branches = { frostBite: 5 };
 recomputeFreezeMods();
 assert(Math.abs(skills.freeze._mods.slowFactorBoost - 0.25) < 1e-6, '霜寒 Lv5 减速幅度+25%');
+skills.freeze.branches = { frostNova: 4 };
+recomputeFreezeMods();
+assert(Math.abs(skills.freeze._mods.frostNovaDmgMul - Math.pow(1.25, 4)) < 1e-6, '冰霜新星 Lv4 爆炸伤害×(1.25^4)');
+assert(Math.abs(skills.freeze._mods.frostNovaFreezeChance - 0.15 * 4) < 1e-6, '冰霜新星 Lv4 范围概率冻结+60%（每级+15%，非必定）');
+skills.freeze.branches = { glacialDoom: 5 };
+recomputeFreezeMods();
+assert(skills.freeze._mods.glacialDoomBonus === 5, '绝对零度 Lv5 冰封处决 +5(3%×5 最大生命)');
 skills.freeze.branches = { crit: 5 };
 recomputeFreezeMods();
 assert(skills.freeze._mods.iceBurst === true, '冰霜暴击 Lv5 质变 iceBurst');
@@ -136,13 +149,15 @@ skills.freeze.branches = { pierce: 5 };
 recomputeFreezeMods();
 assert(skills.freeze._mods.iceSpike === true, '寒冰穿透 Lv5 质变 iceSpike');
 
-console.log('== 6. getFreezeChance/Duration/SlowFactor：读水树 _mods ==');
+console.log('== 6. getFreezeChance/Duration/SlowFactor/AoE：读水树 _mods ==');
 talentMods.freezeChance = 0.05; talentMods.freezeLevel = 2;
 talentMods.slowLevel = 1;
 skills.freeze.level = 4;
-skills.freeze.branches = { flashFreeze: 2, deepFreeze: 1 };
+skills.freeze.branches = { glacier: 2, deepFreeze: 1 };
 recomputeFreezeMods();
-assert(Math.abs(getFreezeChance() - (0.05 + 4*0.06 + 0.16)) < 1e-6, '冻结概率 = 天赋+等级+急冻分支');
+assert(Math.abs(getFreezeChance() - 1.0) < 1e-9, 'getFreezeChance 预留返回1.0（基础冻结已下放冰霜新星分支）');
+assert(Math.abs(getSlowChance() - 1.0) < 1e-9, '干冰弹主目标必定减速（软控保留）');
+assert(Math.abs(getAoeFreezeChance() - 0.16) < 1e-6, '范围冻结概率 = 冰川分支+8%/级（基础0，冻结下放分支）');
 assert(getFreezeDuration() > 1000, '深寒 Lv1 提升冻结时长');
 assert(Math.abs(getSlowFactor() - (0.7 - 0.01 - 0)) < 1e-6, '减速系数读天赋，无霜寒时不变');
 skills.freeze.branches = { frostBite: 5 };
@@ -155,7 +170,7 @@ skills.freeze.branches = { multiShot: 3, crit: 2 };
 recomputeExplosiveMods(); // 注入 _mods
 recomputeFreezeMods();
 const am = attributeMods();
-assert(am.bulletCountBoost === 5, '火树子弹+2 与 水树子弹+3 叠加 = 5');
+assert(am.bulletCountBoost === 5, '火树子弹+2(多重Lv2) 与 水树子弹+3(多重Lv3) 叠加 = 5');
 assert(Math.abs(am.critChanceBoost - 0.15) < 1e-6, '火树暴击+5% 与 水树暴击+10% 叠加 = 15%');
 assert(Math.abs(am.speedMul - 1) < 1e-6, '无 highSpeed 时 speedMul=1');
 

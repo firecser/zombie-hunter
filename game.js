@@ -7,6 +7,71 @@ const canvas = wx.createCanvas();
 const ctx = canvas.getContext('2d');
 const screenWidth = canvas.width;
 const screenHeight = canvas.height;
+// 领域光晕纹理缓存：为每个 (类型, 半径) 组合创建一次离屏 Canvas，之后 drawImage 复用，
+// 避免每帧每个领域都调用 createRadialGradient/arc/fill（Canvas 2D 在微信小游戏上的主要瓶颈）。
+const _fieldTextureCache = {};  // key: 'ice:R' / 'elec:R' → offscreen canvas
+// 跨环境创建离屏 Canvas：优先 wx.createOffscreenCanvas，其次 wx.createCanvas()（小程序游戏后续调用返回离屏画布），
+// 再退到浏览器 document.createElement('canvas')。避免某些基础库/开发者工具环境没有 createOffscreenCanvas 而直接抛错。
+function createOffscreenCanvasSafe() {
+    try {
+        if (typeof wx !== 'undefined') {
+            if (typeof wx.createOffscreenCanvas === 'function') {
+                return wx.createOffscreenCanvas({ type: '2d' });
+            }
+            if (typeof wx.createCanvas === 'function') {
+                return wx.createCanvas();
+            }
+        }
+    } catch (e) { /* 忽略并尝试下方回退 */ }
+    if (typeof document !== 'undefined' && document.createElement) {
+        return document.createElement('canvas');
+    }
+    return null;
+}
+function getFieldTexture(type, radius) {
+    const key = type + ':' + radius;
+    if (_fieldTextureCache[key]) return _fieldTextureCache[key];
+    const size = Math.ceil(radius * 2);
+    const oc = createOffscreenCanvasSafe();
+    if (!oc) return null;
+    oc.width = size; oc.height = size;
+    const octx = oc.getContext('2d');
+    const cx = radius, cy = radius;
+    const grad = octx.createRadialGradient(cx, cy, radius * 0.4, cx, cy, radius);
+    if (type === 'ice') {
+        grad.addColorStop(0, 'rgba(55,198,255,0.30)');
+        grad.addColorStop(0.6, 'rgba(55,198,255,0.15)');
+        grad.addColorStop(1, 'rgba(55,198,255,0)');
+        octx.fillStyle = grad;
+        octx.beginPath(); octx.arc(cx, cy, radius, 0, Math.PI * 2); octx.fill();
+        // 内圈冰晶（静态纹理）
+        octx.strokeStyle = 'rgba(220,245,255,0.40)';
+        octx.lineWidth = 2;
+        octx.beginPath(); octx.arc(cx, cy, radius * 0.45, 0, Math.PI * 2); octx.stroke();
+    } else {
+        grad.addColorStop(0, 'rgba(255,230,120,0.24)');
+        grad.addColorStop(0.6, 'rgba(255,210,80,0.11)');
+        grad.addColorStop(1, 'rgba(255,210,80,0)');
+        octx.fillStyle = grad;
+        octx.beginPath(); octx.arc(cx, cy, radius, 0, Math.PI * 2); octx.fill();
+        // 电弧简化为静态内圈星芒（6 条短线）
+        octx.strokeStyle = 'rgba(255,245,180,0.50)';
+        octx.lineWidth = 1.5;
+        octx.beginPath();
+        for (let k = 0; k < 6; k++) {
+            const a0 = k * Math.PI / 3;
+            octx.moveTo(cx + Math.cos(a0) * radius * 0.25, cy + Math.sin(a0) * radius * 0.25);
+            octx.lineTo(cx + Math.cos(a0 + 0.4) * radius * 0.55, cy + Math.sin(a0 + 0.4) * radius * 0.55);
+        }
+        octx.stroke();
+    }
+    _fieldTextureCache[key] = oc;
+    return oc;
+}
+
+// 坦克开火线（用户要求）：怪物需下降到「距屏幕底部 3/4 屏幕高度」处，坦克才能锁定射击。
+//   距屏幕底部 3/4 → y = screenHeight − 0.75·screenHeight = 0.25·screenHeight（即屏幕顶部 1/4 以下才可被射击）
+const TANK_FIRE_LINE_Y = screenHeight * 0.25;
 
 // 获取微信状态栏高度（安全区域）
 let statusBarHeight = 20;
@@ -35,7 +100,10 @@ const STAGES = [
     // —— 仅改出怪机制维度，未动全局升级曲线，故 2~6 关行为完全不变；其余关未声明 hpGrow/spawnFloor/spawnDecay 即沿用旧默认
     { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡·教学', difficulty: 1, descColor: '#88cc88',
       speedMult: 1.0, healthMult: 1.0, damageMult: 1.0, spawnMult: 0.9, bossTime: 240, tankChance: 0.10, fastChance: 0.15,
-      hpGrow: 150, spawnFloor: 650, spawnDecay: 4 },
+      hpGrow: 150, spawnFloor: 650, spawnDecay: 4,
+      // v1.1.7 血量指数型增长：锚定波次(前 hpWaveAnchor 波=×1.0，保持前lv5难度不变)，之后按 hpWaveGrow^(波次-anchor) 指数上升，
+      // 以匹配技能的指数型强度(火力强化每级×1.14、属性 dmgMul 每级×1.20…)，解决"后期怪物被秒杀"问题
+      hpWaveAnchor: 5, hpWaveGrow: 1.18 },
     // 关2 速度关：快速僵尸占比高，考验干冰弹(水)减速/控场与快速清场
     { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '速度+25%·快速僵尸多', difficulty: 2, descColor: '#88aacc',
       speedMult: 1.25, healthMult: 1.05, damageMult: 1.1, spawnMult: 1.05, bossTime: 150, tankChance: 0.12, fastChance: 0.45 },
@@ -230,14 +298,15 @@ const MAX_LEVEL = 20;
 // 升级所需 cost(L→L+1) = 2L（1→2需2、2→3需4、3→4需6…），故第 i 波经验总和 = 2i。
 // 出怪间隔越来越长、出怪数量越来越多（数量≈2i，随坦克/Boss 组合变化）；同波怪错峰出现，不成一排。
 const WAVE_COUNT = 20;
-const STAGGER_MS = 280;       // 同一波内每只怪的出怪间隔（ms），制造时间差
-const STAGGER_JITTER = 200;   // 出怪抖动，避免机械等距
+const EXP_BASE = 2;           // 经验/升级基准：wave i 经验 = EXP_BASE*i，cost(L→L+1) = EXP_BASE*L（保持「每波刚好升1级」耦合）；v1.1.6 由3降为2：缓解 lv5 前怪量过密、打不过
+const WAVE_INITIAL_DELAY = 1500;   // 第一波出现前的初始延迟(ms)
+const WAVE_JITTER = 120;           // 出怪抖动(ms)，避免机械等距
+let WAVE_INTERVAL = 800;           // 每怪平均出怪间隔(ms)，由 buildWavePlan 按总数精确计算（≈5分钟出完20波）
 function buildWavePlan() {
     const plan = [];
-    let t = 1500;   // 第一波出现前的初始延迟(ms)
+    // 第一遍：构造每波组成（经验耦合：每波经验总和 = 2i，保证清完升 1 级）
     for (let i = 1; i <= WAVE_COUNT; i++) {
-        const gap = 6500 + (i - 1) * 850;             // 波与波之间的间隔越来越长
-        const targetExp = 2 * i;                       // 该波升级所需经验 = 怪物经验总和
+        const targetExp = EXP_BASE * i;                 // 该波升级所需经验 = 怪物经验总和
         const isBoss = (i % 5 === 0);
         const comp = [];                               // 怪物类型组成（普通1/精英2/BOSS4 经验）
         let remaining = targetExp;
@@ -254,8 +323,17 @@ function buildWavePlan() {
         }
         // 剩余用普通怪(1经验)填满，保证经验总和精确等于 targetExp
         while (remaining > 0) { comp.push('normal'); remaining -= 1; }
-        plan.push({ i, spawnAt: t, gap, comp, boss: isBoss });
-        t += gap;
+        plan.push({ i, comp, boss: isBoss });
+    }
+    // 第二遍：排「连绵不绝」时间轴——每波内部均匀铺开，波与波首尾相接(无空当)，
+    // 整局约 GAME_TIME_LIMIT 出完。每怪平均间隔 = 余下时间 / 总怪数；后段波次怪多，
+    // 其独占时间段更长，自然形成「越往后怪越多」的观感，但全程不断流、无波间空当。
+    const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
+    WAVE_INTERVAL = (GAME_TIME_LIMIT - WAVE_INITIAL_DELAY) / totalCount;
+    let t = WAVE_INITIAL_DELAY;
+    for (const w of plan) {
+        w.spawnAt = t;
+        t += w.comp.length * WAVE_INTERVAL;   // 下一波紧接本波最后一只之后，消除波间空当
     }
     return plan;
 }
@@ -908,7 +986,7 @@ const SKILL_DEFS = {
                   // 实现「基础(火力强化) + 属性(五行)」架构。慢速/冻结效果暂不在此树，留待水（冰）属性树。
                   branches: {
                     // —— 通用「属性树共享模板」分支（火树先行；冰/雷/毒树后续复用同名结构）——
-                    multiShot:  { name:'多重爆裂', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重爆裂', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -937,7 +1015,7 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水树同名同结构）——
-                    multiShot:  { name:'多重电子', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重电子', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -966,40 +1044,41 @@ const SKILL_DEFS = {
                   } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
                   qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
-    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中附带冰冻/减速', apply(lv){},
+    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中必定减速、炸出范围冰霜；冰弹伤害+35%（冻结由分支提供）', apply(lv){},
                   // 水属性树（由冰属性重命名为水，对应五行中的水）：参考《向僵尸开炮》干冰弹
-                  // 共享模板分支与火树同名同结构；水专属分支围绕冰冻/减速/冰爆/领域
+                  // 共享模板分支与火树同名同结构；水专属分支围绕「控制锁(冻结/减速) + 冰封处决(对冻结追最大生命%) + 冰霜新星(范围必冻爆发) + 极寒领域(冰域铺场)」
                   branches: {
                     // —— 通用「属性树共享模板」分支（与火树同名，全局叠加）——
-                    multiShot:  { name:'多重干冰', desc:'每次射击额外 +1 发子弹/级',          reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重干冰', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
-                    crit:       { name:'冰霜暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发冰爆', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                    crit:       { name:'冰霜暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发冰霜迸发', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.iceBurst = true; } },
                     pierce:     { name:'寒冰穿透', desc:'穿透 +1/级；满级命中溅射冰刺',            reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.iceSpike = true; } },
-                    // —— 水专属分支 ——
-                    // 急冻 / 霜寒 同档(Lv2)互斥：单体高冻结 vs 群体强减速
-                    flashFreeze:{ name:'急冻',       desc:'冻结概率 +8%/级',                  reqLevel:2, prereq:[], mutex:['frostBite'], maxLevel:5,
-                                  effect(bl,m){ m.freezeChanceBoost += 0.08 * bl; } },
-                    frostBite:  { name:'霜寒',       desc:'减速幅度 +5%/级（移动更慢）',       reqLevel:2, prereq:[], mutex:['flashFreeze'], maxLevel:5,
+                    // —— 水专属分支（水的特点：控制锁 · 冰封处决 · 冰域铺场 · 冰霜新星）——
+                    // 冰川 / 霜寒 同档(Lv2)互斥：强化范围冰爆（群体铺场） vs 强化单体减速（控制更深）
+                    glacier:    { name:'冰川',       desc:'冰霜爆炸范围 +12%/级，范围冻结概率 +8%/级', reqLevel:2, prereq:[], mutex:['frostBite'], maxLevel:5,
+                                  effect(bl,m){ m.freezeRadiusBoost += 0.12 * bl; m.freezeChanceBoost += 0.08 * bl; } },
+                    frostBite:  { name:'霜寒',       desc:'减速幅度 +5%/级（移动更慢）',       reqLevel:2, prereq:[], mutex:['glacier'], maxLevel:5,
                                   effect(bl,m){ m.slowFactorBoost += 0.05 * bl; } },
                     deepFreeze: { name:'深寒',       desc:'冻结持续时间 +20%/级',               reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.freezeDurationBoost += 0.20 * bl; } },
-                    // 冰爆 / 极寒领域 同档(Lv4)互斥：单体爆发 vs 群体领域
-                    shatter:    { name:'冰爆',       desc:'对被冻结目标追加3%最大生命伤害/级', reqLevel:4, prereq:['deepFreeze'], mutex:['polarField'], maxLevel:5,
-                                  effect(bl,m){ m.shatterBonus += bl; } },
-                    polarField: { name:'极寒领域',   desc:'命中 25% 生成持续减速/冰冻领域',    reqLevel:4, prereq:[], mutex:['shatter'], maxLevel:5,
+                    // 冰霜新星 / 极寒领域 同档(Lv4)互斥：爆发向（范围必冻+爆炸增伤） vs 场域向（持续冰域）
+                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+25%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）', reqLevel:4, prereq:[], mutex:['polarField'], maxLevel:5,
+                                  effect(bl,m){ m.frostNovaDmgMul *= Math.pow(1.25, bl); m.freezeRadiusBoost += 0.20 * bl; m.frostNovaFreezeChance += 0.15 * bl; } },
+                    polarField: { name:'极寒领域',   desc:'冰弹击中敌人时，25%/级概率生成持续减速/冰冻领域', reqLevel:4, prereq:[], mutex:['frostNova'], maxLevel:5,
                                   effect(bl,m){ m.polarFieldChance += 0.25 * bl; } },
-                    chainFrost: { name:'连环霜冻',   desc:'命中后分裂为2颗小冰弹射向附近敌人', reqLevel:5, prereq:['deepFreeze'], mutex:[], maxLevel:1,
-                                  effect(bl,m){ m.chainFrost = true; } }
+                    // Lv5 质变：冰封处决（对标火·焚身 / 金·超导）—— 对被冻结目标追加最大生命%伤害，随关卡血量膨胀放大，是单树后期核心
+                    glacialDoom:{ name:'绝对零度',   desc:'对被冻结目标追加 3% 最大生命伤害/级（冰封处决）', reqLevel:5, prereq:['deepFreeze'], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.glacialDoomBonus += bl; } }
                   } },
     // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
     mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
                   qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
     tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'牵引力增强', apply(){ skills.tornado._pullBonus = 0.5; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
+                  qualNodes:{ 3:{ desc:'减速增强', apply(){ skills.tornado._slowBonus = 0.35; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
 };
 
 // 运行时技能实例（仅 level 可变，其余元数据来自 SKILL_DEFS）
@@ -1028,6 +1107,14 @@ let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
 let electricFields = [];            // 雷弧链「静电场」生成的持续电伤区域
+const MAX_ICE_FIELDS = 5;           // 同时存在的极寒领域上限（避免大量半透明领域叠加拖垮 Canvas）
+const MAX_ELECTRIC_FIELDS = 5;      // 同时存在的静电场上限
+const MAX_PARTICLES = 250;          // 全局粒子数上限（超出时移除最旧）
+// 带上限地加入粒子池，避免爆炸/命中特效叠加时数组无限膨胀
+function addParticle(p) {
+    if (particles.length >= MAX_PARTICLES) particles.shift();
+    particles.push(p);
+}
 // 静电场（雷弧链 Lv4 分支）领域参数：范围/时长随「静电场」等级小幅扩大
 const STATIC_FIELD_BASE_RADIUS = 55;     // Lv1 基础半径(px)
 const STATIC_FIELD_RADIUS_PER_LV = 12;   // 每级 +12(px)：Lv1≈67 → Lv5≈115
@@ -1039,13 +1126,14 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 // ==================== 僵尸类型 ====================
 // 移动速度为 px/帧（约 60fps）。v1.1.1 起大幅下调：
 // 营造「僵尸大军压境」的压迫感，给玩家充足时间体验各种技能（原速过快、来不及反应）
-// 经验值与血量严格成正比（用户设计）：普通=1经验/40血，精英(tank)=2经验/80血，BOSS=4经验/160血
+// 经验值与血量严格成正比（用户设计）：普通=1经验/60血，精英(tank)=2经验/120血，BOSS=4经验/240血
 // → 击杀所需伤害 ∝ 经验（1:2:4）。fast 为高速脆皮（同 1 经验，血略低），不在比例关系约束内
+// v1.1.4 难度重平衡：基础血量 ×1.5（总血量负载约为原版 2.25 倍；EXP_BASE 在 v1.1.6 由3降为2以缓解 lv5 前怪量过密）
 const zombieTypes = {
-    normal: { health: 40, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 5 },
-    fast:   { health: 25, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 8 },
-    tank:   { health: 80, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 15 },
-    boss:   { health: 160, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 4, gold: 50 }
+    normal: { health: 60, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 5 },
+    fast:   { health: 38, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 8 },
+    tank:   { health: 120, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 15 },
+    boss:   { health: 240, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 4, gold: 50 }
 };
 
 // ==================== 升级选项 ====================
@@ -1117,7 +1205,7 @@ function explosiveMods() {
 function freezeMods() {
     return (skills.freeze && skills.freeze._mods) ? skills.freeze._mods
         : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false,
-            freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, shatterBonus: 0, polarFieldChance: 0, chainFrost: false };
+            freezeChanceBoost: 0, freezeRadiusBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, polarFieldChance: 0, frostNovaDmgMul: 1, frostNovaFreezeChance: 0, glacialDoomBonus: 0 };
 }
 function lightningMods() {
     return (skills.lightning && skills.lightning._mods) ? skills.lightning._mods
@@ -1134,7 +1222,7 @@ function lightningMods() {
 // 按用户要求：最长可达 10 秒(干冰弹)，最短可到 3 秒(闪电链/爆炸弹)，各属性互不相同
 const ATTR_CD_CFG = {
     explosive: { base: 6000,  min: 3000, step: 100 },   // 火：6s → 3s
-    freeze:    { base: 10000, min: 4000, step: 200 },   // 水：10s → 4s（最长）
+    freeze:    { base: 6000,  min: 3000, step: 150 },   // 水：6s → 3s（原 10s→4s 过长，单树冰撑不起主输出；改为与火同档）
     lightning: { base: 4000,  min: 3000, step: 50 }     // 金：4s → 3s（最短）
 };
 // 子弹类属性技能列表：按自身 cd 释放，与基础武器（火力强化）完全独立
@@ -1142,6 +1230,11 @@ const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
 // 属性子弹相对普通子弹的「默认」参数：飞得更慢、个头更大（普通子弹 radius=6、speed=player.bulletSpeed）
 const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
 const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（属性技能不再提速子弹，释放 cd 缩短由「急速冷却」分支负责）
+// 多重弹每多发 1 颗子弹，单发伤害按此系数衰减（分母随额外子弹数线性增长）
+// 例：多发 5 颗(共 6 发) → 单发伤害 ×(1/1.75≈0.57)，总伤 ≈ 单发×3.43（旧每2级+1上限+2、总伤≈×3.0）
+const MULTI_BULLET_DMG_PENALTY = 0.15;
+// 干冰弹基础伤害倍率：水的基础不再自带冻结(硬控)，改为更高直伤补偿；冻结/必冻下放给大类分支(冰霜新星/极寒领域)
+const WATER_BASE_DMG_MUL = 1.35;
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
@@ -1165,8 +1258,8 @@ function getAttrReleaseCd(type) {
 }
 
 function getFreezeChance() {
-    // 冻结概率：天赋基础 + 干冰弹等级 + 急冻分支
-    return Math.min(0.8, talentMods.freezeChance + skills.freeze.level * 0.06 + freezeMods().freezeChanceBoost);
+    // 预留常量：基础命中自 v1.1.11 起不再冻结（硬控下放分支），此处保留返回 1.0 供兼容/测试
+    return 1.0;
 }
 function getFreezeDuration() {
     // 冻结时长：天赋 + 干冰弹等级 + 深寒分支百分比加成
@@ -1174,9 +1267,20 @@ function getFreezeDuration() {
     base *= (1 + freezeMods().freezeDurationBoost);
     return Math.min(3000, base);
 }
+function getAoeFreezeChance() {
+    // 范围冻结概率由冰川分支(概率铺场)与冰霜新星分支(爆发概率)共同提供；
+    // 基础冰霜爆炸不自带冻结（冻结下放大类分支，且均为概率、非必定）
+    const m = freezeMods();
+    return Math.min(0.95, m.freezeChanceBoost + (m.frostNovaFreezeChance || 0));
+}
+function getFreezeExplosionRadius() {
+    // 冰霜爆炸半径随技能等级扩大，急冻分支进一步增幅
+    const m = freezeMods();
+    return (45 + skills.freeze.level * 5) * (1 + (m.freezeRadiusBoost || 0));
+}
 function getSlowChance() {
-    // 减速概率：天赋基础 + 干冰弹等级（干冰弹本身命中附带减速）
-    return Math.min(0.8, talentMods.slowChance + skills.freeze.level * 0.05);
+    // 干冰弹核心：命中主目标必定减速（不再掷骰）
+    return 1.0;
 }
 function getSlowFactor() {
     // 数值越小移动越慢；天赋 + 霜寒分支
@@ -1253,12 +1357,13 @@ function recomputeExplosiveMods() {
     const def = SKILL_DEFS.explosive;
     const m = { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0,
                 // 共享模板分支派生（多重/疾速/暴击/穿透）
-                bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false, cdReduce: 0 };
+                bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, critExplode: false, pierceBoost: 0, pierceSplash: false, cdReduce: 0, canSplit: false };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
         const bd = def.branches[bid];
         if (bd && bd.effect) bd.effect(bl, m);
+        if (bid === 'multiShot' && bl >= 5) m.canSplit = true;   // 多重 Lv5 质变：命中分裂（与子弹数公式解耦）
     }
     if (skills.explosive) skills.explosive._mods = m;
 }
@@ -1269,15 +1374,16 @@ function recomputeFreezeMods() {
     const def = SKILL_DEFS.freeze;
     const m = {
         // 共享模板
-        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false, cdReduce: 0,
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false, cdReduce: 0, canSplit: false,
         // 水专属
-        freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, shatterBonus: 0, polarFieldChance: 0, chainFrost: false
+        freezeChanceBoost: 0, freezeRadiusBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, polarFieldChance: 0, frostNovaDmgMul: 1, frostNovaFreezeChance: 0, glacialDoomBonus: 0
     };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
         const bd = def.branches[bid];
         if (bd && bd.effect) bd.effect(bl, m);
+        if (bid === 'multiShot' && bl >= 5) m.canSplit = true;   // 多重 Lv5 质变：命中分裂（与子弹数公式解耦）
     }
     if (skills.freeze) skills.freeze._mods = m;
 }
@@ -1288,7 +1394,7 @@ function recomputeLightningMods() {
     const def = SKILL_DEFS.lightning;
     const m = {
         // 共享模板
-        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false, cdReduce: 0,
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, pierceSpark: false, cdReduce: 0, canSplit: false,
         // 金专属
         chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0,
         empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
@@ -1299,6 +1405,7 @@ function recomputeLightningMods() {
         if (!bl) continue;
         const bd = def.branches[bid];
         if (bd && bd.effect) bd.effect(bl, m);
+        if (bid === 'multiShot' && bl >= 5) m.canSplit = true;   // 多重 Lv5 质变：命中分裂（与子弹数公式解耦）
     }
     if (skills.lightning) skills.lightning._mods = m;
 }
@@ -1312,10 +1419,14 @@ const WUXING_ELEMENT = {
 // 相克：攻击五行 → 被克制五行 → 伤害加成倍率
 const WUXING_OVERCOME = { '火': '金', '金': '木', '木': '土', '土': '水', '水': '火' };
 const WUXING_OVERCOME_BONUS = 0.30;   // 克制时 +30% 伤害
-// 相生：A 生 B；玩家同时持有 A、B 两种属性技能时，B 属性伤害 +15% 并激活协同
+// 相生：A 生 B。五行属性树 = 火(爆炸)/金(雷)/水(冰)/木(风=龙卷风)，相生链 金→水→木→火 成立。
+// 设计目标：2 棵「相生」配对的树发育最强；单树无协同、3+ 树因分散投资而衰减。
+// 实现：相生对数提供全局增伤，超过 2 棵树后每多 1 树施加分散惩罚，使 2 树为峰值。
 const WUXING_GENERATE = { '火': '土', '土': '金', '金': '水', '水': '木', '木': '火' };
-const WUXING_GENERATE_BONUS = 0.15;
-let wuxingSynergy = {};   // { 被生五行: true }
+const WUXING_GENERATE_BONUS = 0.20;     // 每对相生提供的全局增伤（作用于所有属性伤害）
+const WUXING_SPREAD_PENALTY = 0.25;    // 超过 2 棵属性树后，每多 1 树的分散惩罚
+let wuxingSynergy = {};                // { 被生五行: true }（保留供组合技/UI 使用）
+let wuxingSynergyMult = 1;             // 全局五行相生倍率（峰值在恰好 2 棵相生树）
 
 // 重新计算当前已拥有技能的五行相生协同（在开局/获得/升级技能后调用）
 function recomputeWuxingSynergy() {
@@ -1326,10 +1437,14 @@ function recomputeWuxingSynergy() {
         const wx = WUXING_ELEMENT[el];
         if (wx) elements.add(wx);
     }
+    let pairs = 0;
     for (const a of elements) {
         const b = WUXING_GENERATE[a];
-        if (b && elements.has(b)) wuxingSynergy[b] = true;
+        if (b && elements.has(b)) { wuxingSynergy[b] = true; pairs++; }
     }
+    // 全局相生倍率：相生对提供增益，超过 2 棵属性树则因分散投资衰减 → 2 树为峰值
+    const treeCount = elements.size;
+    wuxingSynergyMult = 1 + WUXING_GENERATE_BONUS * pairs - Math.max(0, treeCount - 2) * WUXING_SPREAD_PENALTY;
 }
 
 // 计算元素伤害倍率：状态异常加成 + 五行克制 + 五行相生协同
@@ -1344,8 +1459,8 @@ function getElementBonus(zombie, element) {
     if (zombie.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
     // 五行克制：攻击元素克目标元素
     if (atkWx && zombie.element && WUXING_OVERCOME[atkWx] === zombie.element) mult += WUXING_OVERCOME_BONUS;
-    // 五行相生：被生元素伤害 +15%
-    if (atkWx && wuxingSynergy[atkWx]) mult += WUXING_GENERATE_BONUS;
+    // 五行相生：全局倍率（峰值在恰好 2 棵相生树；单树无协同、3+ 树因分散而衰减）
+    if (atkWx) mult *= wuxingSynergyMult;
     return mult;
 }
 
@@ -1571,8 +1686,9 @@ function drawPlayer() {
     const x = player.x;
     const y = player.y;
     const r = player.radius;
-    const hurtFlash = Date.now() - player.hurtTime < 100;
-    
+    const now = Date.now();
+    const hurtFlash = now - player.hurtTime < 100;
+
     // 阴影
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.beginPath();
@@ -1637,14 +1753,14 @@ function drawPlayer() {
     ctx.restore();
 
     // 不朽之身：复活后的无敌护罩
-    if (Date.now() < invincibleUntil) {
-        drawInvincibleShield(x, y, r);
+    if (now < invincibleUntil) {
+        drawInvincibleShield(x, y, r, now);
     }
 }
 
 // 不朽之身触发后的无敌护罩表现（紫色能量球 + 旋转六边形线框 + 剩余秒数）
-function drawInvincibleShield(x, y, r) {
-    const now = Date.now();
+function drawInvincibleShield(x, y, r, now) {
+    now = now || Date.now();
     const remain = Math.max(0, invincibleUntil - now);
     const pulse = 0.65 + Math.sin(now * 0.008) * 0.25;
     const R = r * 1.9;
@@ -1692,11 +1808,13 @@ function drawInvincibleShield(x, y, r) {
 }
 
 // 绘制僵尸（冰雪风格）
-function drawZombie(zombie) {
+function drawZombie(zombie, now) {
     const x = zombie.x;
     const y = zombie.y;
     const r = zombie.radius;
-    
+    // 简单裁剪：完全在屏幕外的不绘制
+    if (x + r < 0 || x - r > screenWidth || y + r < 0 || y - r > screenHeight) return;
+
     // 阴影
     ctx.beginPath();
     ctx.ellipse(x, y + r * 0.7, r * 0.9, r * 0.25, 0, 0, Math.PI * 2);
@@ -1772,7 +1890,7 @@ function drawZombie(zombie) {
     ctx.fill();
     
     // ========== 状态表现：冰冻 / 减速 ==========
-    const nowZ = Date.now();
+    const nowZ = now || Date.now();
     if (zombie.frozenUntil > nowZ) {
         // 冰壳：半透明冰蓝覆盖 + 内部冰晶棱线 + 边缘冰锥
         ctx.save();
@@ -1803,16 +1921,16 @@ function drawZombie(zombie) {
         }
         ctx.restore();
     } if (zombie.slowUntil > nowZ) {
-        // 减速：脚下紫色黏液 + 上浮气泡 + 身上薄雾
+        // 减速：脚下冰蓝黏液 + 上浮气泡 + 身上薄雾（与干冰弹水属性同色）
         ctx.save();
-        ctx.fillStyle = 'rgba(160, 107, 255, 0.45)';
+        ctx.fillStyle = 'rgba(70, 200, 255, 0.45)';
         ctx.beginPath();
         ctx.ellipse(x, y + r * 0.72, r * 0.95, r * 0.3, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(200, 170, 255, 0.9)';
+        ctx.strokeStyle = 'rgba(160, 220, 255, 0.9)';
         ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.fillStyle = 'rgba(210, 185, 255, 0.8)';
+        ctx.fillStyle = 'rgba(190, 235, 255, 0.8)';
         for (let k = 0; k < 3; k++) {
             const ph = ((nowZ * 0.002) + k * 0.7) % 1;
             ctx.beginPath();
@@ -1843,7 +1961,7 @@ function drawZombie(zombie) {
         ctx.fill();
         ctx.restore();
         if (Math.random() < 0.4) {                              // 上升火星
-            particles.push({ x: x + (Math.random() - 0.5) * r, y: y - r * 0.6, vx: (Math.random() - 0.5) * 1.5, vy: -1.5 - Math.random() * 1.5, radius: 2 + Math.random() * 2, life: 400, color: '#ffae3a' });
+            addParticle({ x: x + (Math.random() - 0.5) * r, y: y - r * 0.6, vx: (Math.random() - 0.5) * 1.5, vy: -1.5 - Math.random() * 1.5, radius: 2 + Math.random() * 2, life: 400, color: '#ffae3a' });
         }
     }
 
@@ -2115,50 +2233,26 @@ function drawFields() {
     }
 
     // 极寒领域（干冰弹 Lv4 分支）：冰霜减速/冻结场，冷色柔光晕
+    // 使用缓存纹理 + drawImage，避免每领域每帧创建径向渐变
+    const icePulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);
     for (const f of iceFields) {
+        if (f.x + f.radius < 0 || f.x - f.radius > screenWidth || f.y + f.radius < 0 || f.y - f.radius > screenHeight) continue;
+        const tex = getFieldTexture('ice', Math.ceil(f.radius));
+        if (!tex) continue;
         const lifeRatio = f.life / 3000;
-        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);
-        const halo = ctx.createRadialGradient(f.x, f.y, f.radius * 0.4, f.x, f.y, f.radius);
-        halo.addColorStop(0, 'rgba(55,198,255,' + (0.28 * lifeRatio * pulse) + ')');
-        halo.addColorStop(0.6, 'rgba(55,198,255,' + (0.14 * lifeRatio * pulse) + ')');
-        halo.addColorStop(1, 'rgba(55,198,255,0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
-        ctx.fill();
-        // 内圈冰晶
-        ctx.strokeStyle = 'rgba(220,245,255,' + (0.35 * lifeRatio) + ')';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.radius * 0.45, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.globalAlpha = lifeRatio * icePulse * 0.93;   // 纹理基准 alpha 0.30，缩放后≈原 0.28
+        ctx.drawImage(tex, f.x - f.radius, f.y - f.radius, f.radius * 2, f.radius * 2);
     }
 
     // 静电场（雷弧链 Lv4 分支）：金色电脉冲场
+    const elecPulse = 0.85 + 0.15 * Math.sin(Date.now() / 80);
     for (const f of electricFields) {
+        if (f.x + f.radius < 0 || f.x - f.radius > screenWidth || f.y + f.radius < 0 || f.y - f.radius > screenHeight) continue;
+        const tex = getFieldTexture('elec', Math.ceil(f.radius));
+        if (!tex) continue;
         const lifeRatio = f.life / (f.maxLife || STATIC_FIELD_BASE_LIFE);
-        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 80);
-        const halo = ctx.createRadialGradient(f.x, f.y, f.radius * 0.3, f.x, f.y, f.radius);
-        halo.addColorStop(0, 'rgba(255,230,120,' + (0.22 * lifeRatio * pulse) + ')');
-        halo.addColorStop(0.6, 'rgba(255,210,80,' + (0.10 * lifeRatio * pulse) + ')');
-        halo.addColorStop(1, 'rgba(255,210,80,0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
-        ctx.fill();
-        // 电弧内圈
-        ctx.strokeStyle = 'rgba(255,245,180,' + (0.45 * lifeRatio) + ')';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        const t = Date.now() / 120;
-        for (let k = 0; k < 6; k++) {
-            const a0 = k * Math.PI / 3 + t;
-            const r0 = f.radius * 0.25;
-            const r1 = f.radius * 0.55;
-            ctx.moveTo(f.x + Math.cos(a0) * r0, f.y + Math.sin(a0) * r0);
-            ctx.lineTo(f.x + Math.cos(a0 + 0.4) * r1, f.y + Math.sin(a0 + 0.4) * r1);
-        }
-        ctx.stroke();
+        ctx.globalAlpha = lifeRatio * elecPulse * 0.92;  // 纹理基准 alpha 0.24，缩放后≈原 0.22
+        ctx.drawImage(tex, f.x - f.radius, f.y - f.radius, f.radius * 2, f.radius * 2);
     }
 
     ctx.globalAlpha = 1;
@@ -2386,8 +2480,11 @@ function drawOrbs() {
 // 绘制粒子
 function drawParticles() {
     for (const p of particles) {
+        if (p.radius < 0.5) continue;
+        const alpha = p.life / 400;
+        if (alpha < 0.05) continue;
         ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life / 400;
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -2398,9 +2495,12 @@ function drawParticles() {
 // 绘制伤害数字
 function drawDamageNumbers() {
     for (const dn of damageNumbers) {
+        const alpha = dn.life / 800;
+        if (alpha < 0.08) continue;
+        if (dn.x < -30 || dn.x > screenWidth + 30 || dn.y < -30 || dn.y > screenHeight + 30) continue;
         ctx.fillStyle = dn.color || '#ffffff';
         ctx.textAlign = 'center';
-        ctx.globalAlpha = dn.life / 800;
+        ctx.globalAlpha = alpha;
         if (dn.isCrit) {
             // 暴击：仅放大加粗 + 深色描边强化视觉冲击；颜色仍随元素，不使用红色
             ctx.font = 'bold 26px Arial';
@@ -2494,7 +2594,9 @@ function drawBombExplosions() {
 
         ctx.beginPath();
         ctx.arc(effect.x, effect.y, ringR, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 106, 20, ${alpha * 0.8})`;
+        // 支持冰霜爆炸等自定义颜色；默认火焰橙
+        const color = effect.color || [255, 106, 20];
+        ctx.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha * 0.8})`;
         ctx.lineWidth = lineW;
         ctx.stroke();
 
@@ -2549,18 +2651,17 @@ function drawUI() {
     
     // 第三行：击杀、金币、波次进度（同一行）
     const waveStr = `🌊 ${Math.min(wavesSpawned, WAVE_COUNT)}/${WAVE_COUNT}`;
-    const clearedStr = `✔${wavesCleared}/${WAVE_COUNT}`;
-    
+
     ctx.fillStyle = '#fff';
     ctx.font = '10px Arial';
     ctx.textAlign = 'left';
     ctx.fillText(`👾${player.kills} 💰${player.gold}`, panelX + 8, panelY + 48);
-    
-    // 波次进度放右边（已出现波次 / 已清波次）
+
+    // 波次进度放右边（当前波次 / 总波次）
     ctx.fillStyle = '#9fe3ff';
     ctx.font = '10px Arial';
     ctx.textAlign = 'right';
-    ctx.fillText(`${waveStr} ${clearedStr}`, panelX + panelW - 8, panelY + 48);
+    ctx.fillText(waveStr, panelX + panelW - 8, panelY + 48);
     
     // ========== 右上角按钮（音效+暂停）==========
     // 避开微信胶囊按钮区域（右上角约90像素宽度）
@@ -3859,8 +3960,11 @@ function shootAttribute(type) {
 
     const n = 1 + (m.bulletCountBoost || 0);                 // 多重爆裂/多重干冰
     const _spd = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * (m.speedMul || 1);  // 默认比普通子弹慢；疾速弹道（自身分支）可提速，仍独立于火力强化
-    const dmg = player.damage;                               // 随英雄基础伤害成长（含火力强化 apply 基础增幅），不吃火力强化每发分支修正
-    const canSplit = (m.bulletCountBoost || 0) >= 5;         // 多重 Lv5 质变：命中分裂
+    // 多发子弹：额外子弹数越多，单发伤害越低（整体总伤随子弹数亚线性增长，避免多重无脑碾压）
+    // 干冰弹基础伤害额外 ×WATER_BASE_DMG_MUL：基础不再自带冻结(硬控)，以更高直伤补偿（火/金基础无此倍率）
+    const _baseMul = (type === 'freeze') ? WATER_BASE_DMG_MUL : 1;
+    const dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
+    const canSplit = !!m.canSplit;                          // 多重 Lv5 质变：命中分裂（由分支等级判定，与子弹数公式解耦）
 
     for (let i = 0; i < n; i++) {
         const spread = 0.15;
@@ -3901,31 +4005,6 @@ function spawnSplitBullets(x, y, baseDamage, exclude, element) {
             element: element || getBulletElement(),
             hitZombies: [exclude],   // 排除被命中的主目标，避免同点重复结算
             isSplit: true            // 标记：分裂弹不再触发分裂，防止级联
-        });
-    }
-}
-
-// 连环霜冻 Lv5 质变：干冰弹命中后分裂为 2 颗小冰弹射向附近敌人
-function spawnChainFrost(x, y, baseDamage, exclude) {
-    const count = 2;
-    const spd = getEffBulletSpeed() * 0.9;
-    const dmg = baseDamage * 0.4;   // 分裂小冰弹伤害 40%
-    for (let k = 0; k < count; k++) {
-        let target = null, bestD = 250;
-        for (const z of zombies) {
-            if (z !== exclude && !z._chainFrostTarget && Math.hypot(z.x - x, z.y - y) < bestD) {
-                target = z; bestD = Math.hypot(z.x - x, z.y - y);
-            }
-        }
-        if (!target) return;   // 没有附近敌人就不分裂
-        target._chainFrostTarget = true;
-        const a = Math.atan2(target.y - y, target.x - x);
-        bullets.push({
-            x: x, y: y,
-            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
-            radius: 4, damage: dmg, piercing: 1,
-            element: '水',
-            hitZombies: [], isSplit: true
         });
     }
 }
@@ -4057,7 +4136,8 @@ function updateBullets() {
 
                     // 静电场：命中概率生成持续电伤领域（范围/时长随静电场等级）
                     if (_lm.staticFieldChance > 0 && Math.random() < _lm.staticFieldChance) {
-                        electricFields.push({ x: bullet.x, y: bullet.y, radius: _lm.staticFieldRadius, life: _lm.staticFieldLife, maxLife: _lm.staticFieldLife, born: nowHit });
+                        if (electricFields.length >= MAX_ELECTRIC_FIELDS) electricFields.shift();   // 超限时移除最旧领域
+                        electricFields.push({ x: bullet.x, y: bullet.y, radius: _lm.staticFieldRadius, life: _lm.staticFieldLife, maxLife: _lm.staticFieldLife, born: nowHit, _tick: 0 });
                     }
 
                     // 雷霆一击：暴击时 50% 召唤落雷
@@ -4127,36 +4207,56 @@ function updateBullets() {
                     }
                 }
 
-                // 命中附带：冰冻 / 减速（仅干冰弹水属性树的子弹触发）
+                // 命中附带：减速 / 冰霜爆炸（仅干冰弹水属性树的子弹触发）
+                // 干冰弹基础：主目标必定减速(软控)，并产生范围冰霜爆炸(伤害+范围减速)；
+                // 冻结(硬控)不再由基础提供，下放给大类分支——冰霜新星(必冻) / 极寒领域(领域冻结)
                 if (bullet.skillType === 'freeze') {
-                    const freezeChance = getFreezeChance();
-                    if (freezeChance > 0 && Math.random() < freezeChance) {
+                    // 主目标必定减速（软控，区别于冰冻）
+                    zombie.slowUntil = nowHit + 2200;
+                    zombie.slowFactor = getSlowFactor();
+                    createSlowEffect(zombie.x, zombie.y);
+                    checkCombos(zombie, '水');   // 支撑泥沼（灼烧 + 水）
+
+                    // 冰霜爆炸：范围伤害 + 范围减速；范围冻结由冰川(概率)或冰霜新星(概率)分支提供，基础不冻
+                    const iceRadius = getFreezeExplosionRadius();
+                    createIceExplosion(zombie.x, zombie.y, iceRadius);
+                    const aoeDmgMul = (_fm && _fm.frostNovaDmgMul) ? _fm.frostNovaDmgMul : 1;
+                    const aoeFreezeChance = getAoeFreezeChance();   // 含冰川 + 冰霜新星的范围冻结概率加成
+                    const novaFreezeChance = (_fm && _fm.frostNovaFreezeChance) ? _fm.frostNovaFreezeChance : 0;
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < iceRadius + z.radius) {
+                            damageZombie(z, damage * 0.30 * aoeDmgMul, false, '水');
+                            checkCombos(z, '水');
+
+                            z.slowUntil = nowHit + 2200;
+                            z.slowFactor = getSlowFactor();
+                            createSlowEffect(z.x, z.y);
+
+                            if (Math.random() < aoeFreezeChance) {
+                                z.frozenUntil = nowHit + getFreezeDuration();
+                                createFreezeEffect(z.x, z.y);
+                                checkCombos(z, '水');
+                            }
+                        }
+                    }
+                    // 冰霜新星：命中点主目标也按冰霜新星概率冻结，使绝对零度(处决)可对主目标生效（不再必定）
+                    if (Math.random() < novaFreezeChance) {
                         zombie.frozenUntil = nowHit + getFreezeDuration();
                         createFreezeEffect(zombie.x, zombie.y);
-                        checkCombos(zombie, '水');   // 支撑泥沼（灼烧 + 水）
-                    }
-                    const slowChance = getSlowChance();
-                    if (slowChance > 0 && Math.random() < slowChance) {
-                        zombie.slowUntil = nowHit + 2200;
-                        zombie.slowFactor = getSlowFactor();
-                        createSlowEffect(zombie.x, zombie.y);
+                        checkCombos(zombie, '水');
                     }
                 }
 
-                // 冰爆：对被冻结目标造成伤害时追加最大生命%（仅在目标仍冻结时触发一次/弹）
-                if (_fm && _fm.shatterBonus && zombie.frozenUntil > nowHit && !zombie._shatteredThisHit) {
-                    zombie._shatteredThisHit = true;
-                    damageZombie(zombie, zombie.maxHealth * 0.03 * _fm.shatterBonus, false, '水');
+                // 冰封处决（绝对零度 Lv5）：对被冻结目标追加最大生命%伤害（随关卡血量膨胀放大，单树后期核心）
+                if (_fm && _fm.glacialDoomBonus && zombie.frozenUntil > nowHit) {
+                    damageZombie(zombie, zombie.maxHealth * 0.03 * _fm.glacialDoomBonus, false, '水');
                 }
 
                 // 极寒领域：命中概率在命中点生成冰霜领域（减速圈内敌人）
                 if (_fm && _fm.polarFieldChance > 0 && Math.random() < _fm.polarFieldChance) {
-                    iceFields.push({ x: bullet.x, y: bullet.y, radius: 60, life: 3000, born: nowHit });
-                }
-
-                // 连环霜冻 Lv5 质变：命中后分裂为 2 颗小冰弹射向附近敌人（主弹首次命中触发，分裂弹不再级联）
-                if (isFirstHit && !bullet.isSplit && _fm && _fm.chainFrost) {
-                    spawnChainFrost(bullet.x, bullet.y, damage, zombie);
+                    if (iceFields.length >= MAX_ICE_FIELDS) iceFields.shift();   // 超限时移除最旧领域
+                    iceFields.push({ x: bullet.x, y: bullet.y, radius: 60, life: 3000, born: nowHit, _tick: 0 });
                 }
 
                 if (bullet.hitZombies.length >= bullet.piercing) {
@@ -4175,19 +4275,23 @@ function damageZombie(zombie, damage, isCrit, element) {
     if (zombie.vulnUntil > now) damage *= (zombie.vulnMul || 1);  // 破甲：爆炸后敌人受伤增加
     zombie.health -= damage;
 
-    damageNumbers.push({
-        x: zombie.x,
-        y: zombie.y - zombie.radius,
-        text: Math.round(damage).toString(),
-        life: 800,
-        vy: -2.5,
-        color: (element && ELEMENT_VISUAL[element] ? ELEMENT_VISUAL[element].core : (damage > player.damage ? '#ffff00' : '#ffffff')),
-        isCrit: isCrit
-    });
-    
-    // 粒子效果
-    for (let i = 0; i < 3; i++) {
-        particles.push({
+    // 伤害数字：暴击必显；普通伤害按僵尸节流（同僵尸 120ms 内只显示一次），避免多重/范围伤害导致数字爆炸
+    if (isCrit || !zombie._lastDamageNumberAt || now - zombie._lastDamageNumberAt >= 120) {
+        zombie._lastDamageNumberAt = now;
+        damageNumbers.push({
+            x: zombie.x,
+            y: zombie.y - zombie.radius,
+            text: Math.round(damage).toString(),
+            life: 800,
+            vy: -2.5,
+            color: (element && ELEMENT_VISUAL[element] ? ELEMENT_VISUAL[element].core : (damage > player.damage ? '#ffff00' : '#ffffff')),
+            isCrit: isCrit
+        });
+    }
+
+    // 粒子效果：每次受击 2 粒（原为 3），控制总量
+    for (let i = 0; i < 2; i++) {
+        addParticle({
             x: zombie.x,
             y: zombie.y,
             vx: (Math.random() - 0.5) * 5,
@@ -4231,7 +4335,7 @@ function damageZombie(zombie, damage, isCrit, element) {
         
         // 死亡粒子
         for (let i = 0; i < 12; i++) {
-            particles.push({
+            addParticle({
                 x: zombie.x,
                 y: zombie.y,
                 vx: (Math.random() - 0.5) * 8,
@@ -4254,7 +4358,7 @@ function createCritEffect(x, y) {
     for (let i = 0; i < 8; i++) {
         const a = Math.random() * Math.PI * 2;
         const sp = 3 + Math.random() * 4;
-        particles.push({
+        addParticle({
             x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
             radius: Math.random() * 3 + 2, life: 260,
             color: i % 2 ? '#ffd24a' : '#ff4d4d'
@@ -4267,7 +4371,7 @@ function createFreezeEffect(x, y) {
     for (let i = 0; i < 7; i++) {
         const a = Math.random() * Math.PI * 2;
         const sp = 1.5 + Math.random() * 2.5;
-        particles.push({
+        addParticle({
             x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1,
             radius: Math.random() * 2.5 + 1.5, life: 380,
             color: i % 2 ? '#bff2ff' : '#5fd0ff'
@@ -4279,9 +4383,9 @@ function createSlowEffect(x, y) {
     hitEffects.push({ x, y, type: 'slow', life: 380, maxLife: 380, rot: 0 });
     for (let i = 0; i < 6; i++) {
         const a = Math.random() * Math.PI * 2;
-        particles.push({
+        addParticle({
             x, y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2 + 1,
-            radius: Math.random() * 3 + 2, life: 340, color: '#a06bff'
+            radius: Math.random() * 3 + 2, life: 340, color: '#5fd0ff'
         });
     }
 }
@@ -4341,13 +4445,13 @@ function drawHitEffects() {
             ctx.ellipse(0, 12 * (1 - p) - 6, 34 * grow, 12 * grow, 0, 0, Math.PI * 2);
             ctx.stroke();
         } else {
-            // 减速：紫色黏滞波纹
-            ctx.strokeStyle = '#a06bff';
+            // 减速：冰蓝黏滞波纹（与干冰弹水属性同色）
+            ctx.strokeStyle = '#37c6ff';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.ellipse(0, 6, 20 * grow, 9 * grow, 0, 0, Math.PI * 2);
             ctx.stroke();
-            ctx.fillStyle = 'rgba(160, 107, 255, 0.25)';
+            ctx.fillStyle = 'rgba(70, 200, 255, 0.25)';
             ctx.beginPath();
             ctx.ellipse(0, 6, 20 * grow, 9 * grow, 0, 0, Math.PI * 2);
             ctx.fill();
@@ -4373,7 +4477,7 @@ function createExplosion(x, y, radius) {
     const sp = 3 + radius / 12;
     for (let i = 0; i < n; i++) {
         const angle = (Math.PI * 2 / n) * i;
-        particles.push({
+        addParticle({
             x: x,
             y: y,
             ox: x,                  // 原点，用于把火花限制在实际爆炸半径内
@@ -4384,6 +4488,24 @@ function createExplosion(x, y, radius) {
             radius: 4 + radius / 30,
             life: 300,
             color: '#ff6a14'
+        });
+    }
+}
+
+// 冰霜爆炸：范围冻结/减速的视觉表现（冷色冲击环 + 冰晶粒子）
+function createIceExplosion(x, y, radius) {
+    bombExplosionEffects.push({ x: x, y: y, radius: 0, life: 400, maxRadius: radius, color: [95, 208, 255] });
+    const n = Math.max(10, Math.round(radius / 4));
+    const sp = 2 + radius / 14;
+    for (let i = 0; i < n; i++) {
+        const angle = (Math.PI * 2 / n) * i;
+        addParticle({
+            x: x, y: y, ox: x, oy: y, maxR: radius,
+            vx: Math.cos(angle) * sp,
+            vy: Math.sin(angle) * sp,
+            radius: 3 + radius / 40,
+            life: 320,
+            color: i % 2 ? '#bff2ff' : '#5fd0ff'
         });
     }
 }
@@ -4463,7 +4585,7 @@ function updateZombies(dt) {
                     for (let i = 0; i < 26; i++) {
                         const a = Math.random() * Math.PI * 2;
                         const sp = 3 + Math.random() * 6;
-                        particles.push({
+                        addParticle({
                             x: player.x, y: player.y,
                             vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
                             radius: Math.random() * 5 + 3, life: 620,
@@ -4543,9 +4665,10 @@ function updateFields(dt) {
         if (updateFields._tornadoCd >= TORNADO_RELEASE_CD && tornadoes.length === 0) {
             updateFields._tornadoCd = 0;
             const _tp = randomFieldPos();
-            tornadoes.push({ x: _tp.x, y: _tp.y, radius: 140 + skills.tornado.level * 20, vx: 0.7, vy: 0.5, level: skills.tornado.level, life: TORNADO_LIFE });
+            // v1.1.5：范围大幅缩小（原 140+Lv*20≈340，现 70+Lv*8≈150），龙卷风改为小范围缓速区
+            tornadoes.push({ x: _tp.x, y: _tp.y, radius: 70 + skills.tornado.level * 8, vx: 0.5, vy: 0.35, level: skills.tornado.level, life: TORNADO_LIFE });
         }
-        // 重置牵引标记（每帧）
+        // 重置标记（每帧）
         for (const z of zombies) z._inTornado = false;
         for (let i = tornadoes.length - 1; i >= 0; i--) {
             const t = tornadoes[i];
@@ -4554,15 +4677,16 @@ function updateFields(dt) {
             t.x += t.vx; t.y += t.vy;
             if (t.x < t.radius || t.x > screenWidth - t.radius) t.vx *= -1;
             if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
-            let pull = 0.02 * (1 + t.level * 0.3);
-            if (skills.tornado._pullBonus) pull *= (1 + skills.tornado._pullBonus);   // Lv3 牵引增强
+            // 仅轻微减速（不再吸附到风眼）：范围内怪物移动速度小幅降低
+            let slow = 0.65;                                  // 速度 ×0.65（小幅减速）
+            if (skills.tornado._slowBonus) slow *= (1 - skills.tornado._slowBonus);  // Lv3 减速增强（原“牵引力增强”）
             for (let k = zombies.length - 1; k >= 0; k--) {   // 倒序：风系 DPS 的 damageZombie 可能 splice 移除僵尸
                 const z = zombies[k];
                 const d = Math.hypot(t.x - z.x, t.y - z.y);
-                if (d < t.radius && d > 1) {
-                    z.x += (t.x - z.x) * pull;
-                    z.y += (t.y - z.y) * pull;
+                if (d < t.radius) {
                     z._inTornado = true;
+                    z.slowUntil = Math.max(z.slowUntil || 0, now + 300);
+                    z.slowFactor = Math.min(z.slowFactor || 1, slow);
                     // 龙卷风风系 DPS（tornado Lv5 质变启用；风伤触发灼烧+风/风暴组合技）
                     if (skills.tornado._wind) {
                         updateFields._tornadoDpsTimer = (updateFields._tornadoDpsTimer || 0) + dt;
@@ -4577,23 +4701,27 @@ function updateFields(dt) {
         }
     }
 
-    // 极寒领域：持续减速/概率冻结领域内僵尸
+    // 极寒领域：持续减速/概率冻结领域内僵尸（每 100ms 结算一次，避免每帧全量遍历）
     for (let i = iceFields.length - 1; i >= 0; i--) {
         const f = iceFields[i];
         f.life -= dt;
         if (f.life <= 0) { iceFields.splice(i, 1); continue; }
-        for (const z of zombies) {
-            if (Math.hypot(f.x - z.x, f.y - z.y) < f.radius + z.radius) {
-                z.slowUntil = Math.max(z.slowUntil || 0, now + 500);
-                z.slowFactor = getSlowFactor();
-                if (Math.random() < 0.05) {   // 每帧 5% 概率冻结
-                    z.frozenUntil = Math.max(z.frozenUntil || 0, now + getFreezeDuration());
+        f._tick = (f._tick || 0) + dt;
+        if (f._tick >= 100) {
+            f._tick = 0;
+            for (const z of zombies) {
+                if (Math.hypot(f.x - z.x, f.y - z.y) < f.radius + z.radius) {
+                    z.slowUntil = Math.max(z.slowUntil || 0, now + 500);
+                    z.slowFactor = getSlowFactor();
+                    if (Math.random() < 0.15) {   // 每 100ms 15% 概率冻结（等效原每帧 5%×3）
+                        z.frozenUntil = Math.max(z.frozenUntil || 0, now + getFreezeDuration());
+                    }
                 }
             }
         }
     }
 
-    // 静电场：持续电伤领域内僵尸（每 300ms 一跳）
+    // 静电场：持续电伤领域内僵尸（每 300ms 一跳，不变；但加入 tick 标记与字段预筛选）
     for (let i = electricFields.length - 1; i >= 0; i--) {
         const f = electricFields[i];
         f.life -= dt;
@@ -4710,12 +4838,13 @@ function spawnZombies(dt) {
 function spawnWave(w, stage) {
     waveAlive[w.i] = w.comp.length;
     const wuxingPool = ['金', '木', '水', '火', '土'];
-    // 同一波的所有怪错峰入队：每只间隔 STAGGER_MS±抖动，避免一排同时入场
+    // 同一波的所有怪均匀错峰入队：每只在 w.spawnAt + s*WAVE_INTERVAL ± 抖动 入场，
+    // 铺满本波独占的时间段；下一波在末尾紧接，全程连绵不绝、不会一排同时出现。
     for (let s = 0; s < w.comp.length; s++) {
         const type = w.comp[s];
         const zElement = wuxingPool[Math.floor(Math.random() * wuxingPool.length)];
         pendingSpawns.push({
-            at: gameTime + s * STAGGER_MS + Math.random() * STAGGER_JITTER,
+            at: w.spawnAt + s * WAVE_INTERVAL + (Math.random() * 2 - 1) * WAVE_JITTER,
             type: type,
             zElement: zElement,
             stage: stage,
@@ -4732,9 +4861,15 @@ function updatePendingSpawns() {
         if (gameTime < p.at) continue;
         const stage = p.stage;
         const template = zombieTypes[p.type];
-        // 血量膨胀：分母交由 stage.hpGrow 控制（默认 50 保持旧关兼容）；因波次按 5 分钟时间轴生成，
-        // 末波出现时 gameTimeSec≈270 → (1+270/hpGrow)，第一关 hpGrow=150 即约 2.8 倍，封顶可控（详见 v1.1.1）
-        const healthMult = (1 + (gameTime / 1000) / (stage.hpGrow || 50)) * stage.healthMult;
+        // 血量膨胀：优先用「波次指数型」增长（v1.1.7，匹配技能指数型强度，避免后期被秒杀）；
+        // 锚定 hpWaveAnchor 波之前保持 ×1.0（前 lv5 难度不变）。其余关未声明 hpWaveGrow 则回退到旧的「时间线性」增长(兼容 2~6 关)
+        let healthMult;
+        if (stage.hpWaveGrow && stage.hpWaveAnchor != null) {
+            const _over = Math.max(0, p.wave - stage.hpWaveAnchor);
+            healthMult = Math.pow(stage.hpWaveGrow, _over) * stage.healthMult;
+        } else {
+            healthMult = (1 + (gameTime / 1000) / (stage.hpGrow || 50)) * stage.healthMult;
+        }
         zombies.push({
             x: Math.random() * screenWidth,
             y: -50,
@@ -4785,7 +4920,7 @@ function levelUp() {
     
     player.level++;
     player.exp -= player.expToLevel;
-    player.expToLevel = 2 * player.level;   // 升级所需 cost(L→L+1) = 2L（1→2需2、2→3需4…）
+    player.expToLevel = EXP_BASE * player.level;   // 升级所需 cost(L→L+1) = EXP_BASE*L（1→2需EXP_BASE、2→3需2*EXP_BASE…）
     
     // 每5级获得炸弹（5级、10级、15级、20级）
     justGotBomb = false;
@@ -4964,7 +5099,7 @@ function useBomb() {
         }
 
         for (let i = 0; i < 8; i++) {
-            particles.push({
+            addParticle({
                 x: zombie.x,
                 y: zombie.y,
                 vx: (Math.random() - 0.5) * 10,
@@ -5048,7 +5183,7 @@ function startGame() {
     player.maxHealth = 100;
     player.exp = 0;
     player.level = 1;
-    player.expToLevel = 2;   // cost(1→2) = 2*1 = 2
+    player.expToLevel = EXP_BASE;   // cost(1→2) = EXP_BASE*1 = EXP_BASE
     player.gold = 0;  // 重置为0用于计算本次关卡获得金币
     player.kills = 0;
     player.damage = 10;
@@ -5247,6 +5382,15 @@ function adDemoBombExplosion() {
     adDemoTimer = 0;
 }
 
+// 坦克锁定规则（用户要求）：怪物必须已进入屏幕、且下降到开火线以下，坦克才能射击
+function zombieShootable(z) {
+    // 不射击超出屏幕外的敌人（含刚在顶部外生成、尚未完全入场的怪）
+    if (z.y < 0 || z.y > screenHeight || z.x < 0 || z.x > screenWidth) return false;
+    // 未下降到开火线以下（距屏幕底部 3/4 处）不开火
+    if (z.y < TANK_FIRE_LINE_Y) return false;
+    return true;
+}
+
 // ==================== 游戏更新 ====================
 function update(dt) {
     // 通关条件：消灭全部 20 波敌人即胜利（20 波均已生成、场上僵尸清空、且同波错峰队列也空）
@@ -5255,11 +5399,12 @@ function update(dt) {
         return;
     }
     
-    // 机枪跟踪
+    // 机枪跟踪（仅锁定可被坦克射击的怪物：已进入屏幕且下降到开火线以下）
     if (zombies.length > 0) {
         let nearest = null;
         let minDist = Infinity;
         for (const z of zombies) {
+            if (!zombieShootable(z)) continue;
             const d = Math.hypot(z.x - player.x, z.y - player.y);
             if (d < minDist) {
                 minDist = d;
@@ -5274,7 +5419,8 @@ function update(dt) {
     // 自动射击（基础武器：火力强化，物理子弹，射速仅由火力强化决定，独立于属性技能）
     const now = Date.now();
     const _fireMul = (skills.damage && skills.damage._mods) ? skills.damage._mods.fireMul : 1;
-    if (zombies.length > 0 && now - player.lastShot > player.fireRate * _fireMul) {
+    const hasShootable = zombies.some(zombieShootable);
+    if (hasShootable && now - player.lastShot > player.fireRate * _fireMul) {
         shootBase();
         player.lastShot = now;
     }
@@ -5286,7 +5432,7 @@ function update(dt) {
         if (s._lastFire === undefined) s._lastFire = 0;
         if (now - s._lastFire >= getAttrReleaseCd(type)) {
             s._lastFire = now;
-            if (zombies.length > 0) shootAttribute(type);
+            if (zombies.some(zombieShootable)) shootAttribute(type);
         }
     }
 
@@ -5360,12 +5506,21 @@ const OTHER_GAMES = [
 const otherGameIcons = {};
 let otherGameIconsLoaded = false;
 
+// 微信开发者工具在「预编译」阶段会静态扫描 wx.createImage().src 引用的资源文件，
+// 当 .src 被赋值为变量（如远程头像 URL、OTHER_GAMES 里的 g.icon）时无法静态解析，
+// 会错误地尝试读取「项目根目录/undefined」而抛 ENOENT。
+// 用间接调用规避该静态扫描（行为与原 wx.createImage() 完全一致）。
+function createGameImage() {
+    const factory = wx.createImage;
+    return factory();
+}
+
 // 预加载「其他游戏」选择页中配置了 icon 的游戏图标
 function loadOtherGameIcons() {
     if (otherGameIconsLoaded) return;
     OTHER_GAMES.forEach((g) => {
         if (g.icon && !otherGameIcons[g.id]) {
-            const img = wx.createImage();
+            const img = createGameImage();
             img.onload = () => { otherGameIcons[g.id] = img; };
             img.onerror = () => { console.log('游戏图标加载失败:', g.id); };
             img.src = g.icon;
@@ -9935,7 +10090,7 @@ function gQiexiguaSlice(x, y) {
             g.score += gain;
             for (let i = 0; i < 8; i++) {
                 const a = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 220;
-                g.particles.push({ x: f.x, y: f.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, life: 0.5 + Math.random() * 0.3, color: f.color, r: 3 + Math.random() * 4 });
+                g.addParticle({ x: f.x, y: f.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, life: 0.5 + Math.random() * 0.3, color: f.color, r: 3 + Math.random() * 4 });
             }
             g.floaters.push({ x: f.x, y: f.y - f.r, text: '+' + gain + (g.combo > 1 ? (' x' + g.combo) : ''), life: 0.8, color: '#ffd700' });
         }
@@ -10141,7 +10296,7 @@ function gFeidegenggaoUpdate(dt) {
                 MiniGameAudio.play('jump');
                 for (let i = 0; i < 6; i++) {
                     const a = Math.random() * Math.PI * 2;
-                    g.particles.push({ x: p.x, y: pl.y, vx: Math.cos(a) * 120, vy: -Math.random() * 120 - 40, life: 0.4, color: '#ffffff' });
+                    g.addParticle({ x: p.x, y: pl.y, vx: Math.cos(a) * 120, vy: -Math.random() * 120 - 40, life: 0.4, color: '#ffffff' });
                 }
                 break;
             }
@@ -10366,7 +10521,7 @@ function gBunengsiUpdate(dt) {
                 const col = BNS_RUNNER_COLORS[lane.index % BNS_RUNNER_COLORS.length];
                 for (let k = 0; k < 14; k++) {
                     const a = Math.random() * Math.PI * 2;
-                    g.particles.push({
+                    g.addParticle({
                         x: runnerX, y: lane.groundY - BNS_RUNNER_H / 2,
                         vx: Math.cos(a) * 220, vy: Math.sin(a) * 220 - 80,
                         life: 0.7, color: col
@@ -12379,11 +12534,12 @@ function gameLoop() {
         drawDeathRays();
         drawBombExplosions();
         drawFields();
-        
+
+        const drawNow = Date.now();
         for (const zombie of zombies) {
-            drawZombie(zombie);
+            drawZombie(zombie, drawNow);
         }
-        
+
         drawPlayer();
         drawDamageNumbers();
         drawUI();
@@ -12398,16 +12554,18 @@ function gameLoop() {
         }
     } else if (gameState === 'upgrade') {
         drawBackground();
+        const drawNow2 = Date.now();
         for (const zombie of zombies) {
-            drawZombie(zombie);
+            drawZombie(zombie, drawNow2);
         }
         drawPlayer();
         drawFields();
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
         drawBackground();
+        const drawNow3 = Date.now();
         for (const zombie of zombies) {
-            drawZombie(zombie);
+            drawZombie(zombie, drawNow3);
         }
         drawPlayer();
         drawGameOver();
@@ -13244,7 +13402,8 @@ function loadWechatInfo() {
 
 // 加载微信头像图片
 function loadWechatAvatarImage(url) {
-    const img = wx.createImage();
+    if (!url) return;
+    const img = createGameImage();
     img.onload = () => {
         wechatAvatarImage = img;
     };

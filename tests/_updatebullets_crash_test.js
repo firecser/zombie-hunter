@@ -53,12 +53,12 @@ function createCritEffect() {}
 function createExplosion() {}
 function createFreezeEffect() {}
 function createSlowEffect() {}
+function addParticle() {}
 function applyBurn() {}
 function checkCombos(z) {}
 function getEffBulletSpeed() { return 10; }
 function getEffBulletPiercing() { return 1; }
 function spawnSplitBullets() {}
-function spawnChainFrost() {}
 function getBulletElement() { return '物理'; }
 // 元素视觉调色板（damageZombie 飘字取 core 色；与 game - 副本.js ELEMENT_VISUAL 一致）
 const ELEMENT_VISUAL = {

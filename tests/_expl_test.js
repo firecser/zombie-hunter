@@ -58,9 +58,13 @@ const MAX_SKILLS = 5;
 const player = { damage: 10, fireRate: 500, bulletSpeed: 10, exp: 0, expToLevel: 100, level: 1 };
 let bombExplosionEffects = [];   // createExplosion 依赖
 let particles = [];              // createExplosion 依赖
+function addParticle(p) { particles.push(p); }  // game - 副本.js 中的带上限入池函数（测试里直接 push）
 let wuxingSynergy = {};   // applyUpgrade 现在会调用 recomputeWuxingSynergy
+let wuxingSynergyMult = 1;
 const WUXING_ELEMENT = eval(extractConst('WUXING_ELEMENT'));
 const WUXING_GENERATE = eval(extractConst('WUXING_GENERATE'));
+const WUXING_GENERATE_BONUS = 0.20;
+const WUXING_SPREAD_PENALTY = 0.25;
 function fireQualNodes() {}
 function levelUp() {}
 
@@ -129,7 +133,7 @@ assert(skills.explosive._mods.explIncinerate === 5, '焚身 Lv5 追加5档(15%�
 // 共享模板分支派生（多重/疾速/暴击/穿透）
 skills.explosive.branches = { multiShot: 5 };
 recomputeExplosiveMods();
-assert(skills.explosive._mods.bulletCountBoost === 5, '多重爆裂 Lv5 子弹+5');
+assert(skills.explosive._mods.bulletCountBoost === 5, '多重爆裂 Lv5 子弹+5（每级+1，满级共+5）');
 skills.explosive.branches = { highSpeed: 5 };
 recomputeExplosiveMods();
 assert(Math.abs(skills.explosive._mods.cdReduce - 0.40) < 1e-6, '急速冷却 Lv5 释放 cd 缩短 40%');

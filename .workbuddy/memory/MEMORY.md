@@ -119,3 +119,18 @@
 - **不存在 `wx.openGameClub` API**；微信官方明确限制：打开游戏圈的动作**只能由 `wx.createGameClubButton` 创建的原生按钮点击触发**，自定义（canvas）按钮无法跳转游戏圈。
 - 原生按钮若每帧 `show()`/`destroy()` 会造成微信反复重建原生 TextView/ImageView，报 `insertTextView/updateTextView/insertImageView/updateImageView:fail parent X not found` 并卡顿。**正确做法**：原生视图只创建一次，`show/hide` 由切 Tab/进出菜单事件驱动，**绝不在渲染循环里每帧调用任何 wx 方法**。
 - 若坚持要自定义跳转入口而不用官方按钮：可行替代是 `wx.createPageManager().load({openlink}).show()`，但需后台游戏圈 openlink 配置，依赖配置且仍走原生视图。
+
+## 关卡难度机制（出怪机制，2026-08-12 重做，跨关卡有效）
+- **胜利条件**：固定炮台生存，撑满 5 分钟（GAME_TIME_LIMIT=300000ms）即胜利，血量归零失败。
+- **实测崩溃**（第一关）：1 分半（90s）压力陡增、撑不过。用 `scripts/sim_stage1.js` 忠实模拟复现：纯火力中位数崩盘 113s。
+- **根因 = 全局硬编码的出怪机制，与"撑 5 分钟"胜利条件根本冲突（不是怪物参数问题）**：
+  1. 血量膨胀 `(1 + gameTimeSec/50)`：分母硬编码 50 → 90s=2.8倍、300s=7倍，纯时间函数，与玩家强弱无关（**主矛盾**）。
+  2. 刷怪间隔收窄 `spawnInterval = Math.max(400, spawnInterval-8)`：约 146s 后稳定 444ms（2.25只/秒），远超单体吞吐（**次矛盾**）。
+  3. 玩家升级停滞 `expToLevel=50*1.3^L` 且 exp 不膨胀 → 后期 DPS 停涨，死亡螺旋。
+- **修复框架（per-stage 字段，带默认值兼容旧关）**，在 `spawnZombies` 内读取 `stage.*`：
+  - `stage.hpGrow`（膨胀分母，默认 50）→ 第一关 150（90s 仅 1.6 倍）。
+  - `stage.spawnFloor`（刷怪间隔下限 ms，默认 400）/ `stage.spawnDecay`（每次收窄量，默认 8）→ 第一关 650/4。
+  - 仅第一关填了温和值；**2~6 关未声明这些字段，沿用旧默认 50/400/8，行为完全不变**——后续若玩家反馈 2~6 关难，直接给对应关填字段即可，无需改全局公式。
+- **可选全局缓和**：加速玩家成长 `expToLevel` 基数 50→42、增长 1.3→1.26（v1.1.0 暂未启用，因会波及所有关；若要全局更容易可开启）。
+- **工作流**：难度调整必须**用模拟器驱动**（`scripts/sim_stage1.js` 扫描崩盘中位数），而非凭感觉只调 STAGES 的 spawnMult/healthMult 等表面倍率。模拟器已参数化 hpGrow/spawnFloor/spawnDecay/expBase/expGrow，忠实复制刷怪/膨胀/僵尸 frame-based 移动/贴身掉血/升级逻辑。
+- ⚠️ 模拟器用 frame-based 移动（僵尸 `z.x+=cos*sp` 不乘 dt），screenHeight 默认 2532（物理像素近似）；到达时间随设备变化，但核心矛盾（膨胀+密度 vs 吞吐）与设备无关。

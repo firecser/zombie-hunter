@@ -20,6 +20,8 @@ const screenWidth = 1280, screenHeight = 720;
 let bullets = [], zombies = [{ x: 0, y: 0, radius: 10 }];
 const player = { x: 640, y: 360, gunAngle: 0, damage: 50, bulletSpeed: 10, bulletPiercing: 1, fireRate: 500, _splitOnHit: false };
 const AudioSystem = { playShoot() {}, playZombieDeath() {} };
+const MULTI_BULLET_DMG_PENALTY = 0.15;  // 与 game - 副本.js 常量一致（shootAttribute 引用）
+const WATER_BASE_DMG_MUL = 1.35;        // 与 game - 副本.js 常量一致（shootAttribute 干冰弹基础倍率）
 // 仅需 explosive/freeze/lightning 的 element 与少量分支 effect 供 shootAttribute / recompute 使用
 const SKILL_DEFS = {
   damage:    { type: 'damage', name: '火力强化', element: '物理', branches: {} },
@@ -38,7 +40,7 @@ const skills = {
 
 // cd 常量（模块作用域，供注入的函数可见）+ 函数
 const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
-const ATTR_CD_CFG = { explosive: { base: 6000, min: 3000, step: 100 }, freeze: { base: 10000, min: 4000, step: 200 }, lightning: { base: 4000, min: 3000, step: 50 } };
+const ATTR_CD_CFG = { explosive: { base: 6000, min: 3000, step: 100 }, freeze: { base: 6000, min: 3000, step: 150 }, lightning: { base: 4000, min: 3000, step: 50 } };
 const ATTR_BULLET_BASE_RADIUS = 11, ATTR_BULLET_SPEED_MUL = 0.7;
 eval(extractFn('explosiveMods'));
 eval(extractFn('freezeMods'));
@@ -58,18 +60,18 @@ eval(extractFn('shootAttribute'));
 let FAILED = false;
 function assert(cond, msg) { if (!cond) { console.log('  ✗ FAIL:', msg); FAILED = true; } else console.log('  ✓', msg); }
 
-console.log('== 1. 各属性技能 cd 不同（最长10s / 最短3s）==');
+console.log('== 1. 各属性技能 cd 不同（最长6s / 最短3s）==');
 skills.explosive.level = 0;
 assert(getAttrReleaseCd('explosive') === 6000, '爆炸弹 Lv0 = 6s（base）');
 skills.freeze.level = 0;
-assert(getAttrReleaseCd('freeze') === 10000, '干冰弹 Lv0 = 10s（最长）');
+assert(getAttrReleaseCd('freeze') === 6000, '干冰弹 Lv0 = 6s（原10s过长，已改与火同档，撑起单树进攻）');
 skills.lightning.level = 0;
 assert(getAttrReleaseCd('lightning') === 4000, '闪电链 Lv0 = 4s');
 // 触底到各自下限
 skills.explosive.level = 99;
 assert(getAttrReleaseCd('explosive') === 3000, '爆炸弹 Lv99 触底 3s（最短之一）');
 skills.freeze.level = 99;
-assert(getAttrReleaseCd('freeze') === 4000, '干冰弹 Lv99 触底 4s');
+assert(getAttrReleaseCd('freeze') === 3000, '干冰弹 Lv99 触底 3s（原4s，已随base下调）');
 skills.lightning.level = 99;
 assert(getAttrReleaseCd('lightning') === 3000, '闪电链 Lv99 触底 3s（最短）');
 skills.explosive.level = 5;
