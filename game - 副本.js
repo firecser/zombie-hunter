@@ -1876,12 +1876,13 @@ function drawWall() {
     }
 }
 
-// 绘制城墙血条（比墙体略窄，位于城墙下方，绿色，只显示当前血量数字）
+// 绘制城墙血条（比墙体略窄，整组下沿贴齐城墙下沿，绿色，只显示当前血量数字）
 function drawWallHealthBar() {
     const w = (WALL_X1 - WALL_X0) * 0.84;          // 比墙体略窄
     const x = (WALL_X0 + WALL_X1) / 2 - w / 2;
-    const y = WALL_Y + WALL_HEIGHT + 6;            // 移到城墙下方（怪物在城墙上方，不再遮挡）
     const h = 9;
+    const wallBottom = WALL_Y + WALL_HEIGHT;
+    const y = wallBottom - h - 6;                  // 血条整组下沿贴齐城墙下沿（怪物在城墙上方，不再遮挡）
 
     // 背板
     ctx.fillStyle = 'rgba(8, 20, 36, 0.82)';
@@ -12588,8 +12589,8 @@ function gameLoop() {
             drawZombie(zombie, drawNow);
         }
 
-        drawPlayer();
-        drawWallHealthBar();      // 城墙血条（比墙体略窄，位于城墙下方）
+        drawWallHealthBar();      // 城墙血条（整组下沿贴齐城墙下沿，先画）
+        drawPlayer();             // 坦克绘制于血条上层
         drawDamageNumbers();
         drawUI();
 
@@ -12607,9 +12608,9 @@ function gameLoop() {
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow2);
         }
-        drawPlayer();
         drawWall();
         drawWallHealthBar();
+        drawPlayer();
         drawFields();
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
@@ -12618,9 +12619,9 @@ function gameLoop() {
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow3);
         }
-        drawPlayer();
         drawWall();
         drawWallHealthBar();
+        drawPlayer();
         drawGameOver();
     } else if (gameState === 'victory') {
         drawBackground();
