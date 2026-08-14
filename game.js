@@ -1147,6 +1147,7 @@ let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速�
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
 let electricFields = [];            // 雷弧链「静电场」生成的持续电伤区域
 let logs = [];                      // 滚木（木属性树）生成的持续向上碾压的滚木
+let pendingWoodLogs = [];           // 待释放的滚木队列：错峰依次 spawn，总时长可超过 CD
 let _zombieIdSeq = 0;               // 僵尸唯一 id（滚木按 id 节流每根僵尸的碾压结算）
 const MAX_ICE_FIELDS = 5;           // 同时存在的极寒领域上限（避免大量半透明领域叠加拖垮 Canvas）
 const MAX_ELECTRIC_FIELDS = 5;      // 同时存在的静电场上限
@@ -1262,6 +1263,7 @@ const ATTR_BASE_DMG_MUL = 1.35;
 const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;   // 滚木基础宽度占城墙宽度比例
 const WOOD_LOG_SPEED_MUL = 0.55;          // 滚木速度为属性子弹的 55%（厚重感）
 const WOOD_LOG_THICKNESS = 28;            // 滚木厚度(px)：视觉上是左右展开的圆柱直径，要小，不能粗
+const WOOD_LOG_RELEASE_INTERVAL = 260;    // 多重滚木错峰释放间隔(ms)，总时长可超过 CD
 const WOOD_LOG_HIT_INTERVAL = 280;        // 同一僵尸被同一根滚木碾压的间隔(ms)
 const WOOD_LOG_DMG_FACTOR = 0.55;     // 碾压每击伤害系数（连续碾压，单跳系数低于单次属性子弹）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
@@ -2235,16 +2237,14 @@ function drawLogs() {
             ctx.stroke();
         }
 
-        // 左右端面年轮
+        // 左端面年轮（只露一端横截面；右端被圆柱侧面遮住，不做年轮）
         ctx.globalAlpha = 0.9;
         ctx.fillStyle = '#c9a06a';
         ctx.beginPath(); ctx.arc(x + r, log.y, r * 0.82, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(x + w - r, log.y, r * 0.82, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 0.55;
         ctx.strokeStyle = '#8b5a2b';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(x + r, log.y, r * 0.45, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.arc(x + w - r, log.y, r * 0.45, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -3947,29 +3947,44 @@ function shootWood() {
                  * (1 + 0.08 * (lvl - 1)) * WOOD_LOG_DMG_FACTOR
                  / (1 + MULTI_BULLET_DMG_PENALTY * (count - 1));
 
-    // 单根时对准离墙最近（y 最大）的僵尸，多根时均匀铺满城墙
-    let targetX = screenWidth / 2, bestY = -1;
-    for (const z of zombies) { if (z.y > bestY) { bestY = z.y; targetX = z.x; } }
+    // 与金火水一致：按技能槽位瞄准。第 m 根滚木（m=1..count）瞄「第 n+m-1 个离墙最近」的敌人，n=wood 的槽位
+    const baseSlot = skillSlotOf('wood');
+    const now = Date.now();
 
     for (let i = 0; i < count; i++) {
+        const target = getSlotTarget(baseSlot + i);   // 已自动 clamp 到存在的僵尸数
+        const targetX = target ? target.x : screenWidth / 2;
         const w = Math.min(baseW, wallW);
-        const cx = (count === 1)
-            ? Math.max(w / 2, Math.min(wallW - w / 2, targetX))
-            : wallW * (i + 0.5) / count;
-        logs.push({
-            x: cx, y: WALL_Y, w: w,
-            thick: WOOD_LOG_THICKNESS + (m.pierceBoost || 0) * 5,   // 木刺穿透：滚木略粗（仍然保持细）
-            vy: -speed,
-            dmg: perHit,
-            rebound: !!m.rebound, reboundDmgMul: m.reboundDmgMul || 1,
-            splinterChance: m.splinterChance || 0, splinterDmgMul: m.splinterDmgMul || 1,
-            rootChance: m.rootChance || 0, rootDuration: m.rootDuration || 0,
-            strangleVineBonus: m.strangleVineBonus || 0,
-            thornBurst: !!m.thornBurst, woodSpike: !!m.woodSpike,
-            hitMap: {}, phase: 'up', born: Date.now()
+        const cx = Math.max(w / 2, Math.min(wallW - w / 2, targetX));
+        pendingWoodLogs.push({
+            releaseAt: now + i * WOOD_LOG_RELEASE_INTERVAL,
+            config: {
+                x: cx, y: WALL_Y, w: w,
+                thick: WOOD_LOG_THICKNESS + (m.pierceBoost || 0) * 5,   // 木刺穿透：滚木略粗（仍然保持细）
+                vy: -speed,
+                dmg: perHit,
+                rebound: !!m.rebound, reboundDmgMul: m.reboundDmgMul || 1,
+                splinterChance: m.splinterChance || 0, splinterDmgMul: m.splinterDmgMul || 1,
+                rootChance: m.rootChance || 0, rootDuration: m.rootDuration || 0,
+                strangleVineBonus: m.strangleVineBonus || 0,
+                thornBurst: !!m.thornBurst, woodSpike: !!m.woodSpike,
+                hitMap: {}, phase: 'up', born: now
+            }
         });
     }
     AudioSystem.playShoot();
+}
+
+// 错峰释放待滚木队列：按预定时间把 pending log 移入活动 logs
+function updatePendingWoodLogs() {
+    const now = Date.now();
+    for (let i = pendingWoodLogs.length - 1; i >= 0; i--) {
+        const p = pendingWoodLogs[i];
+        if (now >= p.releaseAt) {
+            logs.push(p.config);
+            pendingWoodLogs.splice(i, 1);
+        }
+    }
 }
 
 // 多重射击 Lv5 质变：子弹首次命中后，在命中点向 6 个方向迸射小弹
@@ -5256,6 +5271,7 @@ function startGame() {
     iceFields = [];
     electricFields = [];
     logs = [];
+    pendingWoodLogs = [];
     
     // 重置炸弹
     bombCount = 0;
@@ -5457,6 +5473,7 @@ function update(dt) {
     updateBullets();
     updateZombies(dt);
     updateFields(dt);
+    updatePendingWoodLogs();
     updateLogs(dt);
     updateParticles();
     updateHitEffects();
