@@ -1085,6 +1085,38 @@ const SKILL_DEFS = {
                     glacialDoom:{ name:'绝对零度',   desc:'对被冻结目标追加 3% 最大生命伤害/级（冰封处决）', reqLevel:5, prereq:['deepFreeze'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.glacialDoomBonus += bl; } }
                   } },
+    wood:       { type:'wood',       name:'滚木',     icon:'🪵', element:'木',   category:'bullet', maxLevel:99, desc:'从城墙底部释放滚木，竖直向上碾压路径上的敌人并造成伤害',
+                  // 木属性树（对应五行中的木）：参考《向僵尸开炮》装甲车，改造为从城墙滚出的巨木
+                  // 共享模板分支与火/水/金同名同结构；木专属分支围绕「生长碾压 · 藤蔓定身 · 荆棘处决 · 回弹/碎木」
+                  apply(lv){},
+                  branches: {
+                    // —— 通用「属性树共享模板」（与火/水/金同名同结构）——
+                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+5，单根伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.bulletCountBoost += bl; } },
+                    highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
+                    crit:       { name:'荆棘暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发荆棘迸发', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.thornBurst = true; } },
+                    pierce:     { name:'木刺穿透', desc:'滚木长度 +15/级；满级命中溅射木刺',    reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.woodSpike = true; } },
+                    // —— 木专属分支 ——
+                    // 巨木 / 连发滚木 同档(Lv2)互斥：少而宽+重伤害 vs 多而窄+覆盖面
+                    giantLog:   { name:'巨木',       desc:'滚木宽度+12%/级、伤害+12%/级（向 1/2 城墙宽度成长）', reqLevel:2, prereq:[], mutex:['rapidLog'], maxLevel:5,
+                                  effect(bl,m){ m.logWidthMul *= Math.pow(1.12, bl); m.logDmgMul *= Math.pow(1.12, bl); } },
+                    rapidLog:   { name:'连发滚木',   desc:'滚木数量+1/级，单根伤害-18%/级',       reqLevel:2, prereq:[], mutex:['giantLog'], maxLevel:5,
+                                  effect(bl,m){ m.logCountBoost += bl; m.logDmgMul *= Math.pow(0.82, bl); } },
+                    // 深根：木系硬控（定身 = stun），也是 Lv5 绞杀藤蔓的状态钩子
+                    deepRoot:   { name:'深根',       desc:'滚木命中 20%/级 概率使敌人定身 0.4s+0.1s/级', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.rootChance += 0.20 * bl; m.rootDuration += 400 + 100 * bl; } },
+                    // 回弹 / 碎木飞溅 同档(Lv4)互斥：二次 passage vs 消失 AoE
+                    rebound:    { name:'回弹',       desc:'滚木到达顶端后回弹一次，回弹伤害+20%/级', reqLevel:4, prereq:[], mutex:['splinter'], maxLevel:5,
+                                  effect(bl,m){ m.rebound = true; m.reboundDmgMul *= Math.pow(1.20, bl); } },
+                    splinter:   { name:'碎木飞溅',   desc:'滚木消失时 30%/级 概率炸裂，对周围敌人造成伤害', reqLevel:4, prereq:[], mutex:['rebound'], maxLevel:5,
+                                  effect(bl,m){ m.splinterChance += 0.30 * bl; m.splinterDmgMul *= Math.pow(1.25, bl); } },
+                    // Lv5 质变：绞杀藤蔓（对标火·焚身 / 水·绝对零度 / 金·超导）—— 对被定身目标追加最大生命%伤害
+                    strangleVine:{ name:'绞杀藤蔓',  desc:'对被定身目标追加 3% 最大生命伤害/级', reqLevel:5, prereq:['deepRoot'], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.strangleVineBonus += bl; } }
+                  } },
     // 注：战场部署 / 聚怪类（地雷 · 油渍 · 龙卷风）已于 v1.1.16 移除，待五行技能树（含土 / 木）补全后再评估是否回归。
 };
 
@@ -1114,6 +1146,8 @@ let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
 let electricFields = [];            // 雷弧链「静电场」生成的持续电伤区域
+let logs = [];                      // 滚木（木属性树）生成的持续向上碾压的滚木
+let _zombieIdSeq = 0;               // 僵尸唯一 id（滚木按 id 节流每根僵尸的碾压结算）
 const MAX_ICE_FIELDS = 5;           // 同时存在的极寒领域上限（避免大量半透明领域叠加拖垮 Canvas）
 const MAX_ELECTRIC_FIELDS = 5;      // 同时存在的静电场上限
 const MAX_PARTICLES = 250;          // 全局粒子数上限（超出时移除最旧）
@@ -1192,6 +1226,15 @@ function lightningMods() {
         empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE,
         superConductorDmgMul: 0, superConductorCountBoost: 0, superConductorMaxHp: 0, thunderStrike: false };
 }
+function woodMods() {
+    return (skills.wood && skills.wood._mods) ? skills.wood._mods
+    : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, woodSpike: false, cdReduce: 0, canSplit: false,
+        logWidthMul: 1, logDmgMul: 1, logCountBoost: 0,
+        rootChance: 0, rootDuration: 0,
+        rebound: false, reboundDmgMul: 1,
+        splinterChance: 0, splinterDmgMul: 1,
+        strangleVineBonus: 0, thornBurst: false };
+}
 
 // ==================== 属性技能独立释放 CD（不受火力强化射速影响）====================
 // 每个「子弹类」属性技能（爆炸/干冰/闪电链）按自身 cd 独立释放子弹；
@@ -1201,10 +1244,11 @@ function lightningMods() {
 const ATTR_CD_CFG = {
     explosive: { base: 6000,  min: 3000, step: 100 },   // 火：6s → 3s
     freeze:    { base: 6000,  min: 3000, step: 150 },   // 水：6s → 3s（原 10s→4s 过长，单树冰撑不起主输出；改为与火同档）
-    lightning: { base: 4000,  min: 3000, step: 50 }     // 金：4s → 3s（最短）
+    lightning: { base: 4000,  min: 3000, step: 50 },    // 金：4s → 3s（最短）
+    wood:      { base: 6500,  min: 3500, step: 120 }    // 木：6.5s → 3.5s（滚木为线型 AoE，略长 CD 平衡厚重碾压）
 };
 // 子弹类属性技能列表：按自身 cd 释放，与基础武器（火力强化）完全独立
-const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning'];
+const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning', 'wood'];
 // 属性子弹相对普通子弹的「默认」参数：飞得更慢、个头更大（普通子弹 radius=6、speed=player.bulletSpeed）
 const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
 const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（属性技能不再提速子弹，释放 cd 缩短由「急速冷却」分支负责）
@@ -1214,11 +1258,18 @@ const MULTI_BULLET_DMG_PENALTY = 0.15;
 // 五行弹道标配基础伤害倍率：五行技能（非物理火力强化）基础直伤 +35%，作为五行压制的一部分；
 // 原仅干冰弹独有，v1.1.16 起成为所有五行弹道的标配（火/金/水/木/土 一致）。
 const ATTR_BASE_DMG_MUL = 1.35;
+// 滚木（木属性树）参数：基础宽度占城墙宽 1/4，由「巨木」分支向 1/2 成长；厚重慢速、碾压间隔控制 DPS
+const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;   // 滚木基础宽度占城墙宽度比例
+const WOOD_LOG_SPEED_MUL = 0.55;          // 滚木速度为属性子弹的 55%（厚重感）
+const WOOD_LOG_LENGTH = 90;               // 滚木视觉长度(px)
+const WOOD_LOG_HIT_INTERVAL = 280;        // 同一僵尸被同一根滚木碾压的间隔(ms)
+const WOOD_LOG_DMG_FACTOR = 0.55;     // 碾压每击伤害系数（连续碾压，单跳系数低于单次属性子弹）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
     if (type === 'freeze')    return freezeMods();
     if (type === 'lightning') return lightningMods();
+    if (type === 'wood')      return woodMods();
     return null;
 }
 // 由子弹的 skillType 取其实时修正（基础物理弹返回空表，不触发任何属性效果）
@@ -1385,6 +1436,30 @@ function recomputeLightningMods() {
     if (skills.lightning) skills.lightning._mods = m;
 }
 
+// 由已选分支派生 滚木（木属性树）的实时修正（生长/定身/回弹/碎木/绞杀藤蔓）；每次选分支/开局重算
+function recomputeWoodMods() {
+    const b = (skills.wood && skills.wood.branches) || {};
+    const def = SKILL_DEFS.wood;
+    const m = {
+        // 共享模板
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, woodSpike: false, cdReduce: 0, canSplit: false,
+        // 木专属
+        logWidthMul: 1, logDmgMul: 1, logCountBoost: 0,
+        rootChance: 0, rootDuration: 0,
+        rebound: false, reboundDmgMul: 1,
+        splinterChance: 0, splinterDmgMul: 1,
+        strangleVineBonus: 0, thornBurst: false
+    };
+    for (const bid in b) {
+        const bl = b[bid];
+        if (!bl) continue;
+        const bd = def.branches[bid];
+        if (bd && bd.effect) bd.effect(bl, m);
+        if (bid === 'multiShot' && bl >= 5) m.canSplit = true;   // 多重 Lv5 质变：命中分裂（与子弹数公式解耦）
+    }
+    if (skills.wood) skills.wood._mods = m;
+}
+
 // ==================== 五行系统（金木水火土）====================
 // 任意伤害元素 → 五行（保留雷/风等旧标签的向下兼容）
 const WUXING_ELEMENT = {
@@ -1456,7 +1531,8 @@ function getBulletElement() {
     if (skills.freeze && skills.freeze.level > 0) scores['水'] = skills.freeze.level;
     if (skills.explosive && skills.explosive.level > 0) scores['火'] = skills.explosive.level;
     if (skills.lightning && skills.lightning.level > 0) scores['金'] = skills.lightning.level;
-    // 木（龙卷风已移除，待木属性技能树接入）/ 土属性（未来）
+    if (skills.wood && skills.wood.level > 0)       scores['木'] = skills.wood.level;
+    // 土属性（未来）
     let best = '物理', bestScore = 0;
     const priority = ['水', '火', '金', '木', '土'];
     for (const wx of priority) {
@@ -1465,9 +1541,9 @@ function getBulletElement() {
     return best;
 }
 
-// 聚合所有属性树的共享模板修正（火/水等属性树都有 multiShot/highSpeed/crit/pierce）
+// 聚合所有属性树的共享模板修正（火/水/金/木属性树都有 multiShot/highSpeed/crit/pierce）
 function attributeMods() {
-    const all = [skills.explosive && skills.explosive._mods, skills.freeze && skills.freeze._mods];
+    const all = [skills.explosive && skills.explosive._mods, skills.freeze && skills.freeze._mods, skills.lightning && skills.lightning._mods, skills.wood && skills.wood._mods];
     const out = { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0 };
     for (const m of all) {
         if (!m) continue;
@@ -2101,6 +2177,38 @@ function drawFields() {
         ctx.drawImage(tex, f.x - f.radius, f.y - f.radius, f.radius * 2, f.radius * 2);
     }
 
+    drawLogs();
+
+    ctx.globalAlpha = 1;
+}
+
+// 滚木绘制（木属性树）：绿色木质矩形 + 木纹 + 年轮端头
+function drawLogs() {
+    if (logs.length === 0) return;
+    ctx.save();
+    for (const log of logs) {
+        const x = log.x - log.w / 2, y = log.y - log.len / 2;
+        ctx.globalAlpha = 0.9;
+        const grd = ctx.createLinearGradient(x, 0, x + log.w, 0);
+        grd.addColorStop(0, '#2f7d3a');
+        grd.addColorStop(0.5, '#46d35a');
+        grd.addColorStop(1, '#2f7d3a');
+        ctx.fillStyle = grd;
+        ctx.fillRect(x, y, log.w, log.len);
+        // 木纹横线
+        ctx.globalAlpha = 0.3;
+        ctx.strokeStyle = '#1f5a28';
+        ctx.lineWidth = 2;
+        for (let ly = y + 10; ly < y + log.len; ly += 14) {
+            ctx.beginPath(); ctx.moveTo(x + 3, ly); ctx.lineTo(x + log.w - 3, ly); ctx.stroke();
+        }
+        // 顶/底年轮端头
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = '#c9a06a';
+        ctx.beginPath(); ctx.ellipse(log.x, y, log.w / 2, 6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(log.x, y + log.len, log.w / 2, 6, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
     ctx.globalAlpha = 1;
 }
 
@@ -3689,7 +3797,7 @@ function drawUpgradeList() {
 // 计算某技能应瞄准的角度：打「离墙第 n 近」的可射击怪物。
 // n = 该技能在技能树中的解锁顺序（普通子弹占第 1 槽，之后按解锁先后递增）。
 // 离墙距离相同则进一步比较离坦克距离，取更近者。不足 n 个时取最靠后者兜底。
-function aimAngleForSlot(n) {
+function getSlotTarget(n) {
     const shootable = [];
     for (const z of zombies) {
         if (!zombieShootable(z)) continue;
@@ -3699,8 +3807,11 @@ function aimAngleForSlot(n) {
     }
     if (shootable.length === 0) return null;
     shootable.sort((a, b) => (a.wallDist - b.wallDist) || (a.playerDist - b.playerDist));
-    const target = shootable[Math.min(n - 1, shootable.length - 1)].z;
-    return Math.atan2(target.y - player.y, target.x - player.x);
+    return shootable[Math.min(n - 1, shootable.length - 1)].z;
+}
+function aimAngleForSlot(n) {
+    const target = getSlotTarget(n);
+    return target ? Math.atan2(target.y - player.y, target.x - player.x) : null;
 }
 
 // 技能槽序号：普通子弹(damage)=1，其余按技能树解锁顺序递增（acquiredSkills 即解锁顺序数组）
@@ -3735,9 +3846,15 @@ function shootBase() {
     });
 }
 
-// 属性技能（爆炸/干冰/闪电链）：按自身 cd 独立释放的子弹；吃本树分支、完全不吃火力强化射速
+// 属性技能（爆炸/干冰/闪电链/滚木）：按自身 cd 独立释放；吃本树分支、完全不吃火力强化射速
 function shootAttribute(type) {
     if (zombies.length === 0) return;
+
+    // 滚木（木属性树）使用独立弹道系统：从城墙底部竖直向上碾压
+    if (type === 'wood') {
+        shootWood();
+        return;
+    }
 
     // 播放射击音效
     AudioSystem.playShoot();
@@ -3775,6 +3892,46 @@ function shootAttribute(type) {
             hitZombies: []
         });
     }
+}
+
+// 滚木（木属性树）：从城墙底部竖直向上释放，碾压路径上的敌人
+// 设计为独立弹道系统（非普通子弹）：从城墙底部 spawn、竖直向上、水平矩形 hitbox 一路碾压
+function shootWood() {
+    if (zombies.length === 0) return;
+    const m = woodMods();
+    const wallW = screenWidth;
+    const baseW = wallW * WOOD_LOG_BASE_WIDTH_RATIO * m.logWidthMul;   // 基础 1/4 城墙宽，巨木向 1/2 成长
+    const count = 1 + (m.bulletCountBoost || 0) + (m.logCountBoost || 0);   // 多重滚木 + 连发滚木
+    const speed = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * WOOD_LOG_SPEED_MUL * (m.speedMul || 1);  // 厚重慢速
+    const lvl = Math.max(1, skills.wood.level || 1);
+    // 单根每击伤害：五行标配 +35% × 木专属(logDmgMul) × 基础技能等级成长；多根按多重系数衰减避免无脑碾压
+    const perHit = player.damage * ATTR_BASE_DMG_MUL * m.logDmgMul
+                 * (1 + 0.08 * (lvl - 1)) * WOOD_LOG_DMG_FACTOR
+                 / (1 + MULTI_BULLET_DMG_PENALTY * (count - 1));
+
+    // 单根时对准离墙最近（y 最大）的僵尸，多根时均匀铺满城墙
+    let targetX = screenWidth / 2, bestY = -1;
+    for (const z of zombies) { if (z.y > bestY) { bestY = z.y; targetX = z.x; } }
+
+    for (let i = 0; i < count; i++) {
+        const w = Math.min(baseW, wallW);
+        const cx = (count === 1)
+            ? Math.max(w / 2, Math.min(wallW - w / 2, targetX))
+            : wallW * (i + 0.5) / count;
+        logs.push({
+            x: cx, y: WALL_Y, w: w,
+            len: WOOD_LOG_LENGTH + (m.pierceBoost || 0) * 15,   // 木刺穿透：滚木更长
+            vy: -speed,
+            dmg: perHit,
+            rebound: !!m.rebound, reboundDmgMul: m.reboundDmgMul || 1,
+            splinterChance: m.splinterChance || 0, splinterDmgMul: m.splinterDmgMul || 1,
+            rootChance: m.rootChance || 0, rootDuration: m.rootDuration || 0,
+            strangleVineBonus: m.strangleVineBonus || 0,
+            thornBurst: !!m.thornBurst, woodSpike: !!m.woodSpike,
+            hitMap: {}, phase: 'up', born: Date.now()
+        });
+    }
+    AudioSystem.playShoot();
 }
 
 // 多重射击 Lv5 质变：子弹首次命中后，在命中点向 6 个方向迸射小弹
@@ -4180,6 +4337,23 @@ function createSlowEffect(x, y) {
     }
 }
 
+function createRootEffect(x, y) {
+    hitEffects.push({ x, y, type: 'root', life: 360, maxLife: 360, rot: Math.random() * Math.PI });
+    for (let i = 0; i < 7; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 1.5 + Math.random() * 2;
+        addParticle({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, radius: Math.random() * 3 + 2, life: 340, color: i % 2 ? '#7fe08a' : '#46d35a' });
+    }
+}
+
+function createWoodSplinterEffect(x, y) {
+    for (let i = 0; i < 14; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 3 + Math.random() * 5;
+        addParticle({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, radius: Math.random() * 4 + 2, life: 420, color: i % 2 ? '#a9763f' : '#46d35a' });
+    }
+}
+
 function updateHitEffects() {
     for (let i = hitEffects.length - 1; i >= 0; i--) {
         hitEffects[i].life -= 16;
@@ -4234,6 +4408,21 @@ function drawHitEffects() {
             ctx.beginPath();
             ctx.ellipse(0, 12 * (1 - p) - 6, 34 * grow, 12 * grow, 0, 0, Math.PI * 2);
             ctx.stroke();
+        } else if (e.type === 'root') {
+            // 深根（定身）：绿色藤蔓环
+            ctx.rotate(e.rot + (1 - p) * 0.6);
+            ctx.strokeStyle = '#46d35a';
+            ctx.lineWidth = 3;
+            const R = 16 * grow;
+            for (let k = 0; k < 5; k++) {
+                ctx.save();
+                ctx.rotate(k * Math.PI * 2 / 5);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(R * 0.3, -R * 0.5, 0, -R);
+                ctx.stroke();
+                ctx.restore();
+            }
         } else {
             // 减速：冰蓝黏滞波纹（与干冰弹水属性同色）
             ctx.strokeStyle = '#37c6ff';
@@ -4453,6 +4642,74 @@ function updateFields(dt) {
     }
 }
 
+// 滚木（木属性树）：竖直向上碾压，矩形 hitbox 命中路径上所有僵尸（WOOD_LOG_HIT_INTERVAL 节流）
+function updateLogs(dt) {
+    const now = Date.now();
+    const frame = dt || 16;
+    for (let i = logs.length - 1; i >= 0; i--) {
+        const log = logs[i];
+        log.y += log.vy * (frame / 16);   // vy 为负=向上；按 dt 归一化到 px/帧
+        const top = log.y - log.len / 2, bot = log.y + log.len / 2;
+        const wm = woodMods();
+        for (const z of zombies) {
+            if (z.x < log.x - log.w / 2 || z.x > log.x + log.w / 2) continue;   // 不在横向带内
+            if (z.y + z.radius < top || z.y - z.radius > bot) continue;          // 不在纵向长度内
+            const last = log.hitMap[z.id] || 0;
+            if (now - last < WOOD_LOG_HIT_INTERVAL) continue;                    // 节流，避免单帧连击
+            log.hitMap[z.id] = now;
+            // 暴击（荆棘暴击分支提供概率/倍率，受暴击天赋增益）
+            const isCrit = Math.random() < getCritChance(wm);
+            let dmg = log.dmg * (isCrit ? getCritMult(wm) : 1);
+            if (log.phase === 'down') dmg *= log.reboundDmgMul;   // 回弹阶段伤害增幅
+            damageZombie(z, dmg, isCrit, '木');
+            if (z.health <= 0) continue;
+            // 深根（定身 = stun）：木系硬控，也是绞杀藤蔓的状态钩子
+            if (log.rootChance > 0 && Math.random() < log.rootChance) {
+                z.stunUntil = Math.max(z.stunUntil || 0, now + log.rootDuration);
+                createRootEffect(z.x, z.y);
+            }
+            // 绞杀藤蔓（Lv5 质变）：对被定身目标追加最大生命%伤害（对标火·焚身/水·绝对零度/金·超导）
+            if (log.strangleVineBonus > 0 && z.stunUntil > now) {
+                damageZombie(z, z.maxHealth * 0.03 * log.strangleVineBonus, false, '木');
+                if (z.health <= 0) continue;
+            }
+            // 荆棘暴击 Lv5：暴击触发荆棘迸发（范围溅射）
+            if (isCrit && log.thornBurst) {
+                createCritEffect(z.x, z.y);
+                for (const o of zombies) {
+                    if (o !== z && Math.hypot(z.x - o.x, z.y - o.y) < 45) damageZombie(o, player.damage * 0.25, false, '木');
+                }
+            }
+            // 木刺穿透 Lv5：命中溅射木刺
+            if (log.woodSpike) {
+                for (const o of zombies) {
+                    if (o !== z && Math.hypot(z.x - o.x, z.y - o.y) < 30) damageZombie(o, player.damage * 0.2, false, '木');
+                }
+            }
+        }
+        // 生命周期：到达顶端
+        if (log.phase === 'up' && log.y + log.len / 2 < 0) {
+            if (log.rebound) { log.phase = 'down'; log.vy = -log.vy; }   // 回弹（互斥于碎木）
+            else { expireLog(log); logs.splice(i, 1); }
+        } else if (log.phase === 'down' && log.y - log.len / 2 > WALL_Y + 10) {
+            logs.splice(i, 1);   // 回弹到底（互斥于碎木，不再炸裂）
+        }
+    }
+}
+
+// 滚木消失（非回弹路线）：碎木飞溅，概率炸裂对周围敌人造成伤害
+function expireLog(log) {
+    if (log.splinterChance > 0 && Math.random() < log.splinterChance) {
+        const r = 75;
+        createWoodSplinterEffect(log.x, Math.max(0, log.y));
+        for (const z of zombies) {
+            if (Math.hypot(log.x - z.x, log.y - z.y) < r + z.radius) {
+                damageZombie(z, player.damage * 0.5 * log.splinterDmgMul, false, '木');
+            }
+        }
+    }
+}
+
 // 更新粒子
 function updateParticles() {
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -4586,6 +4843,7 @@ function updatePendingSpawns() {
             healthMult = (1 + (gameTime / 1000) / (stage.hpGrow || 50)) * stage.healthMult;
         }
         zombies.push({
+            id: _zombieIdSeq++,
             x: Math.random() * screenWidth,
             y: -50,
             element: p.zElement || 'normal',
@@ -4745,6 +5003,7 @@ function applyUpgrade(upgrade) {
         else if (upgrade.type === 'explosive') recomputeExplosiveMods();
         else if (upgrade.type === 'freeze') recomputeFreezeMods();
         else if (upgrade.type === 'lightning') recomputeLightningMods();
+        else if (upgrade.type === 'wood') recomputeWoodMods();
     }
 
     // 五行相生协同：获得/升级任何技能后重新计算
@@ -4937,6 +5196,7 @@ function startGame() {
     recomputeExplosiveMods();
     recomputeFreezeMods();
     recomputeLightningMods();
+    recomputeWoodMods();
     // 五行相生协同：开局按初始已拥有技能计算
     recomputeWuxingSynergy();
     talentMods.deathrayTimer = 0;
@@ -4957,6 +5217,7 @@ function startGame() {
     // 清空五行领域状态（战场部署/聚怪类已于 v1.1.16 移除）
     iceFields = [];
     electricFields = [];
+    logs = [];
     
     // 重置炸弹
     bombCount = 0;
@@ -5017,6 +5278,7 @@ function spawnInitialAdZombies() {
         const healthMult = stage.healthMult;
 
         zombies.push({
+            id: _zombieIdSeq++,
             x: x,
             y: y,
             radius: template.radius,
@@ -5157,6 +5419,7 @@ function update(dt) {
     updateBullets();
     updateZombies(dt);
     updateFields(dt);
+    updateLogs(dt);
     updateParticles();
     updateHitEffects();
     updateOrbs();
