@@ -1123,6 +1123,41 @@ const SKILL_DEFS = {
                     strangleVine:{ name:'绞杀藤蔓',  desc:'对被定身目标追加 3% 最大生命伤害/级', reqLevel:5, prereq:['deepRoot'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.strangleVineBonus += bl; } }
                   } },
+    earth:      { type:'earth',      name:'地裂弹',   icon:'🪨', element:'土',   category:'bullet', maxLevel:99, desc:'发射直线穿透的岩刺，命中可留下岩盾阻挡敌人',
+                  // 土属性树（对应五行中的土）：参考《向僵尸开炮》冰暴发生器，把冰主题改为土主题；
+                  // 核心机制：① 岩刺直线穿透（共享 pierce + 专属裂地穿刺强化贯穿伤害）；② 岩盾（临时屏障挡敌人路径、有血量、会被攻击）。
+                  apply(lv){},
+                  branches: {
+                    // —— 通用「属性树共享模板」（与火/水/金/木同名同结构）——
+                    multiShot:  { name:'多重岩刺', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.bulletCountBoost += bl; } },
+                    highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
+                    crit:       { name:'岩心暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发碎岩迸发', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.rockBurst = true; } },
+                    pierce:     { name:'地刺贯穿', desc:'岩刺命中宽度+15%/级（穿刺线更宽）；满级命中溅射岩片', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.earthHitRadiusMul *= Math.pow(1.15, bl); if (bl >= 5) m.rockShard = true; } },
+                    // —— 土专属分支 ——
+                    // 裂地穿刺：强化岩刺的贯穿伤害与视觉长度（土系输出核心）
+                    fissure:    { name:'裂地穿刺', desc:'穿透伤害+20%/级，岩刺长度+10%/级',       reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.fissureDmgMul *= Math.pow(1.20, bl); m.earthLineLengthMul *= Math.pow(1.10, bl); } },
+                    // 岩盾：命中概率留下临时屏障，阻挡并承受敌人攻击（土系防御核心）
+                    rockShield: { name:'岩盾',       desc:'命中 20%/级 概率留下岩盾（持续 3s，可阻挡并承受敌人攻击）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.shieldChance += 0.20 * bl; m.shieldHpMul *= Math.pow(1.25, bl); m.shieldDuration += 800 * bl; m.shieldWidthMul *= Math.pow(1.08, bl); } },
+                    // 震地 / 陷坑 同档(Lv3)互斥：爆发硬控路线 vs 聚怪控制路线
+                    quake:      { name:'震地',       desc:'命中 25%/级 概率引发震地，范围伤害+5%/级并眩晕 0.15s/级', reqLevel:3, prereq:[], mutex:['sinkhole'], maxLevel:5,
+                                  effect(bl,m){ m.quakeChance += 0.25 * bl; m.quakeDmgMul *= Math.pow(1.05, bl); m.quakeRadius += 4 * bl; m.quakeStunDur += 150 * bl; } },
+                    sinkhole:   { name:'陷坑',       desc:'命中 25%/级 概率产生陷坑，将周围敌人向命中点牵引', reqLevel:3, prereq:[], mutex:['quake'], maxLevel:5,
+                                  effect(bl,m){ m.sinkholeChance += 0.25 * bl; m.sinkholeRadius += 30 * bl; m.sinkholePull += 25 * bl; } },
+                    // 石化 / 碎甲 同档(Lv4)互斥：硬控路线 vs 爆发增幅路线（石化可继续点山崩 Lv5）
+                    petrify:    { name:'石化',       desc:'命中 12%/级 概率石化（眩晕）敌人 0.25s/级', reqLevel:4, prereq:[], mutex:['armorCrush'], maxLevel:5,
+                                  effect(bl,m){ m.petrifyChance += 0.12 * bl; m.petrifyDuration += 250 * bl; } },
+                    armorCrush: { name:'碎甲',       desc:'被岩刺命中的敌人受伤+2%/级',            reqLevel:4, prereq:[], mutex:['petrify'], maxLevel:5,
+                                  effect(bl,m){ m.armorCrush = true; m.armorCrushF += 0.02 * bl; } },
+                    // Lv5 质变：山崩（对标火·焚身 / 水·绝对零度 / 金·超导）—— 对被石化目标追加最大生命%伤害
+                    landslide:  { name:'山崩',       desc:'对石化目标追加 3% 最大生命伤害/级',     reqLevel:5, prereq:['petrify'], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.landslideBonus += bl; } }
+                  } },
     // 注：战场部署 / 聚怪类（地雷 · 油渍 · 龙卷风）已于 v1.1.16 移除，待五行技能树（含土 / 木）补全后再评估是否回归。
 };
 
@@ -1133,7 +1168,7 @@ for (const _t in SKILL_DEFS) {
     skills[_t] = { level: 0, name: _d.name, icon: _d.icon, desc: _d.desc, element: _d.element, category: _d.category, maxLevel: _d.maxLevel };
 }
 
-const MAX_SKILLS = 5;
+const MAX_SKILLS = 6;          // damage + 火/水/金/木/土 五属性树，共 6 槽
 let acquiredSkills = ['damage'];
 
 // 灼烧(引燃/油渍)的固定持续时长（毫秒）：引燃只增伤不延长，故为常量
@@ -1154,6 +1189,7 @@ let iceFields = [];                 // 干冰弹「极寒领域」生成的持�
 let electricFields = [];            // 闪电链「静电场」生成的持续电伤区域
 let logs = [];                      // 滚木（木属性树）生成的持续向上碾压的滚木
 let pendingWoodLogs = [];           // 待释放的滚木队列：错峰依次 spawn，总时长可超过 CD
+let earthShields = [];              // 地裂弹（土属性树）岩盾：临时屏障，阻挡敌人并被攻击
 let _zombieIdSeq = 0;               // 僵尸唯一 id（滚木按 id 节流每根僵尸的碾压结算）
 const MAX_ICE_FIELDS = 5;           // 同时存在的极寒领域上限（避免大量半透明领域叠加拖垮 Canvas）
 const MAX_ELECTRIC_FIELDS = 5;      // 同时存在的静电场上限
@@ -1242,6 +1278,17 @@ function woodMods() {
         splinterChance: 0, splinterDmgMul: 1,
         strangleVineBonus: 0, thornBurst: false };
 }
+function earthMods() {
+    return (skills.earth && skills.earth._mods) ? skills.earth._mods
+    : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, rockBurst: false, cdReduce: 0, canSplit: false, rockShard: false,
+        fissureDmgMul: 1, earthLineLengthMul: 1, earthHitRadiusMul: 1,
+        shieldChance: 0, shieldHpMul: 1, shieldDuration: 0, shieldWidthMul: 1,
+        quakeChance: 0, quakeDmgMul: 1, quakeRadius: 0, quakeStunDur: 0,
+        sinkholeChance: 0, sinkholeRadius: 0, sinkholePull: 0,
+        petrifyChance: 0, petrifyDuration: 0,
+        armorCrush: false, armorCrushF: 0,
+        landslideBonus: 0 };
+}
 
 // ==================== 属性技能独立释放 CD（不受火力强化射速影响）====================
 // 每个「子弹类」属性技能（爆炸/干冰/闪电链）按自身 cd 独立释放子弹；
@@ -1252,10 +1299,11 @@ const ATTR_CD_CFG = {
     explosive: { base: 6000,  min: 3000, step: 100 },   // 火：6s → 3s
     freeze:    { base: 6000,  min: 3000, step: 150 },   // 水：6s → 3s（原 10s→4s 过长，单树冰撑不起主输出；改为与火同档）
     lightning: { base: 4000,  min: 3000, step: 50 },    // 金：4s → 3s（最短）
-    wood:      { base: 6500,  min: 3500, step: 120 }    // 木：6.5s → 3.5s（滚木为线型 AoE，略长 CD 平衡厚重碾压）
+    wood:      { base: 6500,  min: 3500, step: 120 },   // 木：6.5s → 3.5s（滚木为线型 AoE，略长 CD 平衡厚重碾压）
+    earth:     { base: 5000,  min: 3000, step: 80 }     // 土：5s → 3s（穿透+盾牌综合，CD 居中）
 };
 // 子弹类属性技能列表：按自身 cd 释放，与基础武器（火力强化）完全独立
-const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning', 'wood'];
+const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning', 'wood', 'earth'];
 // 属性子弹相对普通子弹的「默认」参数：飞得更慢、个头更大（普通子弹 radius=6、speed=player.bulletSpeed）
 const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
 const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（属性技能不再提速子弹，释放 cd 缩短由「急速冷却」分支负责）
@@ -1276,12 +1324,21 @@ const WOOD_LOG_DMG_FACTOR = 0.47;     // 碾压每击伤害系数（连续碾压
 const WOOD_SPLINTER_INTERVAL = 600;   // 碎木飞溅炸裂间隔(ms)
 const WOOD_SPLINTER_RADIUS = 70;      // 碎木飞溅爆炸半径(px)
 const WOOD_SPLINTER_DMG = 0.25;       // 碎木飞溅每发伤害系数（占 player.damage 比例）
+// 土系（地裂弹）参数：岩刺直线穿透 + 岩盾阻挡
+const EARTH_DMG_FACTOR = 2.15;        // 岩刺基础伤害系数（相对其他五行子弹，平衡直线穿透+岩盾综合输出；与 sim_dps.js 同步）
+const EARTH_BASE_PIERCE = 1;          // 地裂弹基础额外穿透（在 player.bulletPiercing 之上再加，体现“直线穿刺”身份）
+const EARTH_SHIELD_BASE_HP = 80;      // 岩盾基础血量（按 player.damage 比例：hp = player.damage * 该系数）
+const EARTH_SHIELD_BASE_WIDTH = 90;   // 岩盾基础宽度(px)
+const EARTH_SHIELD_BASE_DURATION = 3000; // 岩盾基础持续时间(ms)
+const EARTH_SHIELD_MAX_COUNT = 4;     // 场上岩盾数量上限（防铺满）
+const EARTH_SHIELD_ATTACK_INTERVAL = 500; // 敌人啄盾攻击间隔(ms)，同城墙啄墙
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
     if (type === 'freeze')    return freezeMods();
     if (type === 'lightning') return lightningMods();
     if (type === 'wood')      return woodMods();
+    if (type === 'earth')     return earthMods();
     return null;
 }
 // 由子弹的 skillType 取其实时修正（基础物理弹返回空表，不触发任何属性效果）
@@ -1473,6 +1530,32 @@ function recomputeWoodMods() {
     if (skills.wood) skills.wood._mods = m;
 }
 
+// 由已选分支派生 地裂弹（土属性树）的实时修正（穿透/岩盾/震地/陷坑/石化/碎甲/山崩）；每次选分支/开局重算
+function recomputeEarthMods() {
+    const b = (skills.earth && skills.earth.branches) || {};
+    const def = SKILL_DEFS.earth;
+    const m = {
+        // 共享模板
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0, rockBurst: false, cdReduce: 0, canSplit: false, rockShard: false,
+        // 土专属
+        fissureDmgMul: 1, earthLineLengthMul: 1, earthHitRadiusMul: 1,
+        shieldChance: 0, shieldHpMul: 1, shieldDuration: 0, shieldWidthMul: 1,
+        quakeChance: 0, quakeDmgMul: 1, quakeRadius: 0, quakeStunDur: 0,
+        sinkholeChance: 0, sinkholeRadius: 0, sinkholePull: 0,
+        petrifyChance: 0, petrifyDuration: 0,
+        armorCrush: false, armorCrushF: 0,
+        landslideBonus: 0
+    };
+    for (const bid in b) {
+        const bl = b[bid];
+        if (!bl) continue;
+        const bd = def.branches[bid];
+        if (bd && bd.effect) bd.effect(bl, m);
+        if (bid === 'multiShot' && bl >= 5) m.canSplit = true;   // 多重 Lv5 质变：命中分裂
+    }
+    if (skills.earth) skills.earth._mods = m;
+}
+
 // ==================== 五行系统（金木水火土）====================
 // 任意伤害元素 → 五行（保留雷/风等旧标签的向下兼容）
 const WUXING_ELEMENT = {
@@ -1545,7 +1628,7 @@ function getBulletElement() {
     if (skills.explosive && skills.explosive.level > 0) scores['火'] = skills.explosive.level;
     if (skills.lightning && skills.lightning.level > 0) scores['金'] = skills.lightning.level;
     if (skills.wood && skills.wood.level > 0)       scores['木'] = skills.wood.level;
-    // 土属性（未来）
+    if (skills.earth && skills.earth.level > 0)     scores['土'] = skills.earth.level;
     let best = '物理', bestScore = 0;
     const priority = ['水', '火', '金', '木', '土'];
     for (const wx of priority) {
@@ -1554,9 +1637,9 @@ function getBulletElement() {
     return best;
 }
 
-// 聚合所有属性树的共享模板修正（火/水/金/木属性树都有 multiShot/highSpeed/crit/pierce）
+// 聚合所有属性树的共享模板修正（火/水/金/木/土属性树都有 multiShot/highSpeed/crit/pierce）
 function attributeMods() {
-    const all = [skills.explosive && skills.explosive._mods, skills.freeze && skills.freeze._mods, skills.lightning && skills.lightning._mods, skills.wood && skills.wood._mods];
+    const all = [skills.explosive && skills.explosive._mods, skills.freeze && skills.freeze._mods, skills.lightning && skills.lightning._mods, skills.wood && skills.wood._mods, skills.earth && skills.earth._mods];
     const out = { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0 };
     for (const m of all) {
         if (!m) continue;
@@ -2277,6 +2360,47 @@ function drawLogs() {
     ctx.globalAlpha = 1;
 }
 
+// 岩盾绘制（土属性树）：岩石屏障 + 血条；绘制于僵尸上层（挡在敌人路径上）
+function drawEarthShields() {
+    if (earthShields.length === 0) return;
+    const now = Date.now();
+    for (const s of earthShields) {
+        if (now - s.born > s.duration) continue;   // 过期不画（由 updateEarthShields 清理）
+        const lifeRatio = 1 - (now - s.born) / s.duration;
+        const x = s.x, y = s.y, w = s.w, h = s.h;
+
+        // 岩石底座
+        ctx.save();
+        ctx.globalAlpha = 0.9 * Math.min(1, lifeRatio + 0.25);
+        const grd = ctx.createLinearGradient(x, y, x, y + h);
+        grd.addColorStop(0, '#9a8a78');   // 上亮
+        grd.addColorStop(1, '#6b5d4d');   // 下暗
+        ctx.fillStyle = grd;
+        roundRectPath(x, y, w, h, 4);
+        ctx.fill();
+        // 裂纹高光
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = '#c9b9a3';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + 4, y + h * 0.5);
+        ctx.lineTo(x + w * 0.35, y + 2);
+        ctx.lineTo(x + w * 0.55, y + h - 2);
+        ctx.lineTo(x + w - 4, y + h * 0.5);
+        ctx.stroke();
+        ctx.restore();
+
+        // 血条（盾顶）
+        ctx.globalAlpha = 1;
+        const hpRatio = Math.max(0, s.hp / s.maxHp);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(x, y - 6, w, 3);
+        ctx.fillStyle = hpRatio > 0.5 ? '#8fd14f' : (hpRatio > 0.25 ? '#e8c14a' : '#e8604a');
+        ctx.fillRect(x, y - 6, w * hpRatio, 3);
+    }
+    ctx.globalAlpha = 1;
+}
+
 // 绘制子弹：颜色 / 形状 / 体型 完全由元素决定（ELEMENT_VISUAL），不再从普通子弹演化
 function drawBullets() {
     const t = Date.now();
@@ -2296,8 +2420,9 @@ function paintBullet(bullet, t) {
     const ev = elementVisual(bullet.element);
     const ang = Math.atan2(bullet.vy, bullet.vx);
     const sz = bullet.radius;
-    const len = sz * (v.pierce ? 4.6 : 3.4);   // 子弹拉成细长条，明显区别于圆形掉落物
-        const w = sz * 1.5;
+    let len = sz * (v.pierce ? 4.6 : 3.4);   // 子弹拉成细长条，明显区别于圆形掉落物
+    if (bullet.skillType === 'earth') len *= (bullet._earthLineLenMul || 1) * 1.8;   // 岩刺拉成长矛，强调直线穿透
+    const w = sz * 1.5;
         ctx.save();
         ctx.translate(bullet.x, bullet.y);
         ctx.rotate(ang);
@@ -3935,7 +4060,18 @@ function shootAttribute(type) {
     // 多发子弹：额外子弹数越多，单发伤害越低（整体总伤随子弹数亚线性增长，避免多重无脑碾压）
     // 五行弹道（非物理火力强化）统一 ×ATTR_BASE_DMG_MUL：自 v1.1.16 起 +35% 基础增伤成为五行标配（火/金/水/木/土 一致）
     const _baseMul = (type === 'damage') ? 1 : ATTR_BASE_DMG_MUL;   // 五行弹道（非物理）统一 +35% 基础增伤（标配）
-    const dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
+    let dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
+    let piercing = player.bulletPiercing + (m.pierceBoost || 0);
+    let lineLenMul = 1;
+    let earthHitRadiusMul = 1;
+    // 土系·直线穿刺：岩刺贯穿整条飞行路径上的所有敌人（不按命中次数消失，仅在出屏时消失）；
+    // 另叠加裂地穿刺伤害加成、岩刺视觉长度与命中宽度（由「地刺贯穿」分支拓宽穿刺线）。
+    if (type === 'earth') {
+        piercing = 9999;          // 直线穿透：贯穿路径上所有敌人，仅在出屏时消失
+        dmg *= EARTH_DMG_FACTOR * (m.fissureDmgMul || 1);
+        lineLenMul = m.earthLineLengthMul || 1;
+        earthHitRadiusMul = m.earthHitRadiusMul || 1;
+    }
     const canSplit = !!m.canSplit;                          // 多重 Lv5 质变：命中分裂（由分支等级判定，与子弹数公式解耦）
 
     for (let i = 0; i < n; i++) {
@@ -3948,13 +4084,15 @@ function shootAttribute(type) {
             y: player.y + Math.sin(baseAngle) * gunLength,
             vx: Math.cos(bulletAngle) * _spd,
             vy: Math.sin(bulletAngle) * _spd,
-            radius: ATTR_BULLET_BASE_RADIUS * elementVisual(def.element).size,   // 明显大于普通子弹；体型按元素区分（同时影响碰撞与绘制）
+            radius: ATTR_BULLET_BASE_RADIUS * elementVisual(def.element).size * (type === 'earth' ? earthHitRadiusMul : 1),   // 土系按「地刺贯穿」拓宽穿刺线
             damage: dmg,
-            piercing: player.bulletPiercing + (m.pierceBoost || 0),
-            element: def.element,          // 火/水/雷 —— 由属性树自身元素决定
+            piercing: piercing,
+            element: def.element,          // 火/水/雷/土 —— 由属性树自身元素决定
             skillType: type,
             canSplit: canSplit,
-            hitZombies: []
+            hitZombies: [],
+            // 土系视觉：岩刺长度倍率（仅绘制用）
+            _earthLineLenMul: type === 'earth' ? lineLenMul : 1
         });
     }
 }
@@ -4200,9 +4338,10 @@ function updateBullets() {
                     spawnSplitBullets(bullet.x, bullet.y, damage, zombie, bullet.element);
                 }
 
-                // 穿透溅射 / 冰系质变（仅对应属性树的子弹触发）
+                // 穿透溅射 / 冰系质变 / 土系质变（仅对应属性树的子弹触发）
                 const _fm = (bullet.skillType === 'freeze') ? freezeMods() : null;
                 const _lm = (bullet.skillType === 'lightning') ? lightningMods() : null;
+                const _eem = (bullet.skillType === 'earth') ? earthMods() : null;
                 if (bullet.skillType === 'explosive' && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
@@ -4221,6 +4360,12 @@ function updateBullets() {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '金'); checkCombos(z, '金'); }
                     }
                 }
+                if (_eem && _eem.rockShard) {
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 35) { damageZombie(z, player.damage * 0.08, false, '土'); checkCombos(z, '土'); }
+                    }
+                }
                 // 暴击小爆炸 / 冰霜暴击（火/水属性树「暴击」满级质变）
                 if (isCrit && bullet.skillType === 'explosive' && skills.explosive._mods && skills.explosive._mods.critExplode) {
                     createExplosion(zombie.x, zombie.y, 50);
@@ -4234,6 +4379,13 @@ function updateBullets() {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 45) { damageZombie(z, player.damage * 0.25, false, '水'); checkCombos(z, '水'); }
+                    }
+                }
+                if (isCrit && _eem && _eem.rockBurst) {
+                    createExplosion(zombie.x, zombie.y, 55);   // 碎岩迸发：暴击时小范围岩爆
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 55) { damageZombie(z, player.damage * 0.18, false, '土'); checkCombos(z, '土'); }
                     }
                 }
 
@@ -4287,6 +4439,58 @@ function updateBullets() {
                 if (_fm && _fm.polarFieldChance > 0 && Math.random() < _fm.polarFieldChance) {
                     if (iceFields.length >= MAX_ICE_FIELDS) iceFields.shift();   // 超限时移除最旧领域
                     iceFields.push({ x: bullet.x, y: bullet.y, radius: 60, life: 3000, born: nowHit, _tick: 0 });
+                }
+
+                // ==================== 地裂弹（土属性树）命中结算 ====================
+                if (bullet.skillType === 'earth' && _eem) {
+                    // 碎甲：被岩刺命中的敌人受伤增加（与火·破甲同机制，不叠加显示）
+                    if (_eem.armorCrush) {
+                        zombie.vulnUntil = Math.max(zombie.vulnUntil || 0, nowHit + 2500);
+                        zombie.vulnMul = 1 + _eem.armorCrushF;
+                    }
+                    // 石化：概率眩晕（硬控）
+                    if (_eem.petrifyChance > 0 && Math.random() < _eem.petrifyChance) {
+                        zombie.stunUntil = Math.max(zombie.stunUntil || 0, nowHit + _eem.petrifyDuration);
+                        createRockEffect(zombie.x, zombie.y);   // 石化视觉
+                    }
+                    // 山崩 Lv5：对石化目标追加最大生命%伤害
+                    if (_eem.landslideBonus > 0 && zombie.stunUntil > nowHit) {
+                        damageZombie(zombie, zombie.maxHealth * 0.03 * _eem.landslideBonus, false, '土');
+                    }
+                    // 震地：范围伤害 + 眩晕（每发岩刺仅触发一次，避免直线穿透多目标时叠加成片 AoE；复刻冰暴发生器「中心震波」）
+                    if (!bullet._quakeDone && _eem.quakeChance > 0 && Math.random() < _eem.quakeChance) {
+                        bullet._quakeDone = true;
+                        const qr = Math.max(40, 60 + _eem.quakeRadius);
+                        createDustExplosion(bullet.x, bullet.y, qr);
+                        for (let k = zombies.length - 1; k >= 0; k--) {
+                            const z = zombies[k];
+                            if (Math.hypot(bullet.x - z.x, bullet.y - z.y) < qr + z.radius) {
+                                damageZombie(z, damage * 0.55 * _eem.quakeDmgMul, false, '土');
+                                checkCombos(z, '土');
+                                if (_eem.quakeStunDur > 0) z.stunUntil = Math.max(z.stunUntil || 0, nowHit + _eem.quakeStunDur);
+                            }
+                        }
+                    }
+                    // 陷坑：牵引周围敌人向命中点靠近（每发岩刺仅触发一次；类似冰暴加农的聚怪）
+                    if (!bullet._sinkholeDone && _eem.sinkholeChance > 0 && Math.random() < _eem.sinkholeChance) {
+                        bullet._sinkholeDone = true;
+                        const sr = Math.max(50, 80 + _eem.sinkholeRadius);
+                        createSinkholeEffect(bullet.x, bullet.y, sr);
+                        for (const z of zombies) {
+                            if (z === zombie) continue;
+                            const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
+                            if (d < sr + z.radius && d > 1) {
+                                const pull = Math.min(_eem.sinkholePull, d * 0.5);   // 每帧牵引距离，封顶防抖动
+                                z.x += (bullet.x - z.x) / d * pull;
+                                z.y += (bullet.y - z.y) / d * pull;
+                                clampZombieToField(z);   // 牵引后钳制到战场边界
+                            }
+                        }
+                    }
+                    // 岩盾：命中概率在命中点留下临时屏障
+                    if (_eem.shieldChance > 0 && Math.random() < _eem.shieldChance) {
+                        createEarthShield(bullet.x, bullet.y, _eem);
+                    }
                 }
 
                 if (bullet.hitZombies.length >= bullet.piercing) {
@@ -4572,6 +4776,60 @@ function createIceExplosion(x, y, radius) {
     }
 }
 
+// 土系·震地：黄褐色尘土冲击环 + 碎石粒子
+function createDustExplosion(x, y, radius) {
+    bombExplosionEffects.push({ x: x, y: y, radius: 0, life: 400, maxRadius: radius, color: [198, 145, 90] });
+    const n = Math.max(10, Math.round(radius / 4));
+    const sp = 2 + radius / 14;
+    for (let i = 0; i < n; i++) {
+        const angle = (Math.PI * 2 / n) * i;
+        addParticle({
+            x: x, y: y, ox: x, oy: y, maxR: radius,
+            vx: Math.cos(angle) * sp,
+            vy: Math.sin(angle) * sp,
+            radius: 3 + radius / 35,
+            life: 340,
+            color: i % 2 ? '#c8915a' : '#8b6a45'
+        });
+    }
+}
+
+// 土系·陷坑视觉：短暂旋转的暗色漩涡
+function createSinkholeEffect(x, y, radius) {
+    hitEffects.push({ x: x, y: y, type: 'sinkhole', life: 500, maxLife: 500, rot: 0, radius: radius });
+}
+
+// 土系·石化视觉：敌人身上爆开小石块
+function createRockEffect(x, y) {
+    for (let i = 0; i < 6; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 1 + Math.random() * 2;
+        addParticle({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, radius: 2 + Math.random() * 2, life: 350, color: '#a89a8a' });
+    }
+}
+
+// 土系·岩盾：在指定位置生成临时屏障（有血量、挡敌人、会被攻击）
+function createEarthShield(x, y, m) {
+    if (earthShields.length >= EARTH_SHIELD_MAX_COUNT) earthShields.shift();   // 超限时移除最旧盾
+    const w = EARTH_SHIELD_BASE_WIDTH * (m.shieldWidthMul || 1);
+    const hp = player.damage * EARTH_SHIELD_BASE_HP * (m.shieldHpMul || 1) * (1 + skills.earth.level * 0.05);
+    const dur = EARTH_SHIELD_BASE_DURATION + (m.shieldDuration || 0);
+    earthShields.push({
+        x: x - w / 2, y: y - 6, w: w, h: 12,
+        hp: hp, maxHp: hp,
+        born: Date.now(), duration: dur,
+        _lastHitAt: 0
+    });
+}
+
+// 土系·岩盾更新：超时（duration）的盾从场上移除（敌人交互的超时跳过由 updateZombies 内处理）
+function updateEarthShields() {
+    const now = Date.now();
+    for (let i = earthShields.length - 1; i >= 0; i--) {
+        if (now - earthShields[i].born > earthShields[i].duration) earthShields.splice(i, 1);
+    }
+}
+
 // 创建闪电效果
 function createLightning(x1, y1, x2, y2) {
     const points = [{x: x1, y: y1}];
@@ -4629,6 +4887,39 @@ function updateZombies(dt) {
 
         // 战场边界钳制：以身体边缘为基准，被击退也不越出左右屏幕边缘（保持可被瞄准）
         clampZombieToField(zombie);
+
+        // 岩盾阻挡：敌人撞盾则停在盾顶并攻击岩盾（盾有血量，可被摧毁）
+        let blockingShield = null;
+        for (const shield of earthShields) {
+            // 盾已超时则跳过（由 updateEarthShields 清理，但这里也过滤）
+            if (now - shield.born > shield.duration) continue;
+            // 水平方向：敌人身体边缘与盾有重叠
+            const zLeft = zombie.x - zombie.radius, zRight = zombie.x + zombie.radius;
+            if (zRight <= shield.x || zLeft >= shield.x + shield.w) continue;
+            // 竖直方向：敌人底部到达或穿过盾顶，且敌人顶部在盾底之上（从上方来）
+            if (zombie.y + zombie.radius >= shield.y && zombie.y - zombie.radius < shield.y + shield.h) {
+                blockingShield = shield;
+                zombie.y = shield.y - zombie.radius;   // 钉在盾顶
+                break;
+            }
+        }
+        if (blockingShield) {
+            // 攻击间隔门控：同城墙啄墙逻辑
+            if (now >= (blockingShield._lastHitAt || 0) + EARTH_SHIELD_ATTACK_INTERVAL) {
+                blockingShield._lastHitAt = now;
+                // 敌人对盾造成伤害（受盾减伤系数；boss 对盾伤害 +50%）
+                const _shieldDmgMul = 1 + (zombie.type === 'boss' ? 0.5 : 0);
+                blockingShield.hp -= Math.max(1, zombie.damage * 0.25 * _shieldDmgMul);
+                if (blockingShield.hp <= 0) {
+                    const idx = earthShields.indexOf(blockingShield);
+                    if (idx >= 0) {
+                        earthShields.splice(idx, 1);
+                        createDustExplosion(blockingShield.x + blockingShield.w / 2, blockingShield.y, 55);
+                    }
+                }
+            }
+            continue;   // 被盾挡住，本帧不再啄墙
+        }
 
         // 撞墙判定：僵尸触到城墙顶面即钉在墙顶、持续攻击城墙（城墙即坦克生命）
         if (zombie.y + zombie.radius >= WALL_Y) {
@@ -5106,6 +5397,7 @@ function applyUpgrade(upgrade) {
         else if (upgrade.type === 'freeze') recomputeFreezeMods();
         else if (upgrade.type === 'lightning') recomputeLightningMods();
         else if (upgrade.type === 'wood') recomputeWoodMods();
+        else if (upgrade.type === 'earth') recomputeEarthMods();
     }
 
     // 五行相生协同：获得/升级任何技能后重新计算
@@ -5299,6 +5591,7 @@ function startGame() {
     recomputeFreezeMods();
     recomputeLightningMods();
     recomputeWoodMods();
+    recomputeEarthMods();
     // 五行相生协同：开局按初始已拥有技能计算
     recomputeWuxingSynergy();
     talentMods.deathrayTimer = 0;
@@ -5321,6 +5614,7 @@ function startGame() {
     electricFields = [];
     logs = [];
     pendingWoodLogs = [];
+    earthShields = [];
     
     // 重置炸弹
     bombCount = 0;
@@ -5524,6 +5818,7 @@ function update(dt) {
     updateFields(dt);
     updatePendingWoodLogs();
     updateLogs(dt);
+    updateEarthShields();
     updateParticles();
     updateHitEffects();
     updateOrbs();
@@ -12615,6 +12910,7 @@ function gameLoop() {
         }
 
         drawLogs();               // 滚木绘制于僵尸上层（碾压时压在怪身上）
+        drawEarthShields();       // 岩盾绘制于僵尸上层（挡在敌人路径上）
 
         drawWallHealthBar();      // 城墙血条（整组下沿贴齐城墙下沿，先画）
         drawPlayer();             // 坦克绘制于血条上层
@@ -12637,6 +12933,7 @@ function gameLoop() {
             drawZombie(zombie, drawNow2);
         }
         drawLogs();               // 升级暂停时仍把滚木压在怪上层
+        drawEarthShields();       // 升级暂停时仍把岩盾压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
@@ -12650,6 +12947,7 @@ function gameLoop() {
             drawZombie(zombie, drawNow3);
         }
         drawLogs();               // 结算界面仍把滚木压在怪上层
+        drawEarthShields();       // 结算界面仍把岩盾压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();

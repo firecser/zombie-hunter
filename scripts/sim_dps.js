@@ -1,4 +1,4 @@
-// 四树 DPS 回归（火=爆炸弹 / 金=闪电链 / 水=干冰弹 / 木=滚木）
+// 五树 DPS 回归（火=爆炸弹 / 金=闪电链 / 水=干冰弹 / 木=滚木 / 土=地裂弹）
 // 目的：在「相等构建预算 + 相同靶场」下，验证四棵属性树的可持续 DPS 是否平衡（单树相生倍率=1.0，四树共享口径）。
 // 方法：静态不死僵尸阵（12 钉墙 + 12 上方列队，共 24）作为靶子，忠实复刻 game.js 的释放/CD/碾压/链电/领域/碎木/质变机制，
 //       跑 30s×20 次取平均 DPS。
@@ -21,7 +21,7 @@ const WUXING_BASE_BONUS = 0.30;
 const WUXING_GENERATE_BONUS = 0.20;
 const WUXING_SPREAD_PENALTY = 0.45;
 const WUXING_GENERATE = { '火': '土', '土': '金', '金': '水', '水': '木', '木': '火' };
-const WUXING_ELEMENT = { '火': '火', '金': '金', '水': '水', '木': '木' };
+const WUXING_ELEMENT = { '火': '火', '金': '金', '水': '水', '木': '木', '土': '土' };
 const STATUS_ELEMENT_BONUS = { frozen: { '火': 1.0 }, slow: { '金': 0.3 }, burning: { '风': 0.2 } };
 
 // 滚木
@@ -45,10 +45,17 @@ const ATTR_CD_CFG = {
   freeze:    { base: 6000, min: 3000, step: 150 },
   lightning: { base: 4000, min: 3000, step: 50 },
   wood:      { base: 6500, min: 3500, step: 120 },
+  earth:     { base: 5000, min: 3000, step: 80 },
 };
 
+// 土系（地裂弹）：与 game.js 对齐
+const EARTH_DMG_FACTOR = 2.15;        // 岩刺基础伤害系数（调平用，与 game.js 同步）
+const ATTR_BULLET_BASE_RADIUS = 11;   // 属性子弹基础半径（用于岩刺穿刺线带宽）
+const EARTH_BULLET_SIZE = 1.14;       // ELEMENT_VISUAL['土'].size
+const EARTH_SHIELD_BASE_HP = 80, EARTH_SHIELD_BASE_WIDTH = 90, EARTH_SHIELD_BASE_DURATION = 3000, EARTH_SHIELD_MAX_COUNT = 4, EARTH_SHIELD_ATTACK_INTERVAL = 500;
+
 // 模拟参数
-const DT = 16, WINDOW = 30000, TRIALS = 20;
+const DT = 16, WINDOW = 30000, TRIALS = 80;
 const FIELD_COUNT = 24;
 
 // ===================== 模拟状态 =====================
@@ -213,6 +220,46 @@ function lightningCast(m, lvl) {
   }
 }
 
+function earthCast(m, lvl) {
+  const n = 1 + m.bulletCountBoost;
+  const perBullet = PD * ATTR_BASE_DMG_MUL / (1 + MULTI_BULLET_DMG_PENALTY * m.bulletCountBoost) * EARTH_DMG_FACTOR * m.fissureDmgMul;
+  const hitR = ATTR_BULLET_BASE_RADIUS * EARTH_BULLET_SIZE * m.earthHitRadiusMul;
+  const primary = nearestToWall(1)[0] || { x: PX, y: WALL_Y };
+  const baseAngle = Math.atan2(primary.y - PY, primary.x - PX);
+  for (let i = 0; i < n; i++) {
+    const ang = baseAngle + 0.15 * (i - (n - 1) / 2);   // 复刻 shootAttribute 的 0.15 发散（多重弹扇面覆盖全场）
+    const ux = Math.cos(ang), uy = Math.sin(ang);        // 单位射线方向（第 i 发岩刺）
+    let firstHit = null;
+    for (const z of zombies) {
+      if (z.health <= 1) continue;
+      const vx = z.x - PX, vy = z.y - PY;
+      const proj = vx * ux + vy * uy;            // 沿射线投影（须位于玩家前方）
+      if (proj < 0) continue;
+      const perp = Math.abs(vx * uy - vy * ux);  // 垂直距离 = |叉积|（穿刺线带宽）
+      if (perp > hitR + z.radius) continue;      // 不在岩刺穿刺线上
+      if (!firstHit) firstHit = z;
+      const isCrit = applyHit(z, perBullet, '土', m);   // 直线穿刺：路径上所有敌人各受一次主伤
+      // 碎甲：被命中的敌人受伤增加（与游戏一致：先结算主伤，再标易伤）
+      if (m.armorCrush) { z.vulnUntil = now + 2500; z.vulnMul = 1 + m.armorCrushF; }
+      // 石化：概率眩晕（硬控）
+      if (m.petrifyChance > 0 && Math.random() < m.petrifyChance) z.stunUntil = now + m.petrifyDuration;
+      // 山崩 Lv5：对石化目标追加最大生命%伤害
+      if (m.landslideBonus > 0 && z.stunUntil > now) dealDmg(z, z.maxHealth * 0.03 * m.landslideBonus, '土');
+      // 岩片（地刺贯穿 Lv5 溅射）
+      if (m.rockShard) { for (const o of zombies) if (o !== z && o.health > 1 && Math.hypot(z.x - o.x, z.y - o.y) < 35) dealDmg(o, PD * 0.08, '土'); }
+      // 碎岩迸发（岩心暴击 Lv5 质变）
+      if (isCrit && m.rockBurst) { for (const o of zombies) if (o !== z && o.health > 1 && Math.hypot(z.x - o.x, z.y - o.y) < 55) dealDmg(o, PD * 0.18, '土'); }
+    }
+    // 震地：每发岩刺仅触发一次（避免穿透多目标时叠加成片 AoE；复刻冰暴发生器「中心震波」）
+    if (m.quakeChance > 0 && firstHit && Math.random() < m.quakeChance) {
+      const qr = 60 + m.quakeRadius;
+      for (const o of zombies) if (o.health > 1 && Math.hypot(firstHit.x - o.x, firstHit.y - o.y) < qr)
+        { dealDmg(o, perBullet * 0.55 * m.quakeDmgMul, '土'); if (m.quakeStunDur > 0) o.stunUntil = now + m.quakeStunDur; }
+    }
+    // 陷坑（聚怪）/ 岩盾（防御）：静态靶场无位移/不计 DPS，跳过
+  }
+}
+
 function shootWoodSim(m, lvl) {
   const baseW = SW * WOOD_LOG_BASE_WIDTH_RATIO * m.logWidthMul;
   const count = Math.min(6, 1 + m.bulletCountBoost + m.logCountBoost);
@@ -315,7 +362,12 @@ function baseMods() {
     explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0,
     freezeRadiusBoost: 0, freezeChanceBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, frostNovaDmgMul: 1, frostNovaFreezeChance: 0, polarFieldChance: 0, glacialDoomBonus: 0, iceBurst: false, iceSpike: false,
     chainCountBoost: 0, chainDmgMul: 1, chainRangeBoost: 0, empStunChance: 0, empStunDuration: 0, staticFieldChance: 0, staticFieldRadius: STATIC_FIELD_BASE_RADIUS, staticFieldLife: STATIC_FIELD_BASE_LIFE, superConductorDmgMul: 0, superConductorCountBoost: 0, superConductorMaxHp: 0, thunderStrike: false,
-    logWidthMul: 1, logDmgMul: 1, logCountBoost: 0, rootChance: 0, rootDuration: 0, rebound: false, reboundDmgMul: 1, splinterChance: 0, splinterDmgMul: 1, strangleVineBonus: 0, thornBurst: false, woodSpike: false };
+    logWidthMul: 1, logDmgMul: 1, logCountBoost: 0, rootChance: 0, rootDuration: 0, rebound: false, reboundDmgMul: 1, splinterChance: 0, splinterDmgMul: 1, strangleVineBonus: 0, thornBurst: false, woodSpike: false,
+    fissureDmgMul: 1, earthLineLengthMul: 1, earthHitRadiusMul: 1,
+    shieldChance: 0, shieldHpMul: 1, shieldDuration: 0, shieldWidthMul: 1,
+    quakeChance: 0, quakeDmgMul: 1, quakeRadius: 0, quakeStunDur: 0,
+    sinkholeChance: 0, sinkholeRadius: 0, sinkholePull: 0,
+    petrifyChance: 0, petrifyDuration: 0, armorCrush: false, armorCrushF: 0, landslideBonus: 0, rockShard: false, rockBurst: false };
 }
 function applyUniversal(m) { m.bulletCountBoost += 5; m.cdReduce += 0.08 * 5; m.critChanceBoost += 0.05 * 5; m.critDamageBoost += 0.15 * 5; m.critChance = m.critChanceBoost; m.critMult = 2 + m.critDamageBoost; }
 function buildMods(tree, tier) {
@@ -327,6 +379,17 @@ function buildMods(tree, tier) {
     if (tree === 'freeze') { m.freezeRadiusBoost = 0.12 * 5 + 0.20 * 5; m.freezeChanceBoost = 0.08 * 5; m.frostNovaDmgMul = Math.pow(1.05, 5); m.frostNovaFreezeChance = 0.15 * 5; m.freezeDurationBoost = 0.20 * 5; m.glacialDoomBonus = 5; m.polarFieldChance = 0.25 * 5; if (m.critChanceBoost >= 0.25) m.iceBurst = true; }
     if (tree === 'lightning') { m.chainCountBoost = 5; m.chainDmgMul = Math.pow(1.20, 5); m.chainRangeBoost = 8 * 5; m.empStunChance = 0.06 * 5; m.empStunDuration = 100 * 5; m.staticFieldChance = 0.20 * 5; m.staticFieldRadius = STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * 5; m.staticFieldLife = STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * 5; m.superConductorDmgMul = 0.20 * 5; m.superConductorCountBoost = 5; m.superConductorMaxHp = 0.02 * 5; m.thunderStrike = true; }
     if (tree === 'wood') { m.logWidthMul = Math.pow(1.12, 5); m.logDmgMul = Math.pow(1.12, 5); m.rootChance = 0.20 * 5; m.rootDuration = 400 + 100 * 5; m.strangleVineBonus = 5; m.splinterChance = 0.30 * 5; m.splinterDmgMul = Math.pow(1.15, 5); if (m.critChanceBoost >= 0.25) m.thornBurst = true; }
+    if (tree === 'earth') {
+      m.fissureDmgMul = Math.pow(1.20, 5);            // 裂地穿刺：穿透伤害+20%/级
+      m.earthHitRadiusMul = Math.pow(1.15, 5);        // 地刺贯穿：岩刺命中宽度+15%/级
+      m.earthLineLengthMul = Math.pow(1.10, 5);       // 岩刺长度+10%/级（仅视觉）
+      m.pierceBoost = 5;                              // 地刺贯穿 Lv5
+      m.rockShard = true;                             // 地刺贯穿 Lv5 → 岩片溅射
+      m.quakeChance = 0.25 * 5; m.quakeDmgMul = Math.pow(1.05, 5); m.quakeRadius = 4 * 5; m.quakeStunDur = 150 * 5;   // 震地（T2 收敛）
+      m.petrifyChance = 0.12 * 5; m.petrifyDuration = 250 * 5; m.landslideBonus = 0;   // 石化保留；山崩从满配参考构建剔除（%最大生命在静态靶场过爆，单独评估）
+      m.armorCrush = true; m.armorCrushF = 0.02 * 5;  // 碎甲（×1.10，避免穿透多目标叠加过爆）
+      if (m.critChanceBoost >= 0.25) m.rockBurst = true;   // 岩心暴击 Lv5 → 碎岩迸发
+    }
   }
   return { m, lvl };
 }
@@ -347,7 +410,7 @@ function benchmark(tree, tier) {
         if (now - lastWood >= getCd('wood', lvl, m.cdReduce)) { lastWood = now; shootWoodSim(m, lvl); }
         updatePendingWoodLogsSim();
       } else {
-        if (now - lastCast >= getCd(tree, lvl, m.cdReduce)) { lastCast = now; if (tree === 'explosive') fireCast(m, lvl); else if (tree === 'freeze') waterCast(m, lvl); else lightningCast(m, lvl); }
+        if (now - lastCast >= getCd(tree, lvl, m.cdReduce)) { lastCast = now; if (tree === 'explosive') fireCast(m, lvl); else if (tree === 'freeze') waterCast(m, lvl); else if (tree === 'lightning') lightningCast(m, lvl); else earthCast(m, lvl); }
       }
       updateBurns(); updateFieldsSim(); if (tree === 'wood') updateLogsSim(m);
     }
@@ -370,8 +433,9 @@ const trees = [
   { key: 'lightning', name: '金·闪电链' },
   { key: 'freeze', name: '水·干冰弹' },
   { key: 'wood', name: '木·滚木' },
+  { key: 'earth', name: '土·地裂弹' },
 ];
-console.log('=== 四树 DPS 回归（属性树自身输出；player.damage=10；静态靶场 24 僵尸；30s×' + TRIALS + ' 次均值）===');
+console.log('=== 五树 DPS 回归（属性树自身输出；player.damage=10；静态靶场 24 僵尸；30s×' + TRIALS + ' 次均值）===');
 console.log('五行标配 +35% 已计入；单树相生倍率=1.0；暴击 率+5%/级、伤+15%/级（天赋基数 率0/伤2）。\n');
 
 const results = {};
@@ -400,8 +464,8 @@ console.log('【T1 单树平衡性】最高 ' + t1[0].name + '=' + maxD.toFixed(
 
 // 二树相生叠加演示（近似：假设独立叠加，各自 DPS × 相生倍率后求和）
 console.log('【2树相生叠加演示（近似独立叠加；相生对=1.20，非相生对=1.0）】');
-const KEY2EL = { explosive: '火', lightning: '金', freeze: '水', wood: '木' };
-const pairsList = [['explosive', 'freeze'], ['freeze', 'wood'], ['wood', 'explosive'], ['lightning', 'freeze'], ['lightning', 'explosive'], ['lightning', 'wood']];
+const KEY2EL = { explosive: '火', lightning: '金', freeze: '水', wood: '木', earth: '土' };
+const pairsList = [['explosive', 'freeze'], ['freeze', 'wood'], ['wood', 'explosive'], ['lightning', 'freeze'], ['lightning', 'explosive'], ['lightning', 'wood'], ['explosive', 'earth'], ['earth', 'lightning'], ['freeze', 'earth'], ['wood', 'earth']];
 for (const [a, b] of pairsList) {
   const na = trees.find(t => t.key === a).name, nb = trees.find(t => t.key === b).name;
   const sm = synergyMult([KEY2EL[a], KEY2EL[b]]);
