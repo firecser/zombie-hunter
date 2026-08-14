@@ -158,7 +158,7 @@ function fireCast(m, lvl) {
 function waterCast(m, lvl) {
   const n = 1 + m.bulletCountBoost;
   const perBullet = PD * ATTR_BASE_DMG_MUL / (1 + MULTI_BULLET_DMG_PENALTY * m.bulletCountBoost);
-  const iceR = (45 + lvl * 5) * (1 + m.freezeRadiusBoost);
+  const iceR = (70 + lvl * 5) * (1 + m.freezeRadiusBoost);
   const aoeFreezeChance = Math.min(0.95, m.freezeChanceBoost + m.frostNovaFreezeChance);
   const targets = nearestToWall(n);
   for (const t of targets) {

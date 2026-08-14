@@ -1307,8 +1307,9 @@ function getAoeFreezeChance() {
 }
 function getFreezeExplosionRadius() {
     // 冰霜爆炸半径随技能等级扩大，急冻分支进一步增幅
+    // v1.1.22：基础截距 45→70，收紧水树 T0/T1 中期体验（T2 已近全覆盖，边际增益有限）
     const m = freezeMods();
-    return (45 + skills.freeze.level * 5) * (1 + (m.freezeRadiusBoost || 0));
+    return (70 + skills.freeze.level * 5) * (1 + (m.freezeRadiusBoost || 0));
 }
 function getSlowChance() {
     // 干冰弹核心：命中主目标必定减速（不再掷骰）
