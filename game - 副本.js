@@ -84,6 +84,12 @@ const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
 // ② 城墙基础血量大幅提高（替代原坦克 100），以承受竖直下落的持续堆积
 const WALL_MAX_HEALTH = 600;          // 城墙基础血量（原坦克 100 的 6 倍）
 
+// 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
+// 即使被后坐力击退，敌人也停在边界处，避免被推出屏幕后无法被瞄准、却仍贴墙持续掉血。
+// 注意：钳制以敌人「身体边缘」(z.x ± z.radius) 为基准，而非中心点。视觉提示见 drawFieldBorders()。
+const FIELD_X0 = WALL_X0;             // 左边界（屏幕左缘）
+const FIELD_X1 = WALL_X1;             // 右边界（屏幕右缘）
+
 // 获取微信状态栏高度（安全区域）
 let statusBarHeight = 20;
 try {
@@ -1964,6 +1970,24 @@ function drawWallHealthBar() {
     ctx.textBaseline = 'middle';
     ctx.fillText(String(Math.max(0, Math.ceil(player.health))), x + w / 2, y + h / 2);
     ctx.textBaseline = 'alphabetic';
+}
+
+// 战场左右透明边界（敌人身体边缘不可越界）：仅作视觉提示，逻辑钳制见 clampZombieToField()。
+// 沿屏幕左右缘向场内渐隐的半透明光带，提示敌人被限制在该区域内。
+function drawFieldBorders() {
+    const strip = 6;                       // 边界提示带宽度（向场内渐隐）
+    // 左边界
+    const gL = ctx.createLinearGradient(FIELD_X0, 0, FIELD_X0 + strip, 0);
+    gL.addColorStop(0, 'rgba(120,200,255,0.30)');
+    gL.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = gL;
+    ctx.fillRect(FIELD_X0, 0, strip, screenHeight);
+    // 右边界
+    const gR = ctx.createLinearGradient(FIELD_X1, 0, FIELD_X1 - strip, 0);
+    gR.addColorStop(0, 'rgba(120,200,255,0.30)');
+    gR.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = gR;
+    ctx.fillRect(FIELD_X1 - strip, 0, strip, screenHeight);
 }
 
 // 绘制僵尸（冰雪风格）
@@ -4167,6 +4191,8 @@ function updateBullets() {
                     const _ka = Math.atan2(zombie.y - player.y, zombie.x - player.x);
                     zombie.x += Math.cos(_ka) * skills.damage._mods.knockF;
                     zombie.y += Math.sin(_ka) * skills.damage._mods.knockF;
+                    // 击退后立即钳制到战场边界（身体边缘基准），避免被推到屏幕外后无法被瞄准
+                    clampZombieToField(zombie);
                 }
 
                 // 多重射击 Lv5 质变：首次命中后，在命中点向多方向迸射小弹（仅主弹触发，分裂弹不再级联）
@@ -4568,6 +4594,21 @@ function createLightning(x1, y1, x2, y2) {
 }
 
 // 更新僵尸
+// 敌人「身体边缘」钳制到战场左右边界（FIELD_X0 / FIELD_X1），被击退也不越界；
+// 同时保证顶部不超出屏幕顶端。底部由 updateZombies 内城墙钳制（WALL_Y - radius）。
+// 以身体边缘为基准：钳制后敌人左/右边缘恰好落在边界上，中心点留在场内（始终可被瞄准）。
+function clampZombieToField(z) {
+    const minX = FIELD_X0 + z.radius;
+    const maxX = FIELD_X1 - z.radius;
+    if (minX <= maxX) {
+        if (z.x < minX) z.x = minX;
+        else if (z.x > maxX) z.x = maxX;
+    } else {
+        z.x = (FIELD_X0 + FIELD_X1) / 2;   // 极小屏兜底：居中，避免越界
+    }
+    if (z.y - z.radius < 0) z.y = z.radius; // 不越过屏幕顶端（向上击退时）
+}
+
 function updateZombies(dt) {
     const now = Date.now();
     const _reflectTargets = [];   // 护盾反弹目标（循环外统一结算）
@@ -4585,6 +4626,9 @@ function updateZombies(dt) {
         }
         // 竖直向下坠落（城墙玩法：敌人不再朝坦克 homing，改为竖直下落）
         zombie.y += sp;
+
+        // 战场边界钳制：以身体边缘为基准，被击退也不越出左右屏幕边缘（保持可被瞄准）
+        clampZombieToField(zombie);
 
         // 撞墙判定：僵尸触到城墙顶面即钉在墙顶、持续攻击城墙（城墙即坦克生命）
         if (zombie.y + zombie.radius >= WALL_Y) {
@@ -12554,6 +12598,7 @@ function gameLoop() {
         }
         
         drawBackground();
+        drawFieldBorders();       // 战场左右透明边界（敌人身体边缘不可越界，视觉提示）
         drawOrbs();
         drawWall();               // 城墙（先画，置于子弹下层；子弹绘制于城墙之上）
         drawBullets();
@@ -12586,6 +12631,7 @@ function gameLoop() {
         }
     } else if (gameState === 'upgrade') {
         drawBackground();
+        drawFieldBorders();       // 升级暂停时仍显示战场边界
         const drawNow2 = Date.now();
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow2);
@@ -12598,6 +12644,7 @@ function gameLoop() {
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
         drawBackground();
+        drawFieldBorders();       // 结算界面仍显示战场边界
         const drawNow3 = Date.now();
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow3);
