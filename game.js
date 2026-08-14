@@ -1055,7 +1055,7 @@ const SKILL_DEFS = {
                   } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
                   qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
-    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中必定减速、炸出范围冰霜；冰弹伤害+35%（冻结由分支提供）', apply(lv){},
+    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中必定减速、炸出范围冰霜；五行弹道标配基础增伤+35%（冻结由分支提供）', apply(lv){},
                   // 水属性树（由冰属性重命名为水，对应五行中的水）：参考《向僵尸开炮》干冰弹
                   // 共享模板分支与火树同名同结构；水专属分支围绕「控制锁(冻结/减速) + 冰封处决(对冻结追最大生命%) + 冰霜新星(范围必冻爆发) + 极寒领域(冰域铺场)」
                   branches: {
@@ -1085,11 +1085,7 @@ const SKILL_DEFS = {
                     glacialDoom:{ name:'绝对零度',   desc:'对被冻结目标追加 3% 最大生命伤害/级（冰封处决）', reqLevel:5, prereq:['deepFreeze'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.glacialDoomBonus += bl; } }
                   } },
-    // ===== 新增：战场部署 / 聚怪（Phase 1 MVP，对标《向僵尸开炮》装甲车/燃油弹/旋风加农）=====
-    mine:       { type:'mine',       name:'地雷',     icon:'💣', element:'物理', category:'field',  maxLevel:10, desc:'布设地雷',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'伤害 +50%', apply(){ skills.mine._dmgBonus = 0.5; } }, 5:{ desc:'爆炸附加减速', apply(){ skills.mine._slow = true; } } } },
-    tornado:    { type:'tornado',    name:'龙卷风',   icon:'🌪️', element:'风',   category:'cc',     maxLevel:10, desc:'聚怪控制',       apply(lv){},
-                  qualNodes:{ 3:{ desc:'减速增强', apply(){ skills.tornado._slowBonus = 0.35; } }, 5:{ desc:'龙卷内风伤+', apply(){ skills.tornado._wind = true; } } } }
+    // 注：战场部署 / 聚怪类（地雷 · 油渍 · 龙卷风）已于 v1.1.16 移除，待五行技能树（含土 / 木）补全后再评估是否回归。
 };
 
 // 运行时技能实例（仅 level 可变，其余元数据来自 SKILL_DEFS）
@@ -1159,36 +1155,7 @@ const upgradePool = Object.keys(SKILL_DEFS).map(type => ({
 let upgradeOptions = [];
 let selectedUpgrade = -1;
 
-// 战场部署/聚怪技能运行时状态（由 updateFields 维护；startGame 时清空）
-let mines = [];
-let oilPatches = [];
-let tornadoes = [];
-const MINE_SPAWN_INTERVAL = 3500;
-const OIL_SPAWN_INTERVAL = 10000;   // 油渍释放 CD：10 秒一次
-const OIL_LIFE = 5000;              // 油渍存在时长：5 秒后直接消失
-const MINE_MAX_BASE = 2;
-const OIL_MAX_BASE = 1;
-// 油渍半径：按"直径每级 +10%（复合）"成长；最大直径 = 原初始直径(2×76.4=152.8) → 最大半径 76.4
-const OIL_MAX_RADIUS = 76.4;
-const OIL_DIAM_GROWTH = 1.1;                                       // 每级直径 +10%
-const OIL_BASE_RADIUS = OIL_MAX_RADIUS / Math.pow(OIL_DIAM_GROWTH, 4);  // Lv1 ≈ 52.2
-function getOilRadius(level) {
-    return OIL_BASE_RADIUS * Math.pow(OIL_DIAM_GROWTH, level - 1);
-}
-// 龙卷风：独立释放 CD（到点且无在场龙卷风则重新释放一个）+ 场上存在时长（超时消失）
-const TORNADO_RELEASE_CD = 8000;
-const TORNADO_LIFE = 5000;
-
-// 战场随机散落点：地雷/油渍释放时散落到战场中，而非堆在坦克（玩家）身上
-function randomFieldPos() {
-    const mx = 40;
-    const top = (statusBarHeight || 20) + 70;
-    const bot = screenHeight - 110;
-    return {
-        x: mx + Math.random() * (screenWidth - mx * 2),
-        y: top + Math.random() * Math.max(1, bot - top)
-    };
-}
+// （v1.1.16）战场部署 / 聚怪类（地雷·油渍·龙卷风）及其常量、状态数组、辅助函数已移除；五行领域状态见上方 iceFields / electricFields。
 
 // ==================== 弹药效果统一结算 ====================
 // 天赋提供长线基础值（每级小幅），局内三选一技能提供当场高成长值（每级大幅），二者相加后封顶。
@@ -1244,8 +1211,9 @@ const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70
 // 多重弹每多发 1 颗子弹，单发伤害按此系数衰减（分母随额外子弹数线性增长）
 // 例：多发 5 颗(共 6 发) → 单发伤害 ×(1/1.75≈0.57)，总伤 ≈ 单发×3.43（旧每2级+1上限+2、总伤≈×3.0）
 const MULTI_BULLET_DMG_PENALTY = 0.15;
-// 干冰弹基础伤害倍率：水的基础不再自带冻结(硬控)，改为更高直伤补偿；冻结/必冻下放给大类分支(冰霜新星/极寒领域)
-const WATER_BASE_DMG_MUL = 1.35;
+// 五行弹道标配基础伤害倍率：五行技能（非物理火力强化）基础直伤 +35%，作为五行压制的一部分；
+// 原仅干冰弹独有，v1.1.16 起成为所有五行弹道的标配（火/金/水/木/土 一致）。
+const ATTR_BASE_DMG_MUL = 1.35;
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
@@ -1268,10 +1236,6 @@ function getAttrReleaseCd(type) {
     return Math.max(cfg.min, cd);
 }
 
-function getFreezeChance() {
-    // 预留常量：基础命中自 v1.1.11 起不再冻结（硬控下放分支），此处保留返回 1.0 供兼容/测试
-    return 1.0;
-}
 function getFreezeDuration() {
     // 冻结时长：天赋 + 干冰弹等级 + 深寒分支百分比加成
     let base = 1000 + talentMods.freezeLevel * 40 + skills.freeze.level * 120;
@@ -1430,6 +1394,7 @@ const WUXING_ELEMENT = {
 // 相克：攻击五行 → 被克制五行 → 伤害加成倍率
 const WUXING_OVERCOME = { '火': '金', '金': '木', '木': '土', '土': '水', '水': '火' };
 const WUXING_OVERCOME_BONUS = 0.30;   // 克制时 +30% 伤害
+const WUXING_BASE_BONUS = 0.30;     // 五行技能对（普通）僵尸的默认压制增伤；物理火力强化不享受，克制系数恒为 1
 // 相生：A 生 B。五行属性树 = 火(爆炸)/金(雷)/水(冰)/木(风=龙卷风)，相生链 金→水→木→火 成立。
 // 设计目标：2 棵「相生」配对的树发育最强；单树无协同、3+ 树因分散投资而衰减。
 // 实现：相生对数提供全局增伤，超过 2 棵树后每多 1 树施加分散惩罚，使 2 树为峰值。
@@ -1468,8 +1433,18 @@ function getElementBonus(zombie, element) {
     if (zombie.frozenUntil > now && STATUS_ELEMENT_BONUS.frozen[element]) mult += STATUS_ELEMENT_BONUS.frozen[element];
     if (zombie.slowUntil > now && STATUS_ELEMENT_BONUS.slow[element]) mult += STATUS_ELEMENT_BONUS.slow[element];
     if (zombie.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
-    // 五行克制：攻击元素克目标元素
-    if (atkWx && zombie.element && WUXING_OVERCOME[atkWx] === zombie.element) mult += WUXING_OVERCOME_BONUS;
+    // 五行压制（标配）：五行技能对「普通」僵尸默认 +30% 压制增伤；物理火力强化 atkWx 未定义不享受（克制系数恒为 1）
+    if (atkWx) {
+        if (!zombie.element || zombie.element === 'normal') {
+            mult += WUXING_BASE_BONUS;                              // 普通僵尸：仅五行默认压制 +30%
+        } else if (WUXING_OVERCOME[atkWx] === zombie.element) {
+            mult += WUXING_BASE_BONUS + WUXING_OVERCOME_BONUS;     // 我克它：压制 +30% + 克制 +30%
+        } else if (atkWx === WUXING_OVERCOME[zombie.element]) {
+            mult += WUXING_BASE_BONUS - WUXING_OVERCOME_BONUS;     // 它克我：压制 +30% − 克制 30%（≈物理，无五行优势）
+        } else {
+            mult += WUXING_BASE_BONUS;                             // 无关属性：仅五行默认压制 +30%
+        }
+    }
     // 五行相生：全局倍率（峰值在恰好 2 棵相生树；单树无协同、3+ 树因分散而衰减）
     if (atkWx) mult *= wuxingSynergyMult;
     return mult;
@@ -1481,8 +1456,7 @@ function getBulletElement() {
     if (skills.freeze && skills.freeze.level > 0) scores['水'] = skills.freeze.level;
     if (skills.explosive && skills.explosive.level > 0) scores['火'] = skills.explosive.level;
     if (skills.lightning && skills.lightning.level > 0) scores['金'] = skills.lightning.level;
-    if (skills.tornado && skills.tornado.level > 0) scores['木'] = skills.tornado.level;
-    // 土属性（未来）
+    // 木（龙卷风已移除，待木属性技能树接入）/ 土属性（未来）
     let best = '物理', bestScore = 0;
     const priority = ['水', '火', '金', '木', '土'];
     for (const wx of priority) {
@@ -1535,9 +1509,7 @@ const COMBO_DEFS = [
     { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '金',
       fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '金'); pushHit(z,'conduct'); } },
     { id:'mire', test:(z,el)=> z.burningUntil > Date.now() && el === '水',
-      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+600); pushHit(z,'mire'); } },
-    { id:'storm', test:(z,el)=> z._inTornado && el === '风',
-      fx(z){ damageZombie(z, player.damage*0.4, false, '风'); const a=Math.atan2(z.y-player.y, z.x-player.x); z.x+=Math.cos(a)*20; z.y+=Math.sin(a)*20; pushHit(z,'storm'); } }
+      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+600); pushHit(z,'mire'); } }
 ];
 
 // 命中后判定组合技（每发伤害调用一次）
@@ -2105,237 +2077,7 @@ function getBulletVisual(bullet) {
 }
 
 // 绘制子弹（红色能量弹为底，按已获得效果叠加各自美术，与金色/青色掉落物强区分）
-// 战场部署/聚怪技能可视化
-
-// 地雷：金属半球弹体（立体渐变）+ 尖刺 + 脉冲发光核心 + 柔和红色警示区
-function drawMine(m) {
-    const now = Date.now();
-    const armed = now >= m.armTime;
-    const pulse = 0.5 + 0.5 * Math.sin(now / 200);
-
-    // 警示区：柔和径向羽化（替代硬黄环），读数上像"危险范围"而非生硬圆圈
-    const wr = m.radius;
-    const wg = ctx.createRadialGradient(m.x, m.y, wr * 0.5, m.x, m.y, wr);
-    const aCore = armed ? 0.18 : 0.09;
-    wg.addColorStop(0, 'rgba(255,80,40,0)');
-    wg.addColorStop(0.74, `rgba(255,80,40,${aCore * (0.7 + 0.3 * pulse)})`);
-    wg.addColorStop(1, 'rgba(255,80,40,0)');
-    ctx.fillStyle = wg;
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, wr, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 旋转虚线风墙（警示边界）
-    ctx.save();
-    ctx.translate(m.x, m.y);
-    ctx.rotate(now / 900);
-    ctx.setLineDash([wr * 0.12, wr * 0.1]);
-    ctx.strokeStyle = armed ? `rgba(255,110,55,${0.55 + 0.3 * pulse})` : 'rgba(150,170,200,0.5)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, wr * 0.9, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-
-    // 弹体尺寸固定（与爆炸范围解耦，避免高等级撑爆）
-    const bodyR = 14 + Math.min(8, m.level);
-
-    // 地面投影
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    ctx.ellipse(m.x, m.y + bodyR * 0.7, bodyR * 1.15, bodyR * 0.42, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 金属半球（径向渐变立体感）
-    const bg = ctx.createRadialGradient(m.x - bodyR * 0.35, m.y - bodyR * 0.4, bodyR * 0.2, m.x, m.y, bodyR);
-    bg.addColorStop(0, '#7c8794');
-    bg.addColorStop(0.5, '#414b56');
-    bg.addColorStop(1, '#1d2329');
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, bodyR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 外圈（已激活红 / 布署中灰）
-    ctx.strokeStyle = armed ? '#c0392b' : '#5a6470';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, bodyR, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 8 颗尖刺（经典地雷外观）
-    ctx.fillStyle = '#2a3138';
-    for (let k = 0; k < 8; k++) {
-        const a = k * (Math.PI * 2 / 8);
-        const sx = m.x + Math.cos(a) * bodyR;
-        const sy = m.y + Math.sin(a) * bodyR;
-        ctx.beginPath();
-        ctx.moveTo(sx + Math.cos(a) * 3, sy + Math.sin(a) * 3);
-        ctx.lineTo(sx + Math.cos(a + 0.28) * 5, sy + Math.sin(a + 0.28) * 5);
-        ctx.lineTo(sx + Math.cos(a - 0.28) * 5, sy + Math.sin(a - 0.28) * 5);
-        ctx.closePath();
-        ctx.fill();
-    }
-
-    // 发光核心（布署中蓝、已激活红，脉冲）
-    const coreR = bodyR * 0.45;
-    const coreBase = armed ? 'rgba(255,90,60,' : 'rgba(120,175,255,';
-    const cg = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, coreR * 2.4);
-    cg.addColorStop(0, `${coreBase}${armed ? 0.95 : 0.85})`);
-    cg.addColorStop(1, `${coreBase}0)`);
-    ctx.fillStyle = cg;
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, coreR * 2.4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = armed ? `rgba(255,${120 + 90 * pulse},90,1)` : 'rgba(160,205,255,0.95)';
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, coreR * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-}
-
-// 龙卷风：旋转螺旋气旋带 + 中心亮眼 + 外圈虚线风墙 + 环绕碎屑（旋涡聚怪感）
-function drawTornado(t) {
-    const now = Date.now();
-    const rot = now / 600;
-    ctx.save();
-    ctx.translate(t.x, t.y);
-
-    // 底座风晕（柔和羽化范围指示）
-    const fg = ctx.createRadialGradient(0, 0, t.radius * 0.5, 0, 0, t.radius);
-    fg.addColorStop(0, 'rgba(180,220,255,0.04)');
-    fg.addColorStop(0.7, 'rgba(180,220,255,0.16)');
-    fg.addColorStop(1, 'rgba(180,220,255,0)');
-    ctx.fillStyle = fg;
-    ctx.beginPath();
-    ctx.arc(0, 0, t.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 螺旋气旋带（多条旋臂，制造旋转与向心感）
-    const bands = 5;
-    for (let b = 0; b < bands; b++) {
-        const baseA = rot * (1 + b * 0.12) + b * (Math.PI * 2 / bands);
-        ctx.strokeStyle = `rgba(205,235,255,${0.5 - b * 0.06})`;
-        ctx.lineWidth = Math.max(1.5, 3 - b * 0.35);
-        ctx.beginPath();
-        const steps = 40;
-        for (let i = 0; i <= steps; i++) {
-            const f = i / steps;                       // 0→1 内→外
-            const ang = baseA + f * Math.PI * 3.2;     // 螺旋展开
-            const rr = t.radius * (0.16 + f * 0.84);
-            const x = Math.cos(ang) * rr;
-            const y = Math.sin(ang) * rr;
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-    }
-
-    // 外圈虚线风墙（受影响范围，反向缓转）
-    ctx.save();
-    ctx.rotate(-rot * 0.6);
-    ctx.setLineDash([t.radius * 0.08, t.radius * 0.06]);
-    ctx.strokeStyle = 'rgba(200,230,255,0.5)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, t.radius * 0.98, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-
-    // 环绕碎屑（被吸入感）
-    for (let d = 0; d < 6; d++) {
-        const a = rot * 1.6 + d * (Math.PI * 2 / 6);
-        const rr = t.radius * (0.34 + 0.5 * ((d * 0.17) % 1));
-        const x = Math.cos(a) * rr;
-        const y = Math.sin(a) * rr;
-        ctx.fillStyle = `rgba(222,242,255,${0.65 - (d % 2) * 0.22})`;
-        ctx.beginPath();
-        ctx.arc(x, y, 2.2 + (d % 2), 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // 中心点明亮风眼
-    const eye = ctx.createRadialGradient(0, 0, 0, 0, 0, t.radius * 0.22);
-    eye.addColorStop(0, 'rgba(255,255,255,0.9)');
-    eye.addColorStop(1, 'rgba(200,230,255,0)');
-    ctx.fillStyle = eye;
-    ctx.beginPath();
-    ctx.arc(0, 0, t.radius * 0.22, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-}
-
 function drawFields() {
-    // 油渍（地面熔岩火池）：柔和羽化边缘，无硬描边；半径随当前油渍等级实时变化（升级即刻放大所有场上火池）
-    for (const o of oilPatches) {
-        const base = skills.oil ? getOilRadius(skills.oil.level) : (o.radius || 0);  // 油渍技能已移除；base 仅用于绘制（oilPatches 恒空，不会执行到此）
-        const k = 1;        // 亮度恒定：不随寿命淡出，寿命结束由 updateFields 直接移除（瞬间消失）
-        const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);   // 熔岩呼吸
-        const t = Date.now() / 800;
-        // 不规则 blob 顶点（液体飞溅感）
-        const blobs = [
-            { a: 0.0, r: base * (0.82 + 0.06 * Math.sin(t)) },
-            { a: 1.1, r: base * (0.78 + 0.08 * Math.sin(t + 1.3)) },
-            { a: 2.4, r: base * (0.85 + 0.05 * Math.sin(t + 2.1)) },
-            { a: 3.6, r: base * (0.80 + 0.07 * Math.sin(t + 0.7)) },
-            { a: 4.8, r: base * (0.83 + 0.06 * Math.sin(t + 3.0)) },
-            { a: 6.0, r: base * (0.79 + 0.08 * Math.sin(t + 1.8)) }
-        ];
-        // 外圈柔光晕（羽化边界，替代硬描边）
-        const halo = ctx.createRadialGradient(o.x, o.y, base * 0.55, o.x, o.y, base * 1.45);
-        halo.addColorStop(0, 'rgba(255,110,20,' + (0.30 * k * pulse) + ')');
-        halo.addColorStop(0.5, 'rgba(255,90,15,' + (0.18 * k * pulse) + ')');
-        halo.addColorStop(1, 'rgba(255,90,15,0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(o.x, o.y, base * 1.45, 0, Math.PI * 2);
-        ctx.fill();
-        // 主体：径向渐变，边缘平滑淡出到透明（无硬描边）
-        const grad = ctx.createRadialGradient(o.x, o.y, base * 0.12, o.x, o.y, base);
-        grad.addColorStop(0, 'rgba(70,10,0,' + (0.85 * k * pulse) + ')');       // 暗褐中心
-        grad.addColorStop(0.35, 'rgba(150,32,0,' + (0.72 * k * pulse) + ')');   // 红棕
-        grad.addColorStop(0.72, 'rgba(255,100,20,' + (0.5 * k * pulse) + ')');  // 橙红
-        grad.addColorStop(1, 'rgba(255,150,40,0)');                             // 边缘羽化
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        for (let i = 0; i < blobs.length; i++) {
-            const b = blobs[i];
-            const bx = o.x + Math.cos(b.a) * b.r;
-            const by = o.y + Math.sin(b.a) * b.r;
-            if (i === 0) ctx.moveTo(bx, by);
-            else ctx.lineTo(bx, by);
-        }
-        ctx.closePath();
-        ctx.fill();
-        // 底部柔和黄色高光（液体反光，羽化椭圆）
-        const hl = ctx.createRadialGradient(o.x + base * 0.12, o.y + base * 0.28, 0, o.x + base * 0.12, o.y + base * 0.28, base * 0.4);
-        hl.addColorStop(0, 'rgba(255,230,120,' + (0.5 * k * pulse) + ')');
-        hl.addColorStop(1, 'rgba(255,230,120,0)');
-        ctx.fillStyle = hl;
-        ctx.beginPath();
-        ctx.ellipse(o.x + base * 0.12, o.y + base * 0.28, base * 0.35, base * 0.12, -0.15, 0, Math.PI * 2);
-        ctx.fill();
-        // 边缘柔和飞溅点（无硬边，渐隐小光斑）
-        const drops = [
-            { a: 0.9, d: base * 1.08, r: base * 0.18 },
-            { a: 2.3, d: base * 1.0, r: base * 0.13 },
-            { a: 3.8, d: base * 1.12, r: base * 0.15 },
-            { a: 5.2, d: base * 0.98, r: base * 0.11 }
-        ];
-        for (const d of drops) {
-            const dx = o.x + Math.cos(d.a) * d.d;
-            const dy = o.y + Math.sin(d.a) * d.d;
-            const dg = ctx.createRadialGradient(dx, dy, 0, dx, dy, d.r);
-            dg.addColorStop(0, 'rgba(255,140,40,' + (0.6 * k * pulse) + ')');
-            dg.addColorStop(1, 'rgba(255,140,40,0)');
-            ctx.fillStyle = dg;
-            ctx.beginPath();
-            ctx.arc(dx, dy, d.r, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-
     // 极寒领域（干冰弹 Lv4 分支）：冰霜减速/冻结场，冷色柔光晕
     // 使用缓存纹理 + drawImage，避免每领域每帧创建径向渐变
     const icePulse = 0.85 + 0.15 * Math.sin(Date.now() / 120);
@@ -2360,10 +2102,6 @@ function drawFields() {
     }
 
     ctx.globalAlpha = 1;
-    // 地雷（金属弹体 + 脉冲核心 + 柔和警示区）
-    for (const m of mines) drawMine(m);
-    // 龙卷风（旋转气旋 + 风墙 + 碎屑）
-    for (const t of tornadoes) drawTornado(t);
 }
 
 // 绘制子弹：颜色 / 形状 / 体型 完全由元素决定（ELEMENT_VISUAL），不再从普通子弹演化
@@ -3084,9 +2822,6 @@ function drawSkillUI() {
 
 // 获取指定技能的释放 CD 进度（timer 从 0 计到 interval，返回剩余时间）
 function getSkillCooldown(key) {
-    if (key === 'mine') return { timer: updateFields._mineTimer || 0, interval: MINE_SPAWN_INTERVAL };
-    if (key === 'oil') return { timer: updateFields._oilTimer || 0, interval: OIL_SPAWN_INTERVAL };
-    if (key === 'tornado') return { timer: updateFields._tornadoCd || 0, interval: TORNADO_RELEASE_CD };
     // 子弹类属性技能：按自身独立 cd（_lastFire 时间戳）算进度
     if (ATTRIBUTE_BULLET_TYPES.indexOf(key) >= 0) {
         const interval = getAttrReleaseCd(key);
@@ -4016,8 +3751,8 @@ function shootAttribute(type) {
     const n = 1 + (m.bulletCountBoost || 0);                 // 多重爆裂/多重干冰
     const _spd = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * (m.speedMul || 1);  // 默认比普通子弹慢；疾速弹道（自身分支）可提速，仍独立于火力强化
     // 多发子弹：额外子弹数越多，单发伤害越低（整体总伤随子弹数亚线性增长，避免多重无脑碾压）
-    // 干冰弹基础伤害额外 ×WATER_BASE_DMG_MUL：基础不再自带冻结(硬控)，以更高直伤补偿（火/金基础无此倍率）
-    const _baseMul = (type === 'freeze') ? WATER_BASE_DMG_MUL : 1;
+    // 五行弹道（非物理火力强化）统一 ×ATTR_BASE_DMG_MUL：自 v1.1.16 起 +35% 基础增伤成为五行标配（火/金/水/木/土 一致）
+    const _baseMul = (type === 'damage') ? 1 : ATTR_BASE_DMG_MUL;   // 五行弹道（非物理）统一 +35% 基础增伤（标配）
     const dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
     const canSplit = !!m.canSplit;                          // 多重 Lv5 质变：命中分裂（由分支等级判定，与子弹数公式解耦）
 
@@ -4617,6 +4352,9 @@ function updateZombies(dt) {
             if (now < (zombie._wallHitAt || 0) + WALL_ATTACK_INTERVAL) continue;
             zombie._wallHitAt = now;
 
+            // 冻结=停掉破墙伤害：被冻结僵尸（含已贴墙者）完全不啄墙；冻结有时限，解冻即恢复，不会永久免伤
+            if (zombie.frozenUntil > now) continue;
+
             let damage = zombie.damage;
 
             // 护盾减伤（技能 −10%/级 + 天赋 −2%/级，封顶 80%）
@@ -4673,90 +4411,9 @@ function updateZombies(dt) {
     }
 }
 
-// 战场部署/聚怪技能：周期性生成与生效（地雷/油渍/龙卷风）
+// 五行领域持续技能：周期性结算生效（极寒领域 / 静电场）；部署/聚怪类已于 v1.1.16 移除
 function updateFields(dt) {
     const now = Date.now();
-
-    // 地雷：周期性在战场随机位置布设（独立释放 CD），僵尸踩入范围即爆炸（复用爆炸半径逻辑）
-    if (skills.mine.level > 0) {
-        updateFields._mineTimer = (updateFields._mineTimer || 0) + dt;
-        const cap = MINE_MAX_BASE + skills.mine.level;
-        if (updateFields._mineTimer >= MINE_SPAWN_INTERVAL) {
-            updateFields._mineTimer = 0;
-            if (mines.length < cap) {
-                const _mp = randomFieldPos();
-                mines.push({ x: _mp.x, y: _mp.y, radius: 40 + skills.mine.level * 12, armTime: now + 600, level: skills.mine.level });
-            }
-        }
-        for (let i = mines.length - 1; i >= 0; i--) {
-            const m = mines[i];
-            if (now < m.armTime) continue;
-            let triggered = false;
-            for (const z of zombies) {
-                if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius + z.radius) { triggered = true; break; }
-            }
-            if (triggered) {
-                createExplosion(m.x, m.y, m.radius);
-                let dmg = player.damage * (0.5 + m.level * 0.12) * 2;
-                if (skills.mine._dmgBonus) dmg *= (1 + skills.mine._dmgBonus);   // Lv3 伤害 +50%
-                for (let k = zombies.length - 1; k >= 0; k--) {   // 倒序：damageZombie 可能 splice 移除僵尸
-                    const z = zombies[k];
-                    if (Math.hypot(m.x - z.x, m.y - z.y) < m.radius) {
-                        damageZombie(z, dmg, false, '物理');
-                        if (skills.mine._slow) z.slowUntil = Math.max(z.slowUntil || 0, now + 1500);  // Lv5 爆炸附加减速
-                    }
-                }
-                if (typeof AudioSystem !== 'undefined' && AudioSystem.playBombExplosion) AudioSystem.playBombExplosion();
-                mines.splice(i, 1);
-            }
-        }
-    }
-
-    // 油渍地面火池：独立「油渍」技能已删除，灼烧效果由爆炸弹「引燃」分支承担（applyBurn 灼烧循环仍保留在 updateZombies）。
-    // 此处地面火池逻辑整段移除——不再生成/维护 oilPatches，相关常量与 getOilRadius 一并成为死代码（保留以免误伤引用）。
-
-    // 龙卷风：独立释放 CD，释放后在场上存在一段时长（超时消失），期间牵引附近僵尸聚拢
-    if (skills.tornado.level > 0) {
-        // 独立释放 CD：到点且场上无龙卷风则释放一个（随机位置入场）
-        updateFields._tornadoCd = (updateFields._tornadoCd || 0) + dt;
-        if (updateFields._tornadoCd >= TORNADO_RELEASE_CD && tornadoes.length === 0) {
-            updateFields._tornadoCd = 0;
-            const _tp = randomFieldPos();
-            // v1.1.5：范围大幅缩小（原 140+Lv*20≈340，现 70+Lv*8≈150），龙卷风改为小范围缓速区
-            tornadoes.push({ x: _tp.x, y: _tp.y, radius: 70 + skills.tornado.level * 8, vx: 0.5, vy: 0.35, level: skills.tornado.level, life: TORNADO_LIFE });
-        }
-        // 重置标记（每帧）
-        for (const z of zombies) z._inTornado = false;
-        for (let i = tornadoes.length - 1; i >= 0; i--) {
-            const t = tornadoes[i];
-            t.life -= dt;
-            if (t.life <= 0) { tornadoes.splice(i, 1); continue; }
-            t.x += t.vx; t.y += t.vy;
-            if (t.x < t.radius || t.x > screenWidth - t.radius) t.vx *= -1;
-            if (t.y < t.radius || t.y > screenHeight - t.radius) t.vy *= -1;
-            // 仅轻微减速（不再吸附到风眼）：范围内怪物移动速度小幅降低
-            let slow = 0.65;                                  // 速度 ×0.65（小幅减速）
-            if (skills.tornado._slowBonus) slow *= (1 - skills.tornado._slowBonus);  // Lv3 减速增强（原“牵引力增强”）
-            for (let k = zombies.length - 1; k >= 0; k--) {   // 倒序：风系 DPS 的 damageZombie 可能 splice 移除僵尸
-                const z = zombies[k];
-                const d = Math.hypot(t.x - z.x, t.y - z.y);
-                if (d < t.radius) {
-                    z._inTornado = true;
-                    z.slowUntil = Math.max(z.slowUntil || 0, now + 300);
-                    z.slowFactor = Math.min(z.slowFactor || 1, slow);
-                    // 龙卷风风系 DPS（tornado Lv5 质变启用；风伤触发灼烧+风/风暴组合技）
-                    if (skills.tornado._wind) {
-                        updateFields._tornadoDpsTimer = (updateFields._tornadoDpsTimer || 0) + dt;
-                        if (updateFields._tornadoDpsTimer >= 500) {
-                            updateFields._tornadoDpsTimer = 0;
-                            damageZombie(z, player.damage * 0.1, false, '风');
-                            checkCombos(z, '风');
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     // 极寒领域：持续减速/概率冻结领域内僵尸（每 100ms 结算一次，避免每帧全量遍历）
     for (let i = iceFields.length - 1; i >= 0; i--) {
@@ -4894,12 +4551,13 @@ function spawnZombies(dt) {
 
 function spawnWave(w, stage) {
     waveAlive[w.i] = w.comp.length;
-    const wuxingPool = ['金', '木', '水', '火', '土'];
     // 同一波的所有怪均匀错峰入队：每只在 w.spawnAt + s*WAVE_INTERVAL ± 抖动 入场，
     // 铺满本波独占的时间段；下一波在末尾紧接，全程连绵不绝、不会一排同时出现。
+    // 五行属性：当前关卡统一为「普通」（克制系数=1）；后续由关卡设计在 stage/wave 数据中
+    // 指定具体五行属性（如 zElement:'火'），让特定关卡需要对应五行技能才能轻松通过。
+    const zElement = 'normal';
     for (let s = 0; s < w.comp.length; s++) {
         const type = w.comp[s];
-        const zElement = wuxingPool[Math.floor(Math.random() * wuxingPool.length)];
         pendingSpawns.push({
             at: w.spawnAt + s * WAVE_INTERVAL + (Math.random() * 2 - 1) * WAVE_JITTER,
             type: type,
@@ -4910,7 +4568,7 @@ function spawnWave(w, stage) {
     }
 }
 
-// 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀，五行随机）
+// 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
 function updatePendingSpawns() {
     if (pendingSpawns.length === 0) return;
     for (let i = pendingSpawns.length - 1; i >= 0; i--) {
@@ -4930,7 +4588,7 @@ function updatePendingSpawns() {
         zombies.push({
             x: Math.random() * screenWidth,
             y: -50,
-            element: p.zElement,
+            element: p.zElement || 'normal',
             radius: template.radius,
             speed: template.speed * stage.speedMult,
             health: template.health * healthMult,
@@ -5270,6 +4928,7 @@ function startGame() {
     // 护盾不折入技能等级（技能 −10%/级 与 天赋 −2%/级 权重不同，由 getShieldReduce 分别结算）
     skills.explosive.level += talentMods.explosiveLevel;
     skills.lightning.level += talentMods.lightningLevel;
+    skills.freeze.level += talentMods.freezeSkillLevel;     // 干冰弹天赋起手等级（mirror 爆炸/闪电；skills.freeze 恒在 SKILL_DEFS，无需守卫）
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
     for (const key of Object.keys(skills)) fireQualNodes(key);
@@ -5295,10 +4954,7 @@ function startGame() {
     deathRayEffects = [];
     hitEffects = [];
 
-    // 清空战场部署/聚怪技能状态
-    mines = [];
-    oilPatches = [];
-    tornadoes = [];
+    // 清空五行领域状态（战场部署/聚怪类已于 v1.1.16 移除）
     iceFields = [];
     electricFields = [];
     
@@ -5830,7 +5486,7 @@ let talentData = {
     'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, perLevelPower: 80, effect: '穿透 +1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
     'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '受伤 −2%', chapter: 4, prerequisite: { id: 'health', level: 10 } },
     'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, perLevelPower: 100, effect: '爆炸范围 +1级', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中冰冻 +1.5%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
+    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中冰冻 +1.5%，干冰弹起手 +1级', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
     'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中减速 +2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
     'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, perLevelPower: 120, effect: '炸弹上限 +1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
     'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, perLevelPower: 150, effect: '闪电链 +1级', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
@@ -5845,7 +5501,7 @@ let talentMods = {
     damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
     critChance: 0, critDamageMult: 2, critLevel: 0,
     piercingBonus: 0, shieldLevel: 0,
-    explosiveLevel: 0, lightningLevel: 0,
+    explosiveLevel: 0, lightningLevel: 0, freezeSkillLevel: 0,
     freezeChance: 0, slowChance: 0, freezeLevel: 0, slowLevel: 0,
     bulletCountBonus: 0, bombMaxBonus: 0,
     goldMult: 1, expMult: 1,
@@ -5860,7 +5516,7 @@ function applyTalentsToBattle() {
         damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
         critChance: 0, critDamageMult: 2, critLevel: 0,
         piercingBonus: 0, shieldLevel: 0,
-        explosiveLevel: 0, lightningLevel: 0,
+        explosiveLevel: 0, lightningLevel: 0, freezeSkillLevel: 0,
         freezeChance: 0, slowChance: 0, freezeLevel: 0, slowLevel: 0,
         bulletCountBonus: 0, bombMaxBonus: 0,
         goldMult: 1, expMult: 1,
@@ -5878,6 +5534,7 @@ function applyTalentsToBattle() {
     m.shieldLevel += t.shield.level;                        // 护盾：每级受伤 −2%（叠加技能护盾 −10%/级）
     m.explosiveLevel += t.explosive.level;                  // 爆炸：每级 +1 级范围
     m.lightningLevel += t.lightning.level;                  // 闪电链：每级 +1 级
+    m.freezeSkillLevel += t.freeze.level;                   // 干冰弹起手等级：每级 +1 级（mirror 爆炸/闪电）
     m.freezeChance += t.freeze.level * 0.015;               // 命中冰冻：每级 +1.5%（局内「冰霜弹」每级 +6%）
     m.slowChance += t.slow.level * 0.02;                    // 命中减速：每级 +2%（局内「缓速弹」每级 +8%）
     m.freezeLevel = t.freeze.level;
