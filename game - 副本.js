@@ -1021,8 +1021,8 @@ const SKILL_DEFS = {
                     incinerate: { name:'焚身',       desc:'对引燃目标追加3%最大生命伤害/级', reqLevel:5, prereq:['ignite'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.explIncinerate += bl; } }
                   } },
-    lightning:  { type:'lightning',  name:'雷弧链',   icon:'⚡', element:'金',   category:'bullet', maxLevel:99, desc:'命中弹射/麻痹/电伤领域',
-                  // 金属性树（对应五行中的金）：玩法参考《向僵尸开炮》跃迁电子，已重命名为「雷弧链」以避免重名；弹射、导电、麻痹、电伤领域
+    lightning:  { type:'lightning',  name:'闪电链',   icon:'⚡', element:'金',   category:'bullet', maxLevel:99, desc:'命中弹射/麻痹/电伤领域',
+                  // 金属性树（对应五行中的金）：玩法参考《向僵尸开炮》跃迁电子，命名为「闪电链」；弹射、导电、麻痹、电伤领域
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水树同名同结构）——
@@ -1091,28 +1091,28 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水/金同名同结构）——
-                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+5，单根伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+5，单根伤害衰减）', reqLevel:2, prereq:[], mutex:['rapidLog'], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
                     crit:       { name:'荆棘暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发荆棘迸发', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.thornBurst = true; } },
-                    pierce:     { name:'木刺穿透', desc:'滚木长度 +15/级；满级命中溅射木刺',    reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                    pierce:     { name:'木刺穿透', desc:'滚木粗细 +5/级；满级命中溅射木刺',     reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.woodSpike = true; } },
                     // —— 木专属分支 ——
                     // 巨木 / 连发滚木 同档(Lv2)互斥：少而宽+重伤害 vs 多而窄+覆盖面
                     giantLog:   { name:'巨木',       desc:'滚木宽度+12%/级、伤害+12%/级（向 1/2 城墙宽度成长）', reqLevel:2, prereq:[], mutex:['rapidLog'], maxLevel:5,
                                   effect(bl,m){ m.logWidthMul *= Math.pow(1.12, bl); m.logDmgMul *= Math.pow(1.12, bl); } },
-                    rapidLog:   { name:'连发滚木',   desc:'滚木数量+1/级，单根伤害-18%/级',       reqLevel:2, prereq:[], mutex:['giantLog'], maxLevel:5,
-                                  effect(bl,m){ m.logCountBoost += bl; m.logDmgMul *= Math.pow(0.82, bl); } },
+                    rapidLog:   { name:'连发滚木',   desc:'滚木数量+1/级（与多重滚木二选一，单根伤害随数量衰减）', reqLevel:2, prereq:[], mutex:['giantLog','multiShot'], maxLevel:5,
+                                  effect(bl,m){ m.logCountBoost += bl; } },
                     // 深根：木系硬控（定身 = stun），也是 Lv5 绞杀藤蔓的状态钩子
                     deepRoot:   { name:'深根',       desc:'滚木命中 20%/级 概率使敌人定身 0.4s+0.1s/级', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.rootChance += 0.20 * bl; m.rootDuration += 400 + 100 * bl; } },
                     // 回弹 / 碎木飞溅 同档(Lv4)互斥：二次 passage vs 消失 AoE
                     rebound:    { name:'回弹',       desc:'滚木到达顶端后回弹一次，回弹伤害+20%/级', reqLevel:4, prereq:[], mutex:['splinter'], maxLevel:5,
                                   effect(bl,m){ m.rebound = true; m.reboundDmgMul *= Math.pow(1.20, bl); } },
-                    splinter:   { name:'碎木飞溅',   desc:'滚木消失时 30%/级 概率炸裂，对周围敌人造成伤害', reqLevel:4, prereq:[], mutex:['rebound'], maxLevel:5,
-                                  effect(bl,m){ m.splinterChance += 0.30 * bl; m.splinterDmgMul *= Math.pow(1.25, bl); } },
+                    splinter:   { name:'碎木飞溅',   desc:'滚动途中 30%/级 概率炸裂（一路碾压一路爆炸，不消失），对周围敌人造成伤害', reqLevel:4, prereq:[], mutex:['rebound'], maxLevel:5,
+                                  effect(bl,m){ m.splinterChance += 0.30 * bl; m.splinterDmgMul *= Math.pow(1.15, bl); } },
                     // Lv5 质变：绞杀藤蔓（对标火·焚身 / 水·绝对零度 / 金·超导）—— 对被定身目标追加最大生命%伤害
                     strangleVine:{ name:'绞杀藤蔓',  desc:'对被定身目标追加 3% 最大生命伤害/级', reqLevel:5, prereq:['deepRoot'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.strangleVineBonus += bl; } }
@@ -1145,7 +1145,7 @@ let bombExplosionEffects = [];
 let deathRayEffects = [];           // 死亡射线特效
 let hitEffects = [];                // 命中特效（暴击 / 冰冻 / 减速）
 let iceFields = [];                 // 干冰弹「极寒领域」生成的持续冰霜区域
-let electricFields = [];            // 雷弧链「静电场」生成的持续电伤区域
+let electricFields = [];            // 闪电链「静电场」生成的持续电伤区域
 let logs = [];                      // 滚木（木属性树）生成的持续向上碾压的滚木
 let pendingWoodLogs = [];           // 待释放的滚木队列：错峰依次 spawn，总时长可超过 CD
 let _zombieIdSeq = 0;               // 僵尸唯一 id（滚木按 id 节流每根僵尸的碾压结算）
@@ -1157,7 +1157,7 @@ function addParticle(p) {
     if (particles.length >= MAX_PARTICLES) particles.shift();
     particles.push(p);
 }
-// 静电场（雷弧链 Lv4 分支）领域参数：范围/时长随「静电场」等级小幅扩大
+// 静电场（闪电链 Lv4 分支）领域参数：范围/时长随「静电场」等级小幅扩大
 const STATIC_FIELD_BASE_RADIUS = 55;     // Lv1 基础半径(px)
 const STATIC_FIELD_RADIUS_PER_LV = 12;   // 每级 +12(px)：Lv1≈67 → Lv5≈115
 const STATIC_FIELD_BASE_LIFE = 2600;     // Lv1 基础持续(ms)
@@ -1266,6 +1266,10 @@ const WOOD_LOG_THICKNESS = 28;            // 滚木厚度(px)：视觉上是左�
 const WOOD_LOG_RELEASE_INTERVAL = 260;    // 多重滚木错峰释放间隔(ms)，总时长可超过 CD
 const WOOD_LOG_HIT_INTERVAL = 280;        // 同一僵尸被同一根滚木碾压的间隔(ms)
 const WOOD_LOG_DMG_FACTOR = 0.55;     // 碾压每击伤害系数（连续碾压，单跳系数低于单次属性子弹）
+// 碎木飞溅（互斥于回弹）：滚动途中按间隔概率炸裂，滚木不消失，一路碾压一路爆炸
+const WOOD_SPLINTER_INTERVAL = 600;   // 碎木飞溅炸裂间隔(ms)
+const WOOD_SPLINTER_RADIUS = 70;      // 碎木飞溅爆炸半径(px)
+const WOOD_SPLINTER_DMG = 0.25;       // 碎木飞溅每发伤害系数（占 player.damage 比例）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
@@ -1416,7 +1420,7 @@ function recomputeFreezeMods() {
     if (skills.freeze) skills.freeze._mods = m;
 }
 
-// 由已选分支派生 雷弧链（金属性树）的实时修正（弹射/麻痹/电伤领域/超导/雷霆）；每次选分支/开局重算
+// 由已选分支派生 闪电链（金属性树）的实时修正（弹射/麻痹/电伤领域/超导/雷霆）；每次选分支/开局重算
 function recomputeLightningMods() {
     const b = (skills.lightning && skills.lightning.branches) || {};
     const def = SKILL_DEFS.lightning;
@@ -1477,7 +1481,7 @@ const WUXING_BASE_BONUS = 0.30;     // 五行技能对（普通）僵尸的默�
 // 实现：相生对数提供全局增伤，超过 2 棵树后每多 1 树施加分散惩罚，使 2 树为峰值。
 const WUXING_GENERATE = { '火': '土', '土': '金', '金': '水', '水': '木', '木': '火' };
 const WUXING_GENERATE_BONUS = 0.20;     // 每对相生提供的全局增伤（作用于所有属性伤害）
-const WUXING_SPREAD_PENALTY = 0.25;    // 超过 2 棵属性树后，每多 1 树的分散惩罚
+const WUXING_SPREAD_PENALTY = 0.45;    // 超过 2 棵属性树后，每多 1 树的分散惩罚（令 2 树相生 > 单树 > 3 树 > 4 树，体现「2树相生最强、单树次之」）
 let wuxingSynergy = {};                // { 被生五行: true }（保留供组合技/UI 使用）
 let wuxingSynergyMult = 1;             // 全局五行相生倍率（峰值在恰好 2 棵相生树）
 
@@ -2168,7 +2172,7 @@ function drawFields() {
         ctx.drawImage(tex, f.x - f.radius, f.y - f.radius, f.radius * 2, f.radius * 2);
     }
 
-    // 静电场（雷弧链 Lv4 分支）：金色电脉冲场
+    // 静电场（闪电链 Lv4 分支）：金色电脉冲场
     const elecPulse = 0.85 + 0.15 * Math.sin(Date.now() / 80);
     for (const f of electricFields) {
         if (f.x + f.radius < 0 || f.x - f.radius > screenWidth || f.y + f.radius < 0 || f.y - f.radius > screenHeight) continue;
@@ -3937,7 +3941,7 @@ function shootWood() {
     const m = woodMods();
     const wallW = screenWidth;
     const baseW = wallW * WOOD_LOG_BASE_WIDTH_RATIO * m.logWidthMul;   // 基础 1/4 城墙宽，巨木向 1/2 成长
-    const count = 1 + (m.bulletCountBoost || 0) + (m.logCountBoost || 0);   // 多重滚木 + 连发滚木
+    const count = Math.min(6, 1 + (m.bulletCountBoost || 0) + (m.logCountBoost || 0));   // 多重滚木 / 连发滚木 互斥，硬上限 6 根防超模
     const speed = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * WOOD_LOG_SPEED_MUL * (m.speedMul || 1);  // 厚重慢速
     const lvl = Math.max(1, skills.wood.level || 1);
     // 单根每击伤害：五行标配 +35% × 木专属(logDmgMul) × 基础技能等级成长；多根按多重系数衰减避免无脑碾压
@@ -4090,7 +4094,7 @@ function updateBullets() {
                 // 命中时间戳（闪电链/冰冻/减速/领域/麻痹 共用）
                 const nowHit = Date.now();
 
-                // 雷弧链（仅金属性树自身的子弹触发）
+                // 闪电链（仅金属性树自身的子弹触发）
                 if (bullet.skillType === 'lightning') {
                     const _lm = lightningMods();
                     // 导电 = 冻结/减速/麻痹（金树自身电磁脉冲即可施加麻痹，纯金流也能触发超导，无需依赖水树减速/冻结）
@@ -4738,25 +4742,27 @@ function updateLogs(dt) {
                 }
             }
         }
+        // 碎木飞溅（互斥于回弹）：滚动途中按间隔概率炸裂，滚木不消失，一路碾压一路爆炸
+        if (log.splinterChance > 0) {
+            log._splinterTimer = (log._splinterTimer || 0) + (dt || 16);
+            if (log._splinterTimer >= WOOD_SPLINTER_INTERVAL) {
+                log._splinterTimer = 0;
+                if (Math.random() < Math.min(1, log.splinterChance)) {
+                    createWoodSplinterEffect(log.x, log.y);
+                    for (const z of zombies) {
+                        if (Math.hypot(log.x - z.x, log.y - z.y) < WOOD_SPLINTER_RADIUS + z.radius) {
+                            damageZombie(z, player.damage * WOOD_SPLINTER_DMG * log.splinterDmgMul, false, '木');
+                        }
+                    }
+                }
+            }
+        }
         // 生命周期：到达顶端
         if (log.phase === 'up' && log.y + log.thick / 2 < 0) {
             if (log.rebound) { log.phase = 'down'; log.vy = -log.vy; }   // 回弹（互斥于碎木）
-            else { expireLog(log); logs.splice(i, 1); }
+            else { logs.splice(i, 1); }
         } else if (log.phase === 'down' && log.y - log.thick / 2 > WALL_Y + 10) {
             logs.splice(i, 1);   // 回弹到底（互斥于碎木，不再炸裂）
-        }
-    }
-}
-
-// 滚木消失（非回弹路线）：碎木飞溅，概率炸裂对周围敌人造成伤害
-function expireLog(log) {
-    if (log.splinterChance > 0 && Math.random() < log.splinterChance) {
-        const r = 75;
-        createWoodSplinterEffect(log.x, Math.max(0, log.y));
-        for (const z of zombies) {
-            if (Math.hypot(log.x - z.x, log.y - z.y) < r + z.radius) {
-                damageZombie(z, player.damage * 0.5 * log.splinterDmgMul, false, '木');
-            }
         }
     }
 }
