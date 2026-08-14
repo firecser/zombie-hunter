@@ -1261,7 +1261,7 @@ const MULTI_BULLET_DMG_PENALTY = 0.15;
 const ATTR_BASE_DMG_MUL = 1.35;
 // 滚木（木属性树）参数：基础宽度占城墙宽 1/4，由「巨木」分支向 1/2 成长；厚重慢速、碾压间隔控制 DPS
 const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;   // 滚木基础宽度占城墙宽度比例
-const WOOD_LOG_SPEED_MUL = 0.55;          // 滚木速度为属性子弹的 55%（厚重感）
+const WOOD_LOG_SPEED_MUL = 0.30;          // 滚木速度为属性子弹的 30%（厚重缓滚，明显比原 0.55 慢）
 const WOOD_LOG_THICKNESS = 28;            // 滚木厚度(px)：视觉上是左右展开的圆柱直径，要小，不能粗
 const WOOD_LOG_RELEASE_INTERVAL = 260;    // 多重滚木错峰释放间隔(ms)，总时长可超过 CD
 const WOOD_LOG_HIT_INTERVAL = 280;        // 同一僵尸被同一根滚木碾压的间隔(ms)
@@ -2178,8 +2178,6 @@ function drawFields() {
         ctx.globalAlpha = lifeRatio * elecPulse * 0.92;  // 纹理基准 alpha 0.24，缩放后≈原 0.22
         ctx.drawImage(tex, f.x - f.radius, f.y - f.radius, f.radius * 2, f.radius * 2);
     }
-
-    drawLogs();
 
     ctx.globalAlpha = 1;
 }
@@ -3963,6 +3961,7 @@ function shootWood() {
                 thick: WOOD_LOG_THICKNESS + (m.pierceBoost || 0) * 5,   // 木刺穿透：滚木略粗（仍然保持细）
                 vy: -speed,
                 dmg: perHit,
+                critChance: getCritChance(m), critMult: getCritMult(m),   // 暴击属性在释放时快照，升级三选一不影响本次正在释放/排队的滚木
                 rebound: !!m.rebound, reboundDmgMul: m.reboundDmgMul || 1,
                 splinterChance: m.splinterChance || 0, splinterDmgMul: m.splinterDmgMul || 1,
                 rootChance: m.rootChance || 0, rootDuration: m.rootDuration || 0,
@@ -4703,16 +4702,15 @@ function updateLogs(dt) {
         const log = logs[i];
         log.y += log.vy * (frame / 16);   // vy 为负=向上；按 dt 归一化到 px/帧
         const top = log.y - log.thick / 2, bot = log.y + log.thick / 2;
-        const wm = woodMods();
         for (const z of zombies) {
             if (z.x < log.x - log.w / 2 || z.x > log.x + log.w / 2) continue;   // 不在横向带内
             if (z.y + z.radius < top || z.y - z.radius > bot) continue;          // 不在纵向长度内
             const last = log.hitMap[z.id] || 0;
             if (now - last < WOOD_LOG_HIT_INTERVAL) continue;                    // 节流，避免单帧连击
             log.hitMap[z.id] = now;
-            // 暴击（荆棘暴击分支提供概率/倍率，受暴击天赋增益）
-            const isCrit = Math.random() < getCritChance(wm);
-            let dmg = log.dmg * (isCrit ? getCritMult(wm) : 1);
+            // 暴击（荆棘暴击分支提供概率/倍率，受暴击天赋增益）；数值在释放时快照到 log.critChance/critMult，升级不影响本次
+            const isCrit = Math.random() < log.critChance;
+            let dmg = log.dmg * (isCrit ? log.critMult : 1);
             if (log.phase === 'down') dmg *= log.reboundDmgMul;   // 回弹阶段伤害增幅
             damageZombie(z, dmg, isCrit, '木');
             if (z.health <= 0) continue;
@@ -12564,6 +12562,8 @@ function gameLoop() {
             drawZombie(zombie, drawNow);
         }
 
+        drawLogs();               // 滚木绘制于僵尸上层（碾压时压在怪身上）
+
         drawWallHealthBar();      // 城墙血条（整组下沿贴齐城墙下沿，先画）
         drawPlayer();             // 坦克绘制于血条上层
         drawDamageNumbers();
@@ -12583,6 +12583,7 @@ function gameLoop() {
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow2);
         }
+        drawLogs();               // 升级暂停时仍把滚木压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
@@ -12594,6 +12595,7 @@ function gameLoop() {
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow3);
         }
+        drawLogs();               // 结算界面仍把滚木压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
