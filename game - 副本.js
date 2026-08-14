@@ -1148,7 +1148,7 @@ const SKILL_DEFS = {
                     quake:      { name:'震地',       desc:'命中 25%/级 概率引发震地，范围伤害+5%/级并眩晕 0.15s/级', reqLevel:3, prereq:[], mutex:['sinkhole'], maxLevel:5,
                                   effect(bl,m){ m.quakeChance += 0.25 * bl; m.quakeDmgMul *= Math.pow(1.05, bl); m.quakeRadius += 4 * bl; m.quakeStunDur += 150 * bl; } },
                     sinkhole:   { name:'陷坑',       desc:'命中 25%/级 概率产生陷坑，将周围敌人向命中点牵引', reqLevel:3, prereq:[], mutex:['quake'], maxLevel:5,
-                                  effect(bl,m){ m.sinkholeChance += 0.25 * bl; m.sinkholeRadius += 30 * bl; m.sinkholePull += 25 * bl; } },
+                                  effect(bl,m){ m.sinkholeChance += 0.25 * bl; m.sinkholeRadius += 5 * bl; m.sinkholePull += 25 * bl; } },
                     // 石化 / 碎甲 同档(Lv4)互斥：硬控路线 vs 爆发增幅路线（石化可继续点山崩 Lv5）
                     petrify:    { name:'石化',       desc:'命中 12%/级 概率石化（眩晕）敌人 0.25s/级', reqLevel:4, prereq:[], mutex:['armorCrush'], maxLevel:5,
                                   effect(bl,m){ m.petrifyChance += 0.12 * bl; m.petrifyDuration += 250 * bl; } },
@@ -1335,12 +1335,13 @@ const EARTH_SPIKE_MAX_COUNT     = 6;    // 场上地刺簇数量上限
 // 土系·陷坑场地（地刺消失后生成的持续牵引坑）
 const EARTH_SINKHOLE_DURATION   = 1400; // 陷坑持续时间(ms)：足够让敌人被缓慢拉入
 const EARTH_SINKHOLE_MAX_COUNT  = 4;    // 场上陷坑数量上限（防铺满）
-const EARTH_SINKHOLE_PULL_PER_FRAME = 4; // 陷坑每帧最大牵引步长(px)，配合距离比例形成渐近移动
+const EARTH_SINKHOLE_PULL_PER_FRAME = 0.006; // 陷坑每帧牵引步长缩放（再乘 sizeResist 与大怪抗性后极轻柔；配合 d*0.8 上限避免越过中心）。原 4 导致敌人瞬间被吸到中心
 const EARTH_SHIELD_BASE_HP = 24;        // 岩盾基础血量（绝对基准，不再乘 player.damage）。原 hp = player.damage*80*… 导致单盾血近千、僵尸每500ms仅啄 zombie.damage*0.25（≈1.75），理论300s才破，等于无敌；现改为可被正常啃穿的绝对血量。最终 hp = 该值 ×(1+土树等级×0.06)×岩盾分支血量倍率
 const EARTH_SHIELD_BASE_WIDTH = 90;     // 岩盾基础宽度(px)
 const EARTH_SHIELD_BASE_DURATION = 3000; // 岩盾基础持续时间(ms)
 const EARTH_SHIELD_MAX_COUNT = 4;       // 场上岩盾数量上限（防铺满）
 const EARTH_SHIELD_ATTACK_INTERVAL = 500; // 敌人啄盾攻击间隔(ms)，同城墙啄墙
+const GLOBAL_MAX_AOE_RADIUS = 53;       // 全局属性树范围技能半径上限 = 陷坑原初始半径(80) × 2/3；所有属性树范围/AoE 技能（火爆炸/水冰爆/闪电链与静电场/土震地·陷坑·地刺）均不得超出（v1.1.31）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
     if (type === 'explosive') return explosiveMods();
@@ -1381,7 +1382,7 @@ function getFreezeExplosionRadius() {
     // 冰霜爆炸半径随技能等级扩大，急冻分支进一步增幅
     // v1.1.22：基础截距 45→70，收紧水树 T0/T1 中期体验（T2 已近全覆盖，边际增益有限）
     const m = freezeMods();
-    return (70 + skills.freeze.level * 5) * (1 + (m.freezeRadiusBoost || 0));
+    return Math.min(GLOBAL_MAX_AOE_RADIUS, (70 + skills.freeze.level * 5) * (1 + (m.freezeRadiusBoost || 0)));  // 全局范围上限（v1.1.31）
 }
 function getSlowChance() {
     // 干冰弹核心：命中主目标必定减速（不再掷骰）
@@ -2480,7 +2481,7 @@ function updateEarthSpikes(dt) {
 
 // 土属性树·陷坑场地生成：地刺消失时调用，产生一个持续牵引坑
 function spawnEarthSinkhole(x, y, m) {
-    const sr = Math.max(50, 80 + (m.sinkholeRadius || 0));
+    const sr = Math.min(GLOBAL_MAX_AOE_RADIUS, 28 + (m.sinkholeRadius || 0));
     if (earthSinkholes.length >= EARTH_SINKHOLE_MAX_COUNT) earthSinkholes.shift();
     earthSinkholes.push({
         x, y, radius: sr,
@@ -2504,8 +2505,9 @@ function updateEarthSinkholes() {
             const dx = h.x - z.x, dy = h.y - z.y;
             const d = Math.hypot(dx, dy);
             if (d < h.radius + z.radius && d > 1) {
-                // 每帧向中心移动一小段：取「固定步长」与「距离比例」的较小值，形成渐近收敛
-                const step = Math.min(h.pull * EARTH_SINKHOLE_PULL_PER_FRAME, d * 0.06);
+                // 轻柔牵引：步长 = 强度 × 缩放 × 大怪抗性；上限为剩余距离的 0.8，避免越过中心、绝不瞬间吸附
+                const sizeResist = 18 / (18 + z.radius);            // 越大的敌人越难吸（normal≈0.45 / tank≈0.375 / boss≈0.30）
+                const step = Math.min(h.pull * EARTH_SINKHOLE_PULL_PER_FRAME * sizeResist, d * 0.8);
                 z.x += dx / d * step;
                 z.y += dy / d * step;
                 clampZombieToField(z);
@@ -2621,7 +2623,7 @@ function applyEarthSpikeHit(spike, isFirstTick) {
     if (isFirstTick) {
         // 震地
         if (m.quakeChance > 0 && Math.random() < m.quakeChance) {
-            const qr = Math.max(40, 60 + m.quakeRadius);
+            const qr = Math.min(GLOBAL_MAX_AOE_RADIUS, Math.max(40, 60 + m.quakeRadius));  // 全局范围上限（v1.1.31）
             createQuakeEffect(spike.x, spike.y, qr);
             for (let j = zombies.length - 1; j >= 0; j--) {
                 const z = zombies[j];
@@ -4539,7 +4541,7 @@ function updateBullets() {
                 // 爆炸伤害（仅爆炸弹自身的子弹触发）
                 if (bullet.skillType === 'explosive') {
                     const _em = skills.explosive._mods || { explDmgMul: 1, explRadiusCut: 0, explArmorBreak: false, armorBreakF: 0, explIgnite: false, burnDmgMul: 1, explIncinerate: 0 };
-                    let explosionRadius = Math.max(35, (40 + skills.explosive.level * 20) - _em.explRadiusCut);  // 热能爆炸：随分支等级平减半径（基础等级仍放大，二者叠加体现“高伤小范围”取舍）
+                    let explosionRadius = Math.min(GLOBAL_MAX_AOE_RADIUS, Math.max(20, (40 + skills.explosive.level * 20) - _em.explRadiusCut));  // 全局范围上限（v1.1.31）：火爆炸范围不得超出
                     createExplosion(bullet.x, bullet.y, explosionRadius);
 
                     if (_em.explIgnite && zombie) {                        // 引燃：仅引燃被击中和被波及的怪物，不生成地面火池（避免与油渍冲突）
@@ -4579,7 +4581,7 @@ function updateBullets() {
                     const isConductive = (zombie.frozenUntil > nowHit || zombie.slowUntil > nowHit || zombie.stunUntil > nowHit);
                     let chainCount = skills.lightning.level + 1 + _lm.chainCountBoost + (isConductive ? _lm.superConductorCountBoost : 0);
                     let chainDamage = damage * 0.4 * _lm.chainDmgMul * (isConductive ? (1 + _lm.superConductorDmgMul) : 1);
-                    let chainRange = 150 + _lm.chainRangeBoost;
+                    let chainRange = Math.min(GLOBAL_MAX_AOE_RADIUS, 150 + _lm.chainRangeBoost);  // 全局范围上限（v1.1.31）
                     let lastTarget = zombie;
                     let chainedTargets = [zombie];
 
@@ -4618,7 +4620,7 @@ function updateBullets() {
                     // 静电场：命中概率生成持续电伤领域（范围/时长随静电场等级）
                     if (_lm.staticFieldChance > 0 && Math.random() < _lm.staticFieldChance) {
                         if (electricFields.length >= MAX_ELECTRIC_FIELDS) electricFields.shift();   // 超限时移除最旧领域
-                        electricFields.push({ x: bullet.x, y: bullet.y, radius: _lm.staticFieldRadius, life: _lm.staticFieldLife, maxLife: _lm.staticFieldLife, born: nowHit, _tick: 0 });
+                        electricFields.push({ x: bullet.x, y: bullet.y, radius: Math.min(GLOBAL_MAX_AOE_RADIUS, _lm.staticFieldRadius), life: _lm.staticFieldLife, maxLife: _lm.staticFieldLife, born: nowHit, _tick: 0 });
                     }
 
                     // 雷霆一击：暴击时 50% 召唤落雷

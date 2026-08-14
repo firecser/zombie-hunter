@@ -40,6 +40,9 @@ const STATIC_FIELD_BASE_RADIUS = 55, STATIC_FIELD_RADIUS_PER_LV = 12;
 const STATIC_FIELD_BASE_LIFE = 2600, STATIC_FIELD_LIFE_PER_LV = 200;
 const BURN_DURATION = 1500;
 
+// 全局属性树范围技能半径上限 = 陷坑原初始半径(80) × 2/3；与 game.js GLOBAL_MAX_AOE_RADIUS 同步（v1.1.31）
+const GLOBAL_MAX_AOE_RADIUS = 53;
+
 const ATTR_CD_CFG = {
   explosive: { base: 6000, min: 3000, step: 100 },
   freeze:    { base: 6000, min: 3000, step: 150 },
@@ -146,7 +149,7 @@ function getCd(type, lvl, cdReduce) {
 function fireCast(m, lvl) {
   const n = 1 + m.bulletCountBoost;
   const perBullet = PD * ATTR_BASE_DMG_MUL / (1 + MULTI_BULLET_DMG_PENALTY * m.bulletCountBoost);
-  const expR = Math.max(35, (40 + lvl * 20) - m.explRadiusCut);
+  const expR = Math.min(GLOBAL_MAX_AOE_RADIUS, Math.max(20, (40 + lvl * 20) - m.explRadiusCut));
   const targets = nearestToWall(n);
   for (const t of targets) {
     if (!t || t.health <= 1) continue;
@@ -167,7 +170,7 @@ function fireCast(m, lvl) {
 function waterCast(m, lvl) {
   const n = 1 + m.bulletCountBoost;
   const perBullet = PD * ATTR_BASE_DMG_MUL / (1 + MULTI_BULLET_DMG_PENALTY * m.bulletCountBoost);
-  const iceR = (70 + lvl * 5) * (1 + m.freezeRadiusBoost);
+  const iceR = Math.min(GLOBAL_MAX_AOE_RADIUS, (70 + lvl * 5) * (1 + m.freezeRadiusBoost));
   const aoeFreezeChance = Math.min(0.95, m.freezeChanceBoost + m.frostNovaFreezeChance);
   const targets = nearestToWall(n);
   for (const t of targets) {
@@ -202,7 +205,7 @@ function lightningCast(m, lvl) {
     const chainDmg = perBullet * 0.4 * m.chainDmgMul * (conductive ? (1 + m.superConductorDmgMul) : 1);
     let last = t; const chained = [t];
     for (let c = 0; c < chainCount; c++) {
-      let best = null, bd = 150 + m.chainRangeBoost;
+      let best = null, bd = Math.min(GLOBAL_MAX_AOE_RADIUS, 150 + m.chainRangeBoost);
       for (const z of zombies) {
         if (z.health > 1 && !chained.includes(z)) {
           const d = Math.hypot(last.x - z.x, last.y - z.y);
@@ -217,7 +220,7 @@ function lightningCast(m, lvl) {
     }
     if (m.empStunChance > 0 && Math.random() < m.empStunChance) t.stunUntil = now + m.empStunDuration;
     if (m.staticFieldChance > 0 && Math.random() < m.staticFieldChance)
-      electricFields.push({ x: t.x, y: t.y, radius: m.staticFieldRadius, life: m.staticFieldLife, _t: 0 });
+      electricFields.push({ x: t.x, y: t.y, radius: Math.min(GLOBAL_MAX_AOE_RADIUS, m.staticFieldRadius), life: m.staticFieldLife, _t: 0 });
     if (isCrit && m.thunderStrike && Math.random() < 0.5) dealDmg(t, perBullet, '金');
   }
 }
@@ -307,7 +310,7 @@ function applyEarthSpikeHitSim(spike, isFirstTick) {
   // 第一跳一次性场地效果
   if (isFirstTick) {
     if (m.quakeChance > 0 && Math.random() < m.quakeChance) {
-      const qr = Math.max(40, 60 + m.quakeRadius);
+      const qr = Math.min(GLOBAL_MAX_AOE_RADIUS, Math.max(40, 60 + m.quakeRadius));
       for (const z of zombies) {
         if (z.health <= 1) continue;
         if (Math.hypot(spike.x - z.x, spike.y - z.y) < qr + z.radius) {
