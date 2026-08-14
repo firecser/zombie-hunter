@@ -1077,8 +1077,8 @@ const SKILL_DEFS = {
                     deepFreeze: { name:'深寒',       desc:'冻结持续时间 +20%/级',               reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.freezeDurationBoost += 0.20 * bl; } },
                     // 冰霜新星 / 极寒领域 同档(Lv4)互斥：爆发向（范围必冻+爆炸增伤） vs 场域向（持续冰域）
-                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+25%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）', reqLevel:4, prereq:[], mutex:['polarField'], maxLevel:5,
-                                  effect(bl,m){ m.frostNovaDmgMul *= Math.pow(1.25, bl); m.freezeRadiusBoost += 0.20 * bl; m.frostNovaFreezeChance += 0.15 * bl; } },
+                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+5%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）', reqLevel:4, prereq:[], mutex:['polarField'], maxLevel:5,
+                                  effect(bl,m){ m.frostNovaDmgMul *= Math.pow(1.05, bl); m.freezeRadiusBoost += 0.20 * bl; m.frostNovaFreezeChance += 0.15 * bl; } },
                     polarField: { name:'极寒领域',   desc:'冰弹击中敌人时，25%/级概率生成持续减速/冰冻领域', reqLevel:4, prereq:[], mutex:['frostNova'], maxLevel:5,
                                   effect(bl,m){ m.polarFieldChance += 0.25 * bl; } },
                     // Lv5 质变：冰封处决（对标火·焚身 / 金·超导）—— 对被冻结目标追加最大生命%伤害，随关卡血量膨胀放大，是单树后期核心
@@ -1265,7 +1265,7 @@ const WOOD_LOG_SPEED_MUL = 0.30;          // 滚木速度为属性子弹的 30%�
 const WOOD_LOG_THICKNESS = 28;            // 滚木厚度(px)：视觉上是左右展开的圆柱直径，要小，不能粗
 const WOOD_LOG_RELEASE_INTERVAL = 260;    // 多重滚木错峰释放间隔(ms)，总时长可超过 CD
 const WOOD_LOG_HIT_INTERVAL = 280;        // 同一僵尸被同一根滚木碾压的间隔(ms)
-const WOOD_LOG_DMG_FACTOR = 0.55;     // 碾压每击伤害系数（连续碾压，单跳系数低于单次属性子弹）
+const WOOD_LOG_DMG_FACTOR = 0.47;     // 碾压每击伤害系数（连续碾压，单跳系数低于单次属性子弹）
 // 碎木飞溅（互斥于回弹）：滚动途中按间隔概率炸裂，滚木不消失，一路碾压一路爆炸
 const WOOD_SPLINTER_INTERVAL = 600;   // 碎木飞溅炸裂间隔(ms)
 const WOOD_SPLINTER_RADIUS = 70;      // 碎木飞溅爆炸半径(px)
@@ -4076,7 +4076,7 @@ function updateBullets() {
                         if (z !== zombie) {
                             const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
                             if (d < explosionRadius) {
-                                let aoeDamage = damage * (0.3 + skills.explosive.level * 0.1) * _em.explDmgMul;
+                                let aoeDamage = damage * (0.22 + skills.explosive.level * 0.075) * _em.explDmgMul;
                                 damageZombie(z, aoeDamage, false, '火');
                                 if (_em.explIgnite) applyBurn(z, player.damage * _em.burnDmgMul, BURN_DURATION);
                                 if (_em.explArmorBreak) {                   // 破甲：爆炸使范围内敌人受伤增加（持续一段时间，纯数值不干扰走位）
@@ -4230,7 +4230,7 @@ function updateBullets() {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < iceRadius + z.radius) {
-                            damageZombie(z, damage * 0.30 * aoeDmgMul, false, '水');
+                            damageZombie(z, damage * 0.72 * aoeDmgMul, false, '水');
                             checkCombos(z, '水');
 
                             z.slowUntil = nowHit + 2200;

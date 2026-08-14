@@ -29,7 +29,7 @@ const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;
 const WOOD_LOG_SPEED_MUL = 0.30;
 const WOOD_LOG_THICKNESS = 28;
 const WOOD_LOG_HIT_INTERVAL = 280;
-const WOOD_LOG_DMG_FACTOR = 0.55;
+const WOOD_LOG_DMG_FACTOR = 0.47;
 const WOOD_SPLINTER_INTERVAL = 600;
 const WOOD_SPLINTER_RADIUS = 70;
 const WOOD_SPLINTER_DMG = 0.25;
@@ -146,7 +146,7 @@ function fireCast(m, lvl) {
     for (const z of zombies) {
       if (z === t || z.health <= 1) continue;
       if (Math.hypot(t.x - z.x, t.y - z.y) < expR) {
-        dealDmg(z, perBullet * (0.3 + lvl * 0.1) * m.explDmgMul, '火');
+        dealDmg(z, perBullet * (0.22 + lvl * 0.075) * m.explDmgMul, '火');
         if (m.explIgnite) applyBurn(z, PD * m.burnDmgMul);
         if (m.explArmorBreak) { z.vulnUntil = now + BURN_DURATION; z.vulnMul = 1 + m.armorBreakF; }
         if (m.explIncinerate && z.health > 1) dealDmg(z, z.maxHealth * 0.03 * m.explIncinerate, '火');
@@ -170,7 +170,7 @@ function waterCast(m, lvl) {
     for (const z of zombies) {
       if (z === t || z.health <= 1) continue;
       if (Math.hypot(t.x - z.x, t.y - z.y) < iceR + z.radius) {
-        dealDmg(z, perBullet * 0.30 * m.frostNovaDmgMul, '水');
+        dealDmg(z, perBullet * 0.72 * m.frostNovaDmgMul, '水');
         z.slowUntil = now + 2200;
         if (Math.random() < aoeFreezeChance) z.frozenUntil = now + getFreezeDuration(lvl, m);
       }
@@ -324,7 +324,7 @@ function buildMods(tree, tier) {
   if (tier >= 1) applyUniversal(m);
   if (tier >= 2) {
     if (tree === 'explosive') { m.explDmgMul = Math.pow(1.20, 5) * Math.pow(1.38, 5); m.explRadiusCut = 40 * 5; m.explIgnite = true; m.burnDmgMul = Math.pow(1.20, 5); m.explIncinerate = 5; if (m.critChanceBoost >= 0.25) m.critExplode = true; }
-    if (tree === 'freeze') { m.freezeRadiusBoost = 0.12 * 5 + 0.20 * 5; m.freezeChanceBoost = 0.08 * 5; m.frostNovaDmgMul = Math.pow(1.25, 5); m.frostNovaFreezeChance = 0.15 * 5; m.freezeDurationBoost = 0.20 * 5; m.glacialDoomBonus = 5; m.polarFieldChance = 0.25 * 5; if (m.critChanceBoost >= 0.25) m.iceBurst = true; }
+    if (tree === 'freeze') { m.freezeRadiusBoost = 0.12 * 5 + 0.20 * 5; m.freezeChanceBoost = 0.08 * 5; m.frostNovaDmgMul = Math.pow(1.05, 5); m.frostNovaFreezeChance = 0.15 * 5; m.freezeDurationBoost = 0.20 * 5; m.glacialDoomBonus = 5; m.polarFieldChance = 0.25 * 5; if (m.critChanceBoost >= 0.25) m.iceBurst = true; }
     if (tree === 'lightning') { m.chainCountBoost = 5; m.chainDmgMul = Math.pow(1.20, 5); m.chainRangeBoost = 8 * 5; m.empStunChance = 0.06 * 5; m.empStunDuration = 100 * 5; m.staticFieldChance = 0.20 * 5; m.staticFieldRadius = STATIC_FIELD_BASE_RADIUS + STATIC_FIELD_RADIUS_PER_LV * 5; m.staticFieldLife = STATIC_FIELD_BASE_LIFE + STATIC_FIELD_LIFE_PER_LV * 5; m.superConductorDmgMul = 0.20 * 5; m.superConductorCountBoost = 5; m.superConductorMaxHp = 0.02 * 5; m.thunderStrike = true; }
     if (tree === 'wood') { m.logWidthMul = Math.pow(1.12, 5); m.logDmgMul = Math.pow(1.12, 5); m.rootChance = 0.20 * 5; m.rootDuration = 400 + 100 * 5; m.strangleVineBonus = 5; m.splinterChance = 0.30 * 5; m.splinterDmgMul = Math.pow(1.15, 5); if (m.critChanceBoost >= 0.25) m.thornBurst = true; }
   }
