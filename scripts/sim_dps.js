@@ -1,4 +1,4 @@
-// 五树 DPS 回归（火=爆炸弹 / 金=闪电链 / 水=干冰弹 / 木=滚木 / 土=地裂弹）
+// 五树 DPS 回归（火=爆炸弹 / 金=闪电链 / 水=干冰弹 / 木=滚木 / 土=地刺）
 // 目的：在「相等构建预算 + 相同靶场」下，验证四棵属性树的可持续 DPS 是否平衡（单树相生倍率=1.0，四树共享口径）。
 // 方法：静态不死僵尸阵（12 钉墙 + 12 上方列队，共 24）作为靶子，忠实复刻 game.js 的释放/CD/碾压/链电/领域/碎木/质变机制，
 //       跑 30s×20 次取平均 DPS。
@@ -48,10 +48,12 @@ const ATTR_CD_CFG = {
   earth:     { base: 5000, min: 3000, step: 80 },
 };
 
-// 土系（地裂弹）：与 game.js 对齐
-const EARTH_DMG_FACTOR = 2.15;        // 岩刺基础伤害系数（调平用，与 game.js 同步）
-const ATTR_BULLET_BASE_RADIUS = 11;   // 属性子弹基础半径（用于岩刺穿刺线带宽）
-const EARTH_BULLET_SIZE = 1.14;       // ELEMENT_VISUAL['土'].size
+// 土系（地刺）：与 game.js 对齐
+const EARTH_SPIKE_BASE_DURATION = 1200; // 地刺基础持续时间(ms)
+const EARTH_SPIKE_HIT_INTERVAL  = 600;  // 同一敌人被同一地刺伤害的间隔(ms)
+const EARTH_SPIKE_BASE_RADIUS   = 40;   // 地刺基础伤害范围(px)
+const EARTH_SPIKE_DMG_FACTOR    = 1.00; // 地刺基础每跳伤害系数（调平用，与 game.js 同步）
+const EARTH_SPIKE_MAX_COUNT     = 6;    // 场上地刺簇数量上限
 const EARTH_SHIELD_BASE_HP = 80, EARTH_SHIELD_BASE_WIDTH = 90, EARTH_SHIELD_BASE_DURATION = 3000, EARTH_SHIELD_MAX_COUNT = 4, EARTH_SHIELD_ATTACK_INTERVAL = 500;
 
 // 模拟参数
@@ -61,7 +63,7 @@ const FIELD_COUNT = 24;
 // ===================== 模拟状态 =====================
 let now = 0;
 let zombies = [];
-let logs = [], pendingWoodLogs = [], electricFields = [];
+let logs = [], pendingWoodLogs = [], electricFields = [], earthSpikes = [];
 let totalDamage = 0;
 
 function makeZombies() {
@@ -222,41 +224,99 @@ function lightningCast(m, lvl) {
 
 function earthCast(m, lvl) {
   const n = 1 + m.bulletCountBoost;
-  const perBullet = PD * ATTR_BASE_DMG_MUL / (1 + MULTI_BULLET_DMG_PENALTY * m.bulletCountBoost) * EARTH_DMG_FACTOR * m.fissureDmgMul;
-  const hitR = ATTR_BULLET_BASE_RADIUS * EARTH_BULLET_SIZE * m.earthHitRadiusMul;
-  const primary = nearestToWall(1)[0] || { x: PX, y: WALL_Y };
-  const baseAngle = Math.atan2(primary.y - PY, primary.x - PX);
+  const baseSlot = 2; // acquiredSkills=['damage','earth'] 时 earth 槽位 2；实际通过 slotTarget 复刻
+  const baseDmg = PD * ATTR_BASE_DMG_MUL * EARTH_SPIKE_DMG_FACTOR * m.fissureDmgMul
+                * (1 + 0.05 * (lvl - 1))
+                / (1 + MULTI_BULLET_DMG_PENALTY * Math.max(0, n - 1));
+
   for (let i = 0; i < n; i++) {
-    const ang = baseAngle + 0.15 * (i - (n - 1) / 2);   // 复刻 shootAttribute 的 0.15 发散（多重弹扇面覆盖全场）
-    const ux = Math.cos(ang), uy = Math.sin(ang);        // 单位射线方向（第 i 发岩刺）
-    let firstHit = null;
-    for (const z of zombies) {
-      if (z.health <= 1) continue;
-      const vx = z.x - PX, vy = z.y - PY;
-      const proj = vx * ux + vy * uy;            // 沿射线投影（须位于玩家前方）
-      if (proj < 0) continue;
-      const perp = Math.abs(vx * uy - vy * ux);  // 垂直距离 = |叉积|（穿刺线带宽）
-      if (perp > hitR + z.radius) continue;      // 不在岩刺穿刺线上
-      if (!firstHit) firstHit = z;
-      const isCrit = applyHit(z, perBullet, '土', m);   // 直线穿刺：路径上所有敌人各受一次主伤
-      // 碎甲：被命中的敌人受伤增加（与游戏一致：先结算主伤，再标易伤）
-      if (m.armorCrush) { z.vulnUntil = now + 2500; z.vulnMul = 1 + m.armorCrushF; }
-      // 石化：概率眩晕（硬控）
-      if (m.petrifyChance > 0 && Math.random() < m.petrifyChance) z.stunUntil = now + m.petrifyDuration;
-      // 山崩 Lv5：对石化目标追加最大生命%伤害
-      if (m.landslideBonus > 0 && z.stunUntil > now) dealDmg(z, z.maxHealth * 0.03 * m.landslideBonus, '土');
-      // 岩片（地刺贯穿 Lv5 溅射）
-      if (m.rockShard) { for (const o of zombies) if (o !== z && o.health > 1 && Math.hypot(z.x - o.x, z.y - o.y) < 35) dealDmg(o, PD * 0.08, '土'); }
-      // 碎岩迸发（岩心暴击 Lv5 质变）
-      if (isCrit && m.rockBurst) { for (const o of zombies) if (o !== z && o.health > 1 && Math.hypot(z.x - o.x, z.y - o.y) < 55) dealDmg(o, PD * 0.18, '土'); }
+    const target = slotTarget(baseSlot + i);
+    if (!target) continue;
+    const radius = EARTH_SPIKE_BASE_RADIUS * m.earthHitRadiusMul;
+    const x = Math.max(radius, Math.min(SW - radius, target.x));
+    const y = Math.max(radius, Math.min(WALL_Y - radius, target.y));
+
+    if (earthSpikes.length >= EARTH_SPIKE_MAX_COUNT) earthSpikes.shift();
+    earthSpikes.push({
+      x, y, radius,
+      born: now,
+      duration: EARTH_SPIKE_BASE_DURATION + (m.shieldDuration || 0) * 0.5,
+      dmg: baseDmg,
+      critChance: m.critChance, critMult: m.critMult,
+      m,
+      hitMap: {},
+      _tickCount: 0
+    });
+  }
+}
+
+function updateEarthSpikesSim() {
+  for (let i = earthSpikes.length - 1; i >= 0; i--) {
+    const spike = earthSpikes[i];
+    if (now - spike.born > spike.duration) { earthSpikes.splice(i, 1); continue; }
+    while (now - spike.born >= spike._tickCount * EARTH_SPIKE_HIT_INTERVAL) {
+      spike._tickCount++;
+      applyEarthSpikeHitSim(spike, spike._tickCount === 1);
     }
-    // 震地：每发岩刺仅触发一次（避免穿透多目标时叠加成片 AoE；复刻冰暴发生器「中心震波」）
-    if (m.quakeChance > 0 && firstHit && Math.random() < m.quakeChance) {
-      const qr = 60 + m.quakeRadius;
-      for (const o of zombies) if (o.health > 1 && Math.hypot(firstHit.x - o.x, firstHit.y - o.y) < qr)
-        { dealDmg(o, perBullet * 0.55 * m.quakeDmgMul, '土'); if (m.quakeStunDur > 0) o.stunUntil = now + m.quakeStunDur; }
+  }
+}
+
+function applyEarthSpikeHitSim(spike, isFirstTick) {
+  const m = spike.m;
+  for (const z of zombies) {
+    if (z.health <= 1) continue;
+    const dist = Math.hypot(spike.x - z.x, spike.y - z.y);
+    if (dist > spike.radius + z.radius) continue;
+
+    const lastHit = spike.hitMap[z.id] || 0;
+    if (now - lastHit < EARTH_SPIKE_HIT_INTERVAL) continue;
+    spike.hitMap[z.id] = now;
+
+    // 基础伤害（含暴击）
+    let dmg = spike.dmg;
+    let isCrit = false;
+    if (Math.random() < spike.critChance) { dmg *= spike.critMult; isCrit = true; }
+    dealDmg(z, dmg, '土');
+
+    // 岩片溅射（地刺贯穿 Lv5）
+    if (m.rockShard) {
+      for (const o of zombies) {
+        if (o === z || o.health <= 1) continue;
+        if (Math.hypot(z.x - o.x, z.y - o.y) < 35) dealDmg(o, PD * 0.08, '土');
+      }
     }
-    // 陷坑（聚怪）/ 岩盾（防御）：静态靶场无位移/不计 DPS，跳过
+
+    // 碎岩迸发（岩心暴击 Lv5）
+    if (isCrit && m.rockBurst) {
+      for (const o of zombies) {
+        if (o === z || o.health <= 1) continue;
+        if (Math.hypot(z.x - o.x, z.y - o.y) < 55) dealDmg(o, PD * 0.18, '土');
+      }
+    }
+
+    // 碎甲
+    if (m.armorCrush) { z.vulnUntil = now + 2500; z.vulnMul = 1 + m.armorCrushF; }
+
+    // 石化
+    if (m.petrifyChance > 0 && Math.random() < m.petrifyChance) z.stunUntil = now + m.petrifyDuration;
+
+    // 山崩 Lv5
+    if (m.landslideBonus > 0 && z.stunUntil > now) dealDmg(z, z.maxHealth * 0.03 * m.landslideBonus, '土');
+  }
+
+  // 第一跳一次性场地效果
+  if (isFirstTick) {
+    if (m.quakeChance > 0 && Math.random() < m.quakeChance) {
+      const qr = Math.max(40, 60 + m.quakeRadius);
+      for (const z of zombies) {
+        if (z.health <= 1) continue;
+        if (Math.hypot(spike.x - z.x, spike.y - z.y) < qr + z.radius) {
+          dealDmg(z, spike.dmg * 0.55 * m.quakeDmgMul, '土');
+          if (m.quakeStunDur > 0) z.stunUntil = Math.max(z.stunUntil || 0, now + m.quakeStunDur);
+        }
+      }
+    }
+    // 陷坑/岩盾：静态靶场无位移/不计 DPS，跳过
   }
 }
 
@@ -400,7 +460,7 @@ function benchmark(tree, tier) {
   for (let tr = 0; tr < TRIALS; tr++) {
     const { m, lvl } = buildMods(tree, tier);
     zombies = makeZombies();
-    logs = []; pendingWoodLogs = []; electricFields = []; totalDamage = 0;
+    logs = []; pendingWoodLogs = []; electricFields = []; earthSpikes = []; totalDamage = 0;
     let lastCast = -1e9, lastWood = -1e9;
     const steps = Math.floor(WINDOW / DT);
     now = 0;
@@ -412,7 +472,7 @@ function benchmark(tree, tier) {
       } else {
         if (now - lastCast >= getCd(tree, lvl, m.cdReduce)) { lastCast = now; if (tree === 'explosive') fireCast(m, lvl); else if (tree === 'freeze') waterCast(m, lvl); else if (tree === 'lightning') lightningCast(m, lvl); else earthCast(m, lvl); }
       }
-      updateBurns(); updateFieldsSim(); if (tree === 'wood') updateLogsSim(m);
+      updateBurns(); updateFieldsSim(); updateEarthSpikesSim(); if (tree === 'wood') updateLogsSim(m);
     }
     acc += totalDamage;
   }
@@ -433,7 +493,7 @@ const trees = [
   { key: 'lightning', name: '金·闪电链' },
   { key: 'freeze', name: '水·干冰弹' },
   { key: 'wood', name: '木·滚木' },
-  { key: 'earth', name: '土·地裂弹' },
+  { key: 'earth', name: '土·地刺' },
 ];
 console.log('=== 五树 DPS 回归（属性树自身输出；player.damage=10；静态靶场 24 僵尸；30s×' + TRIALS + ' 次均值）===');
 console.log('五行标配 +35% 已计入；单树相生倍率=1.0；暴击 率+5%/级、伤+15%/级（天赋基数 率0/伤2）。\n');

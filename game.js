@@ -1123,23 +1123,23 @@ const SKILL_DEFS = {
                     strangleVine:{ name:'绞杀藤蔓',  desc:'对被定身目标追加 3% 最大生命伤害/级', reqLevel:5, prereq:['deepRoot'], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.strangleVineBonus += bl; } }
                   } },
-    earth:      { type:'earth',      name:'地裂弹',   icon:'🪨', element:'土',   category:'bullet', maxLevel:99, desc:'发射直线穿透的岩刺，命中可留下岩盾阻挡敌人',
+    earth:      { type:'earth',      name:'地刺',     icon:'🪨', element:'土',   category:'field',  maxLevel:99, desc:'在战场上生成地刺簇，持续伤害周围敌人并概率留下岩盾阻挡敌人',
                   // 土属性树（对应五行中的土）：参考《向僵尸开炮》冰暴发生器，把冰主题改为土主题；
-                  // 核心机制：① 岩刺直线穿透（共享 pierce + 专属裂地穿刺强化贯穿伤害）；② 岩盾（临时屏障挡敌人路径、有血量、会被攻击）。
+                  // 核心机制：① 地刺直接在战场目标点生成（不从坦克发射），停留一段时间后消失；② 岩盾（临时屏障挡敌人路径、有血量、会被攻击）。
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水/金/木同名同结构）——
-                    multiShot:  { name:'多重岩刺', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重地刺', desc:'每级额外 +1 簇地刺（满级共+5，单簇伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
                     crit:       { name:'岩心暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发碎岩迸发', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.rockBurst = true; } },
-                    pierce:     { name:'地刺贯穿', desc:'岩刺命中宽度+15%/级（穿刺线更宽）；满级命中溅射岩片', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                    pierce:     { name:'地刺贯穿', desc:'地刺伤害范围+15%/级；满级命中溅射岩片', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.earthHitRadiusMul *= Math.pow(1.15, bl); if (bl >= 5) m.rockShard = true; } },
                     // —— 土专属分支 ——
-                    // 裂地穿刺：强化岩刺的贯穿伤害与视觉长度（土系输出核心）
-                    fissure:    { name:'裂地穿刺', desc:'穿透伤害+20%/级，岩刺长度+10%/级',       reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    // 裂地穿刺：强化地刺每跳伤害与视觉高度（土系输出核心）
+                    fissure:    { name:'裂地穿刺', desc:'地刺伤害+20%/级，地刺高度+10%/级',       reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.fissureDmgMul *= Math.pow(1.20, bl); m.earthLineLengthMul *= Math.pow(1.10, bl); } },
                     // 岩盾：命中概率留下临时屏障，阻挡并承受敌人攻击（土系防御核心）
                     rockShield: { name:'岩盾',       desc:'命中 20%/级 概率留下岩盾（持续 3s，可阻挡并承受敌人攻击）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
@@ -1152,7 +1152,7 @@ const SKILL_DEFS = {
                     // 石化 / 碎甲 同档(Lv4)互斥：硬控路线 vs 爆发增幅路线（石化可继续点山崩 Lv5）
                     petrify:    { name:'石化',       desc:'命中 12%/级 概率石化（眩晕）敌人 0.25s/级', reqLevel:4, prereq:[], mutex:['armorCrush'], maxLevel:5,
                                   effect(bl,m){ m.petrifyChance += 0.12 * bl; m.petrifyDuration += 250 * bl; } },
-                    armorCrush: { name:'碎甲',       desc:'被岩刺命中的敌人受伤+2%/级',            reqLevel:4, prereq:[], mutex:['petrify'], maxLevel:5,
+                    armorCrush: { name:'碎甲',       desc:'被地刺命中的敌人受伤+2%/级',            reqLevel:4, prereq:[], mutex:['petrify'], maxLevel:5,
                                   effect(bl,m){ m.armorCrush = true; m.armorCrushF += 0.02 * bl; } },
                     // Lv5 质变：山崩（对标火·焚身 / 水·绝对零度 / 金·超导）—— 对被石化目标追加最大生命%伤害
                     landslide:  { name:'山崩',       desc:'对石化目标追加 3% 最大生命伤害/级',     reqLevel:5, prereq:['petrify'], mutex:[], maxLevel:5,
@@ -1189,7 +1189,8 @@ let iceFields = [];                 // 干冰弹「极寒领域」生成的持�
 let electricFields = [];            // 闪电链「静电场」生成的持续电伤区域
 let logs = [];                      // 滚木（木属性树）生成的持续向上碾压的滚木
 let pendingWoodLogs = [];           // 待释放的滚木队列：错峰依次 spawn，总时长可超过 CD
-let earthShields = [];              // 地裂弹（土属性树）岩盾：临时屏障，阻挡敌人并被攻击
+let earthShields = [];              // 地刺（土属性树）岩盾：临时屏障，阻挡敌人并被攻击
+let earthSpikes = [];               // 地刺（土属性树）：战场上生成的静止石钟乳簇，持续伤害后消失
 let _zombieIdSeq = 0;               // 僵尸唯一 id（滚木按 id 节流每根僵尸的碾压结算）
 const MAX_ICE_FIELDS = 5;           // 同时存在的极寒领域上限（避免大量半透明领域叠加拖垮 Canvas）
 const MAX_ELECTRIC_FIELDS = 5;      // 同时存在的静电场上限
@@ -1324,13 +1325,16 @@ const WOOD_LOG_DMG_FACTOR = 0.47;     // 碾压每击伤害系数（连续碾压
 const WOOD_SPLINTER_INTERVAL = 600;   // 碎木飞溅炸裂间隔(ms)
 const WOOD_SPLINTER_RADIUS = 70;      // 碎木飞溅爆炸半径(px)
 const WOOD_SPLINTER_DMG = 0.25;       // 碎木飞溅每发伤害系数（占 player.damage 比例）
-// 土系（地裂弹）参数：岩刺直线穿透 + 岩盾阻挡
-const EARTH_DMG_FACTOR = 2.15;        // 岩刺基础伤害系数（相对其他五行子弹，平衡直线穿透+岩盾综合输出；与 sim_dps.js 同步）
-const EARTH_BASE_PIERCE = 1;          // 地裂弹基础额外穿透（在 player.bulletPiercing 之上再加，体现“直线穿刺”身份）
-const EARTH_SHIELD_BASE_HP = 80;      // 岩盾基础血量（按 player.damage 比例：hp = player.damage * 该系数）
-const EARTH_SHIELD_BASE_WIDTH = 90;   // 岩盾基础宽度(px)
+// 土系（地刺）参数：战场生成静止石钟乳簇 + 岩盾阻挡
+const EARTH_SPIKE_BASE_DURATION = 1200; // 地刺基础持续时间(ms)
+const EARTH_SPIKE_HIT_INTERVAL  = 600;  // 同一敌人被同一地刺伤害的间隔(ms)：出生 1 跳 + 中途 1 跳，共 2 跳
+const EARTH_SPIKE_BASE_RADIUS   = 40;   // 地刺基础伤害范围(px)
+const EARTH_SPIKE_DMG_FACTOR    = 1.00; // 地刺基础每跳伤害系数（与 sim_dps.js 同步；调平用）
+const EARTH_SPIKE_MAX_COUNT     = 6;    // 场上地刺簇数量上限
+const EARTH_SHIELD_BASE_HP = 80;        // 岩盾基础血量（按 player.damage 比例：hp = player.damage * 该系数）
+const EARTH_SHIELD_BASE_WIDTH = 90;     // 岩盾基础宽度(px)
 const EARTH_SHIELD_BASE_DURATION = 3000; // 岩盾基础持续时间(ms)
-const EARTH_SHIELD_MAX_COUNT = 4;     // 场上岩盾数量上限（防铺满）
+const EARTH_SHIELD_MAX_COUNT = 4;       // 场上岩盾数量上限（防铺满）
 const EARTH_SHIELD_ATTACK_INTERVAL = 500; // 敌人啄盾攻击间隔(ms)，同城墙啄墙
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
 function attrModsForType(type) {
@@ -1530,7 +1534,7 @@ function recomputeWoodMods() {
     if (skills.wood) skills.wood._mods = m;
 }
 
-// 由已选分支派生 地裂弹（土属性树）的实时修正（穿透/岩盾/震地/陷坑/石化/碎甲/山崩）；每次选分支/开局重算
+// 由已选分支派生 地刺（土属性树）的实时修正（地刺簇/岩盾/震地/陷坑/石化/碎甲/山崩）；每次选分支/开局重算
 function recomputeEarthMods() {
     const b = (skills.earth && skills.earth.branches) || {};
     const def = SKILL_DEFS.earth;
@@ -2401,6 +2405,250 @@ function drawEarthShields() {
     ctx.globalAlpha = 1;
 }
 
+// 地刺（土属性树）：在战场目标点生成静止石钟乳簇，停留一段时间后消失
+function spawnEarthSpikes() {
+    if (zombies.length === 0) return;
+    const m = earthMods();
+    const lvl = Math.max(1, skills.earth.level || 1);
+    const count = Math.min(6, 1 + (m.bulletCountBoost || 0));
+    const baseSlot = skillSlotOf('earth');
+    const now = Date.now();
+
+    const baseDmg = player.damage * ATTR_BASE_DMG_MUL * EARTH_SPIKE_DMG_FACTOR * (m.fissureDmgMul || 1)
+                  * (1 + 0.05 * (lvl - 1))
+                  / (1 + MULTI_BULLET_DMG_PENALTY * Math.max(0, count - 1));
+    const critChance = getCritChance(m);
+    const critMult = getCritMult(m);
+
+    let spawned = false;
+    for (let i = 0; i < count; i++) {
+        const target = getSlotTarget(baseSlot + i);
+        if (!target) continue;
+        const radius = EARTH_SPIKE_BASE_RADIUS * (m.earthHitRadiusMul || 1);
+        const x = Math.max(radius, Math.min(screenWidth - radius, target.x));
+        const y = Math.max(radius, Math.min(WALL_Y - radius, target.y));
+
+        if (earthSpikes.length >= EARTH_SPIKE_MAX_COUNT) earthSpikes.shift();
+        earthSpikes.push({
+            x, y, radius,
+            born: now,
+            duration: EARTH_SPIKE_BASE_DURATION + (m.shieldDuration || 0) * 0.5,
+            dmg: baseDmg,
+            critChance, critMult,
+            m,
+            hitMap: {},
+            lineLenMul: m.earthLineLengthMul || 1,
+            _tickCount: 0
+        });
+        createDustExplosion(x, y, radius * 0.7);
+        spawned = true;
+    }
+    if (spawned) AudioSystem.playShoot();
+}
+
+// 地刺更新：超时移除 + 按间隔结算伤害/分支效果
+function updateEarthSpikes(dt) {
+    const now = Date.now();
+    for (let i = earthSpikes.length - 1; i >= 0; i--) {
+        const spike = earthSpikes[i];
+        if (now - spike.born > spike.duration) {
+            earthSpikes.splice(i, 1);
+            continue;
+        }
+        const age = now - spike.born;
+        // 出生瞬间触发第 1 跳，之后每 EARTH_SPIKE_HIT_INTERVAL 一跳
+        if (age >= spike._tickCount * EARTH_SPIKE_HIT_INTERVAL) {
+            spike._tickCount++;
+            applyEarthSpikeHit(spike, spike._tickCount === 1);
+        }
+    }
+}
+
+// 地刺单跳结算（isFirstTick 仅在第一跳触发震地/陷坑/岩盾等一次性场地效果）
+function applyEarthSpikeHit(spike, isFirstTick) {
+    const now = Date.now();
+    const m = spike.m;
+    for (let k = zombies.length - 1; k >= 0; k--) {
+        const z = zombies[k];
+        if (z.health <= 1) continue;
+        const dist = Math.hypot(spike.x - z.x, spike.y - z.y);
+        if (dist > spike.radius + z.radius) continue;
+
+        const lastHit = spike.hitMap[z.id] || 0;
+        if (now - lastHit < EARTH_SPIKE_HIT_INTERVAL) continue;
+        spike.hitMap[z.id] = now;
+
+        // 基础伤害（含暴击）
+        let dmg = spike.dmg;
+        let isCrit = false;
+        if (Math.random() < spike.critChance) {
+            dmg *= spike.critMult;
+            isCrit = true;
+        }
+        damageZombie(z, dmg, isCrit, '土');
+        checkCombos(z, '土');
+
+        // 岩片溅射（地刺贯穿 Lv5）
+        if (m.rockShard) {
+            for (let j = zombies.length - 1; j >= 0; j--) {
+                const o = zombies[j];
+                if (o === z || o.health <= 1) continue;
+                if (Math.hypot(z.x - o.x, z.y - o.y) < 35) {
+                    damageZombie(o, player.damage * 0.08, false, '土');
+                    checkCombos(o, '土');
+                }
+            }
+        }
+
+        // 碎岩迸发（岩心暴击 Lv5）
+        if (isCrit && m.rockBurst) {
+            createDustExplosion(z.x, z.y, 55);
+            for (let j = zombies.length - 1; j >= 0; j--) {
+                const o = zombies[j];
+                if (o === z || o.health <= 1) continue;
+                if (Math.hypot(z.x - o.x, z.y - o.y) < 55) {
+                    damageZombie(o, player.damage * 0.18, false, '土');
+                    checkCombos(o, '土');
+                }
+            }
+        }
+
+        // 碎甲：受伤增加
+        if (m.armorCrush) {
+            z.vulnUntil = Math.max(z.vulnUntil || 0, now + 2500);
+            z.vulnMul = 1 + m.armorCrushF;
+        }
+
+        // 石化：概率眩晕
+        if (m.petrifyChance > 0 && Math.random() < m.petrifyChance) {
+            z.stunUntil = Math.max(z.stunUntil || 0, now + m.petrifyDuration);
+            createRockEffect(z.x, z.y);
+        }
+
+        // 山崩 Lv5：对石化目标追加最大生命%伤害
+        if (m.landslideBonus > 0 && z.stunUntil > now) {
+            damageZombie(z, z.maxHealth * 0.03 * m.landslideBonus, false, '土');
+        }
+    }
+
+    // 第一跳一次性场地效果（每簇地刺仅一次，避免多重地刺叠加失控）
+    if (isFirstTick) {
+        // 震地
+        if (m.quakeChance > 0 && Math.random() < m.quakeChance) {
+            const qr = Math.max(40, 60 + m.quakeRadius);
+            createDustExplosion(spike.x, spike.y, qr);
+            for (let j = zombies.length - 1; j >= 0; j--) {
+                const z = zombies[j];
+                if (z.health <= 1) continue;
+                if (Math.hypot(spike.x - z.x, spike.y - z.y) < qr + z.radius) {
+                    damageZombie(z, spike.dmg * 0.55 * m.quakeDmgMul, false, '土');
+                    checkCombos(z, '土');
+                    if (m.quakeStunDur > 0) z.stunUntil = Math.max(z.stunUntil || 0, now + m.quakeStunDur);
+                }
+            }
+        }
+        // 陷坑
+        if (m.sinkholeChance > 0 && Math.random() < m.sinkholeChance) {
+            const sr = Math.max(50, 80 + m.sinkholeRadius);
+            createSinkholeEffect(spike.x, spike.y, sr);
+            for (const z of zombies) {
+                if (z.health <= 1) continue;
+                const d = Math.hypot(spike.x - z.x, spike.y - z.y);
+                if (d < sr + z.radius && d > 1) {
+                    const pull = Math.min(m.sinkholePull, d * 0.5);
+                    z.x += (spike.x - z.x) / d * pull;
+                    z.y += (spike.y - z.y) / d * pull;
+                    clampZombieToField(z);
+                }
+            }
+        }
+        // 岩盾
+        if (m.shieldChance > 0 && Math.random() < m.shieldChance) {
+            createEarthShield(spike.x, spike.y, m);
+        }
+    }
+}
+
+// 地刺绘制：棕色石钟乳簇（参考图：多根尖锥从裂开地面向上突起）
+function drawEarthSpikes() {
+    if (earthSpikes.length === 0) return;
+    const now = Date.now();
+    for (const spike of earthSpikes) {
+        const age = now - spike.born;
+        const lifeRatio = 1 - age / spike.duration;
+        if (lifeRatio <= 0) continue;
+
+        const grow = Math.min(1, age / 160);
+        const alpha = lifeRatio < 0.25 ? lifeRatio / 0.25 : 1;
+        const x = spike.x, y = spike.y, r = spike.radius;
+        const h = r * 1.7 * spike.lineLenMul * grow;
+        const spikeCount = 5;
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // 裂开地面底座
+        ctx.fillStyle = '#5c4a3a';
+        ctx.globalAlpha = 0.95 * alpha;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.85, r * 0.32, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 地裂细纹
+        ctx.strokeStyle = '#3a2d22';
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.7 * alpha;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.5, 0); ctx.lineTo(-r * 0.15, -r * 0.1);
+        ctx.moveTo(r * 0.2, -r * 0.08); ctx.lineTo(r * 0.55, 0.02);
+        ctx.stroke();
+
+        // 石钟乳尖锥
+        for (let i = 0; i < spikeCount; i++) {
+            const t = (spikeCount > 1) ? (i / (spikeCount - 1)) * 2 - 1 : 0;
+            const sx = t * r * 0.55;
+            const sw = r * (0.30 - Math.abs(t) * 0.09);
+            const sh = h * (0.9 + Math.abs(t) * 0.22);
+            const tipY = -sh;
+
+            const grd = ctx.createLinearGradient(sx, 0, sx, tipY);
+            grd.addColorStop(0, '#4a3b2e');
+            grd.addColorStop(0.45, '#8b6f4e');
+            grd.addColorStop(1, '#c4a882');
+
+            ctx.fillStyle = grd;
+            ctx.globalAlpha = 0.98 * alpha;
+            ctx.beginPath();
+            ctx.moveTo(sx - sw / 2, 0);
+            ctx.lineTo(sx, tipY);
+            ctx.lineTo(sx + sw / 2, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            // 左侧高光
+            ctx.strokeStyle = '#d9c4a8';
+            ctx.lineWidth = 1.2;
+            ctx.globalAlpha = 0.55 * alpha;
+            ctx.beginPath();
+            ctx.moveTo(sx - sw * 0.22, 0);
+            ctx.lineTo(sx, tipY);
+            ctx.stroke();
+
+            // 表面裂纹
+            ctx.strokeStyle = '#2e241c';
+            ctx.lineWidth = 0.8;
+            ctx.globalAlpha = 0.45 * alpha;
+            ctx.beginPath();
+            ctx.moveTo(sx, -sh * 0.25);
+            ctx.lineTo(sx + sw * 0.18, -sh * 0.55);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+}
+
 // 绘制子弹：颜色 / 形状 / 体型 完全由元素决定（ELEMENT_VISUAL），不再从普通子弹演化
 function drawBullets() {
     const t = Date.now();
@@ -2421,7 +2669,6 @@ function paintBullet(bullet, t) {
     const ang = Math.atan2(bullet.vy, bullet.vx);
     const sz = bullet.radius;
     let len = sz * (v.pierce ? 4.6 : 3.4);   // 子弹拉成细长条，明显区别于圆形掉落物
-    if (bullet.skillType === 'earth') len *= (bullet._earthLineLenMul || 1) * 1.8;   // 岩刺拉成长矛，强调直线穿透
     const w = sz * 1.5;
         ctx.save();
         ctx.translate(bullet.x, bullet.y);
@@ -4046,6 +4293,12 @@ function shootAttribute(type) {
         return;
     }
 
+    // 地刺（土属性树）使用独立场地系统：直接在战场上生成静止石钟乳簇
+    if (type === 'earth') {
+        spawnEarthSpikes();
+        return;
+    }
+
     // 播放射击音效
     AudioSystem.playShoot();
 
@@ -4062,16 +4315,6 @@ function shootAttribute(type) {
     const _baseMul = (type === 'damage') ? 1 : ATTR_BASE_DMG_MUL;   // 五行弹道（非物理）统一 +35% 基础增伤（标配）
     let dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
     let piercing = player.bulletPiercing + (m.pierceBoost || 0);
-    let lineLenMul = 1;
-    let earthHitRadiusMul = 1;
-    // 土系·直线穿刺：岩刺贯穿整条飞行路径上的所有敌人（不按命中次数消失，仅在出屏时消失）；
-    // 另叠加裂地穿刺伤害加成、岩刺视觉长度与命中宽度（由「地刺贯穿」分支拓宽穿刺线）。
-    if (type === 'earth') {
-        piercing = 9999;          // 直线穿透：贯穿路径上所有敌人，仅在出屏时消失
-        dmg *= EARTH_DMG_FACTOR * (m.fissureDmgMul || 1);
-        lineLenMul = m.earthLineLengthMul || 1;
-        earthHitRadiusMul = m.earthHitRadiusMul || 1;
-    }
     const canSplit = !!m.canSplit;                          // 多重 Lv5 质变：命中分裂（由分支等级判定，与子弹数公式解耦）
 
     for (let i = 0; i < n; i++) {
@@ -4084,15 +4327,13 @@ function shootAttribute(type) {
             y: player.y + Math.sin(baseAngle) * gunLength,
             vx: Math.cos(bulletAngle) * _spd,
             vy: Math.sin(bulletAngle) * _spd,
-            radius: ATTR_BULLET_BASE_RADIUS * elementVisual(def.element).size * (type === 'earth' ? earthHitRadiusMul : 1),   // 土系按「地刺贯穿」拓宽穿刺线
+            radius: ATTR_BULLET_BASE_RADIUS * elementVisual(def.element).size,
             damage: dmg,
             piercing: piercing,
             element: def.element,          // 火/水/雷/土 —— 由属性树自身元素决定
             skillType: type,
             canSplit: canSplit,
-            hitZombies: [],
-            // 土系视觉：岩刺长度倍率（仅绘制用）
-            _earthLineLenMul: type === 'earth' ? lineLenMul : 1
+            hitZombies: []
         });
     }
 }
@@ -4338,10 +4579,9 @@ function updateBullets() {
                     spawnSplitBullets(bullet.x, bullet.y, damage, zombie, bullet.element);
                 }
 
-                // 穿透溅射 / 冰系质变 / 土系质变（仅对应属性树的子弹触发）
+                // 穿透溅射 / 冰系质变（仅对应属性树的子弹触发）
                 const _fm = (bullet.skillType === 'freeze') ? freezeMods() : null;
                 const _lm = (bullet.skillType === 'lightning') ? lightningMods() : null;
-                const _eem = (bullet.skillType === 'earth') ? earthMods() : null;
                 if (bullet.skillType === 'explosive' && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
@@ -4439,58 +4679,6 @@ function updateBullets() {
                 if (_fm && _fm.polarFieldChance > 0 && Math.random() < _fm.polarFieldChance) {
                     if (iceFields.length >= MAX_ICE_FIELDS) iceFields.shift();   // 超限时移除最旧领域
                     iceFields.push({ x: bullet.x, y: bullet.y, radius: 60, life: 3000, born: nowHit, _tick: 0 });
-                }
-
-                // ==================== 地裂弹（土属性树）命中结算 ====================
-                if (bullet.skillType === 'earth' && _eem) {
-                    // 碎甲：被岩刺命中的敌人受伤增加（与火·破甲同机制，不叠加显示）
-                    if (_eem.armorCrush) {
-                        zombie.vulnUntil = Math.max(zombie.vulnUntil || 0, nowHit + 2500);
-                        zombie.vulnMul = 1 + _eem.armorCrushF;
-                    }
-                    // 石化：概率眩晕（硬控）
-                    if (_eem.petrifyChance > 0 && Math.random() < _eem.petrifyChance) {
-                        zombie.stunUntil = Math.max(zombie.stunUntil || 0, nowHit + _eem.petrifyDuration);
-                        createRockEffect(zombie.x, zombie.y);   // 石化视觉
-                    }
-                    // 山崩 Lv5：对石化目标追加最大生命%伤害
-                    if (_eem.landslideBonus > 0 && zombie.stunUntil > nowHit) {
-                        damageZombie(zombie, zombie.maxHealth * 0.03 * _eem.landslideBonus, false, '土');
-                    }
-                    // 震地：范围伤害 + 眩晕（每发岩刺仅触发一次，避免直线穿透多目标时叠加成片 AoE；复刻冰暴发生器「中心震波」）
-                    if (!bullet._quakeDone && _eem.quakeChance > 0 && Math.random() < _eem.quakeChance) {
-                        bullet._quakeDone = true;
-                        const qr = Math.max(40, 60 + _eem.quakeRadius);
-                        createDustExplosion(bullet.x, bullet.y, qr);
-                        for (let k = zombies.length - 1; k >= 0; k--) {
-                            const z = zombies[k];
-                            if (Math.hypot(bullet.x - z.x, bullet.y - z.y) < qr + z.radius) {
-                                damageZombie(z, damage * 0.55 * _eem.quakeDmgMul, false, '土');
-                                checkCombos(z, '土');
-                                if (_eem.quakeStunDur > 0) z.stunUntil = Math.max(z.stunUntil || 0, nowHit + _eem.quakeStunDur);
-                            }
-                        }
-                    }
-                    // 陷坑：牵引周围敌人向命中点靠近（每发岩刺仅触发一次；类似冰暴加农的聚怪）
-                    if (!bullet._sinkholeDone && _eem.sinkholeChance > 0 && Math.random() < _eem.sinkholeChance) {
-                        bullet._sinkholeDone = true;
-                        const sr = Math.max(50, 80 + _eem.sinkholeRadius);
-                        createSinkholeEffect(bullet.x, bullet.y, sr);
-                        for (const z of zombies) {
-                            if (z === zombie) continue;
-                            const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
-                            if (d < sr + z.radius && d > 1) {
-                                const pull = Math.min(_eem.sinkholePull, d * 0.5);   // 每帧牵引距离，封顶防抖动
-                                z.x += (bullet.x - z.x) / d * pull;
-                                z.y += (bullet.y - z.y) / d * pull;
-                                clampZombieToField(z);   // 牵引后钳制到战场边界
-                            }
-                        }
-                    }
-                    // 岩盾：命中概率在命中点留下临时屏障
-                    if (_eem.shieldChance > 0 && Math.random() < _eem.shieldChance) {
-                        createEarthShield(bullet.x, bullet.y, _eem);
-                    }
                 }
 
                 if (bullet.hitZombies.length >= bullet.piercing) {
@@ -5615,7 +5803,8 @@ function startGame() {
     logs = [];
     pendingWoodLogs = [];
     earthShields = [];
-    
+    earthSpikes = [];
+
     // 重置炸弹
     bombCount = 0;
     bombCooldown = 0;
@@ -5819,6 +6008,7 @@ function update(dt) {
     updatePendingWoodLogs();
     updateLogs(dt);
     updateEarthShields();
+    updateEarthSpikes(dt);
     updateParticles();
     updateHitEffects();
     updateOrbs();
@@ -12911,6 +13101,7 @@ function gameLoop() {
 
         drawLogs();               // 滚木绘制于僵尸上层（碾压时压在怪身上）
         drawEarthShields();       // 岩盾绘制于僵尸上层（挡在敌人路径上）
+        drawEarthSpikes();        // 地刺绘制于僵尸上层（从地面向上突起）
 
         drawWallHealthBar();      // 城墙血条（整组下沿贴齐城墙下沿，先画）
         drawPlayer();             // 坦克绘制于血条上层
@@ -12934,6 +13125,7 @@ function gameLoop() {
         }
         drawLogs();               // 升级暂停时仍把滚木压在怪上层
         drawEarthShields();       // 升级暂停时仍把岩盾压在怪上层
+        drawEarthSpikes();        // 升级暂停时仍把地刺压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
@@ -12948,6 +13140,7 @@ function gameLoop() {
         }
         drawLogs();               // 结算界面仍把滚木压在怪上层
         drawEarthShields();       // 结算界面仍把岩盾压在怪上层
+        drawEarthSpikes();        // 结算界面仍把地刺压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
