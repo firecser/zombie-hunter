@@ -1261,7 +1261,7 @@ const ATTR_BASE_DMG_MUL = 1.35;
 // 滚木（木属性树）参数：基础宽度占城墙宽 1/4，由「巨木」分支向 1/2 成长；厚重慢速、碾压间隔控制 DPS
 const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;   // 滚木基础宽度占城墙宽度比例
 const WOOD_LOG_SPEED_MUL = 0.55;          // 滚木速度为属性子弹的 55%（厚重感）
-const WOOD_LOG_LENGTH = 90;               // 滚木视觉长度(px)
+const WOOD_LOG_THICKNESS = 28;            // 滚木厚度(px)：视觉上是左右展开的圆柱直径，要小，不能粗
 const WOOD_LOG_HIT_INTERVAL = 280;        // 同一僵尸被同一根滚木碾压的间隔(ms)
 const WOOD_LOG_DMG_FACTOR = 0.55;     // 碾压每击伤害系数（连续碾压，单跳系数低于单次属性子弹）
 // 取某属性树的「共享模板」修正（无属性树则返回默认空表）
@@ -2182,31 +2182,69 @@ function drawFields() {
     ctx.globalAlpha = 1;
 }
 
-// 滚木绘制（木属性树）：绿色木质矩形 + 木纹 + 年轮端头
+// 滚木绘制（木属性树）：横躺的木质圆柱，左右展开、上下很细，向上滚动碾压
 function drawLogs() {
     if (logs.length === 0) return;
     ctx.save();
+    const t = Date.now();
     for (const log of logs) {
-        const x = log.x - log.w / 2, y = log.y - log.len / 2;
-        ctx.globalAlpha = 0.9;
-        const grd = ctx.createLinearGradient(x, 0, x + log.w, 0);
-        grd.addColorStop(0, '#2f7d3a');
-        grd.addColorStop(0.5, '#46d35a');
-        grd.addColorStop(1, '#2f7d3a');
-        ctx.fillStyle = grd;
-        ctx.fillRect(x, y, log.w, log.len);
-        // 木纹横线
-        ctx.globalAlpha = 0.3;
-        ctx.strokeStyle = '#1f5a28';
-        ctx.lineWidth = 2;
-        for (let ly = y + 10; ly < y + log.len; ly += 14) {
-            ctx.beginPath(); ctx.moveTo(x + 3, ly); ctx.lineTo(x + log.w - 3, ly); ctx.stroke();
-        }
-        // 顶/底年轮端头
+        const x = log.x - log.w / 2;
+        const y = log.y - log.thick / 2;
+        const r = log.thick / 2;
+        const w = log.w;
+        const h = log.thick;
+
+        // 胶囊形木质主体
         ctx.globalAlpha = 0.95;
+        const grd = ctx.createLinearGradient(x, y, x, y + h);
+        grd.addColorStop(0, '#5c3a1e');   // 上暗
+        grd.addColorStop(0.5, '#8b5a2b'); // 中亮
+        grd.addColorStop(1, '#5c3a1e');   // 下暗
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.ellipse(x + w - r, y + r, r, r, 0, -Math.PI / 2, Math.PI / 2);
+        ctx.lineTo(x + r, y + h);
+        ctx.ellipse(x + r, y + r, r, r, 0, Math.PI / 2, -Math.PI / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // 树皮竖纹
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = '#3e2716';
+        ctx.lineWidth = 2;
+        for (let kx = x + r + 6; kx < x + w - r; kx += 16) {
+            ctx.beginPath();
+            ctx.moveTo(kx, y + 2);
+            ctx.lineTo(kx + Math.sin(kx * 0.15) * 2, y + h - 2);
+            ctx.stroke();
+        }
+
+        // 滚动高光横带：向下滚动，模拟圆柱表面在向上滚
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#d4a86a';
+        ctx.lineWidth = 2;
+        const scroll = (t % 500) / 500 * h;
+        for (let i = 0; i < 3; i++) {
+            const yy = y + (scroll + i * h / 3) % h;
+            if (yy < y + 2 || yy > y + h - 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(x + r, yy);
+            ctx.lineTo(x + w - r, yy);
+            ctx.stroke();
+        }
+
+        // 左右端面年轮
+        ctx.globalAlpha = 0.9;
         ctx.fillStyle = '#c9a06a';
-        ctx.beginPath(); ctx.ellipse(log.x, y, log.w / 2, 6, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(log.x, y + log.len, log.w / 2, 6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x + r, log.y, r * 0.82, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x + w - r, log.y, r * 0.82, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = '#8b5a2b';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x + r, log.y, r * 0.45, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x + w - r, log.y, r * 0.45, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -3920,7 +3958,7 @@ function shootWood() {
             : wallW * (i + 0.5) / count;
         logs.push({
             x: cx, y: WALL_Y, w: w,
-            len: WOOD_LOG_LENGTH + (m.pierceBoost || 0) * 15,   // 木刺穿透：滚木更长
+            thick: WOOD_LOG_THICKNESS + (m.pierceBoost || 0) * 5,   // 木刺穿透：滚木略粗（仍然保持细）
             vy: -speed,
             dmg: perHit,
             rebound: !!m.rebound, reboundDmgMul: m.reboundDmgMul || 1,
@@ -4649,7 +4687,7 @@ function updateLogs(dt) {
     for (let i = logs.length - 1; i >= 0; i--) {
         const log = logs[i];
         log.y += log.vy * (frame / 16);   // vy 为负=向上；按 dt 归一化到 px/帧
-        const top = log.y - log.len / 2, bot = log.y + log.len / 2;
+        const top = log.y - log.thick / 2, bot = log.y + log.thick / 2;
         const wm = woodMods();
         for (const z of zombies) {
             if (z.x < log.x - log.w / 2 || z.x > log.x + log.w / 2) continue;   // 不在横向带内
@@ -4688,10 +4726,10 @@ function updateLogs(dt) {
             }
         }
         // 生命周期：到达顶端
-        if (log.phase === 'up' && log.y + log.len / 2 < 0) {
+        if (log.phase === 'up' && log.y + log.thick / 2 < 0) {
             if (log.rebound) { log.phase = 'down'; log.vy = -log.vy; }   // 回弹（互斥于碎木）
             else { expireLog(log); logs.splice(i, 1); }
-        } else if (log.phase === 'down' && log.y - log.len / 2 > WALL_Y + 10) {
+        } else if (log.phase === 'down' && log.y - log.thick / 2 > WALL_Y + 10) {
             logs.splice(i, 1);   // 回弹到底（互斥于碎木，不再炸裂）
         }
     }
