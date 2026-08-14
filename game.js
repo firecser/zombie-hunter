@@ -1336,7 +1336,7 @@ const EARTH_SPIKE_MAX_COUNT     = 6;    // 场上地刺簇数量上限
 const EARTH_SINKHOLE_DURATION   = 1400; // 陷坑持续时间(ms)：足够让敌人被缓慢拉入
 const EARTH_SINKHOLE_MAX_COUNT  = 4;    // 场上陷坑数量上限（防铺满）
 const EARTH_SINKHOLE_PULL_PER_FRAME = 4; // 陷坑每帧最大牵引步长(px)，配合距离比例形成渐近移动
-const EARTH_SHIELD_BASE_HP = 80;        // 岩盾基础血量（按 player.damage 比例：hp = player.damage * 该系数）
+const EARTH_SHIELD_BASE_HP = 24;        // 岩盾基础血量（绝对基准，不再乘 player.damage）。原 hp = player.damage*80*… 导致单盾血近千、僵尸每500ms仅啄 zombie.damage*0.25（≈1.75），理论300s才破，等于无敌；现改为可被正常啃穿的绝对血量。最终 hp = 该值 ×(1+土树等级×0.06)×岩盾分支血量倍率
 const EARTH_SHIELD_BASE_WIDTH = 90;     // 岩盾基础宽度(px)
 const EARTH_SHIELD_BASE_DURATION = 3000; // 岩盾基础持续时间(ms)
 const EARTH_SHIELD_MAX_COUNT = 4;       // 场上岩盾数量上限（防铺满）
@@ -5075,7 +5075,7 @@ function createRockEffect(x, y) {
 function createEarthShield(x, y, m) {
     if (earthShields.length >= EARTH_SHIELD_MAX_COUNT) earthShields.shift();   // 超限时移除最旧盾
     const w = EARTH_SHIELD_BASE_WIDTH * (m.shieldWidthMul || 1);
-    const hp = player.damage * EARTH_SHIELD_BASE_HP * (m.shieldHpMul || 1) * (1 + skills.earth.level * 0.05);
+    const hp = EARTH_SHIELD_BASE_HP * (1 + skills.earth.level * 0.06) * (m.shieldHpMul || 1);
     const dur = EARTH_SHIELD_BASE_DURATION + (m.shieldDuration || 0);
     earthShields.push({
         x: x - w / 2, y: y - 6, w: w, h: 12,
