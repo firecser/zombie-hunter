@@ -51,8 +51,8 @@ const ATTR_CD_CFG = {
 // 土系（地刺）：与 game.js 对齐
 const EARTH_SPIKE_BASE_DURATION = 1200; // 地刺基础持续时间(ms)
 const EARTH_SPIKE_HIT_INTERVAL  = 600;  // 同一敌人被同一地刺伤害的间隔(ms)
-const EARTH_SPIKE_BASE_RADIUS   = 40;   // 地刺基础伤害范围(px)
-const EARTH_SPIKE_DMG_FACTOR    = 1.00; // 地刺基础每跳伤害系数（调平用，与 game.js 同步）
+const EARTH_SPIKE_BASE_RADIUS   = 20;   // 地刺基础伤害范围(px)：与 game.js 同步（v1.1.29 起减半）
+const EARTH_SPIKE_DMG_FACTOR    = 1.45; // 地刺基础每跳伤害系数（调平用，与 game.js 同步；半径减半后上调回正 T1）
 const EARTH_SPIKE_MAX_COUNT     = 6;    // 场上地刺簇数量上限
 const EARTH_SHIELD_BASE_HP = 80, EARTH_SHIELD_BASE_WIDTH = 90, EARTH_SHIELD_BASE_DURATION = 3000, EARTH_SHIELD_MAX_COUNT = 4, EARTH_SHIELD_ATTACK_INTERVAL = 500;
 
@@ -429,7 +429,7 @@ function baseMods() {
     sinkholeChance: 0, sinkholeRadius: 0, sinkholePull: 0,
     petrifyChance: 0, petrifyDuration: 0, armorCrush: false, armorCrushF: 0, landslideBonus: 0, rockShard: false, rockBurst: false };
 }
-function applyUniversal(m) { m.bulletCountBoost += 5; m.cdReduce += 0.08 * 5; m.critChanceBoost += 0.05 * 5; m.critDamageBoost += 0.15 * 5; m.critChance = m.critChanceBoost; m.critMult = 2 + m.critDamageBoost; }
+function applyUniversal(m) { m.bulletCountBoost += 3; m.cdReduce += 0.08 * 3; m.critChanceBoost += 0.05 * 3; m.critDamageBoost += 0.15 * 3; m.critChance = m.critChanceBoost; m.critMult = 2 + m.critDamageBoost; }
 function buildMods(tree, tier) {
   const m = baseMods();
   const lvl = 10;
@@ -441,7 +441,7 @@ function buildMods(tree, tier) {
     if (tree === 'wood') { m.logWidthMul = Math.pow(1.12, 5); m.logDmgMul = Math.pow(1.12, 5); m.rootChance = 0.20 * 5; m.rootDuration = 400 + 100 * 5; m.strangleVineBonus = 5; m.splinterChance = 0.30 * 5; m.splinterDmgMul = Math.pow(1.15, 5); if (m.critChanceBoost >= 0.25) m.thornBurst = true; }
     if (tree === 'earth') {
       m.fissureDmgMul = Math.pow(1.20, 5);            // 裂地穿刺：穿透伤害+20%/级
-      m.earthHitRadiusMul = Math.pow(1.15, 5);        // 地刺贯穿：岩刺命中宽度+15%/级
+      m.earthHitRadiusMul = Math.pow(1.08, 5);        // 地刺贯穿：岩刺命中宽度+8%/级（半径减半后收敛 T2 覆盖，防 T2 爆炸）
       m.earthLineLengthMul = Math.pow(1.10, 5);       // 岩刺长度+10%/级（仅视觉）
       m.pierceBoost = 5;                              // 地刺贯穿 Lv5
       m.rockShard = true;                             // 地刺贯穿 Lv5 → 岩片溅射

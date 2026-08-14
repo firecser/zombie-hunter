@@ -1003,7 +1003,7 @@ const SKILL_DEFS = {
                   // 实现「基础(火力强化) + 属性(五行)」架构。慢速/冻结效果暂不在此树，留待水（冰）属性树。
                   branches: {
                     // —— 通用「属性树共享模板」分支（火树先行；冰/雷/毒树后续复用同名结构）——
-                    multiShot:  { name:'多重爆裂', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重爆裂', desc:'每级额外 +1 发子弹（满级共+3，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1032,7 +1032,7 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水树同名同结构）——
-                    multiShot:  { name:'多重电子', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重电子', desc:'每级额外 +1 发子弹（满级共+3，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1066,7 +1066,7 @@ const SKILL_DEFS = {
                   // 共享模板分支与火树同名同结构；水专属分支围绕「控制锁(冻结/减速) + 冰封处决(对冻结追最大生命%) + 冰霜新星(范围必冻爆发) + 极寒领域(冰域铺场)」
                   branches: {
                     // —— 通用「属性树共享模板」分支（与火树同名，全局叠加）——
-                    multiShot:  { name:'多重干冰', desc:'每级额外 +1 发子弹（满级共+5，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重干冰', desc:'每级额外 +1 发子弹（满级共+3，单发伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1097,7 +1097,7 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水/金同名同结构）——
-                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+5，单根伤害衰减）', reqLevel:2, prereq:[], mutex:['rapidLog'], maxLevel:5,
+                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+3，单根伤害衰减）', reqLevel:2, prereq:[], mutex:['rapidLog'], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1129,14 +1129,14 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水/金/木同名同结构）——
-                    multiShot:  { name:'多重地刺', desc:'每级额外 +1 簇地刺（满级共+5，单簇伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:5,
+                    multiShot:  { name:'多重地刺', desc:'每级额外 +1 簇地刺（满级共+3，单簇伤害衰减）', reqLevel:2, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:2, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
                     crit:       { name:'岩心暴击', desc:'暴击率+5%/级、暴击伤害+15%/级；满级暴击触发碎岩迸发', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.critChanceBoost += 0.05 * bl; m.critDamageBoost += 0.15 * bl; if (bl >= 5) m.rockBurst = true; } },
-                    pierce:     { name:'地刺贯穿', desc:'地刺伤害范围+15%/级；满级命中溅射岩片', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.earthHitRadiusMul *= Math.pow(1.15, bl); if (bl >= 5) m.rockShard = true; } },
+                    pierce:     { name:'地刺贯穿', desc:'地刺伤害范围+8%/级；满级命中溅射岩片', reqLevel:3, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.earthHitRadiusMul *= Math.pow(1.08, bl); if (bl >= 5) m.rockShard = true; } },
                     // —— 土专属分支 ——
                     // 裂地穿刺：强化地刺每跳伤害与视觉高度（土系输出核心）
                     fissure:    { name:'裂地穿刺', desc:'地刺伤害+20%/级，地刺高度+10%/级',       reqLevel:2, prereq:[], mutex:[], maxLevel:5,
@@ -1191,6 +1191,7 @@ let logs = [];                      // 滚木（木属性树）生成的持续�
 let pendingWoodLogs = [];           // 待释放的滚木队列：错峰依次 spawn，总时长可超过 CD
 let earthShields = [];              // 地刺（土属性树）岩盾：临时屏障，阻挡敌人并被攻击
 let earthSpikes = [];               // 地刺（土属性树）：战场上生成的静止石钟乳簇，持续伤害后消失
+let earthSinkholes = [];            // 土属性树·陷坑场地：地刺消失后生成的持续牵引坑，逐帧将敌人拉向中心
 let _zombieIdSeq = 0;               // 僵尸唯一 id（滚木按 id 节流每根僵尸的碾压结算）
 const MAX_ICE_FIELDS = 5;           // 同时存在的极寒领域上限（避免大量半透明领域叠加拖垮 Canvas）
 const MAX_ELECTRIC_FIELDS = 5;      // 同时存在的静电场上限
@@ -1328,9 +1329,13 @@ const WOOD_SPLINTER_DMG = 0.25;       // 碎木飞溅每发伤害系数（占 pl
 // 土系（地刺）参数：战场生成静止石钟乳簇 + 岩盾阻挡
 const EARTH_SPIKE_BASE_DURATION = 1200; // 地刺基础持续时间(ms)
 const EARTH_SPIKE_HIT_INTERVAL  = 600;  // 同一敌人被同一地刺伤害的间隔(ms)：出生 1 跳 + 中途 1 跳，共 2 跳
-const EARTH_SPIKE_BASE_RADIUS   = 40;   // 地刺基础伤害范围(px)
-const EARTH_SPIKE_DMG_FACTOR    = 1.00; // 地刺基础每跳伤害系数（与 sim_dps.js 同步；调平用）
+const EARTH_SPIKE_BASE_RADIUS   = 20;   // 地刺基础伤害范围(px)：v1.1.29 起减半（视觉与命中范围同步缩小至约一半）
+const EARTH_SPIKE_DMG_FACTOR    = 1.45; // 地刺基础每跳伤害系数（与 sim_dps.js 同步；半径减半后上调以回正 T1）
 const EARTH_SPIKE_MAX_COUNT     = 6;    // 场上地刺簇数量上限
+// 土系·陷坑场地（地刺消失后生成的持续牵引坑）
+const EARTH_SINKHOLE_DURATION   = 1400; // 陷坑持续时间(ms)：足够让敌人被缓慢拉入
+const EARTH_SINKHOLE_MAX_COUNT  = 4;    // 场上陷坑数量上限（防铺满）
+const EARTH_SINKHOLE_PULL_PER_FRAME = 4; // 陷坑每帧最大牵引步长(px)，配合距离比例形成渐近移动
 const EARTH_SHIELD_BASE_HP = 80;        // 岩盾基础血量（按 player.damage 比例：hp = player.damage * 该系数）
 const EARTH_SHIELD_BASE_WIDTH = 90;     // 岩盾基础宽度(px)
 const EARTH_SHIELD_BASE_DURATION = 3000; // 岩盾基础持续时间(ms)
@@ -2446,12 +2451,20 @@ function spawnEarthSpikes() {
     if (spawned) AudioSystem.playShoot();
 }
 
-// 地刺更新：超时移除 + 按间隔结算伤害/分支效果
+// 地刺更新：超时移除（消失时触发陷坑/岩盾一次性场地效果）+ 按间隔结算伤害/分支效果
 function updateEarthSpikes(dt) {
     const now = Date.now();
     for (let i = earthSpikes.length - 1; i >= 0; i--) {
         const spike = earthSpikes[i];
         if (now - spike.born > spike.duration) {
+            // 地刺消失：触发陷坑 + 岩盾（一次性场地效果）。地震已在「第一跳」同时生效，此处不再重复。
+            const m = spike.m;
+            if (m.sinkholeChance > 0 && Math.random() < m.sinkholeChance) {
+                spawnEarthSinkhole(spike.x, spike.y, m);
+            }
+            if (m.shieldChance > 0 && Math.random() < m.shieldChance) {
+                createEarthShield(spike.x, spike.y, m);
+            }
             earthSpikes.splice(i, 1);
             continue;
         }
@@ -2462,6 +2475,77 @@ function updateEarthSpikes(dt) {
             applyEarthSpikeHit(spike, spike._tickCount === 1);
         }
     }
+    updateEarthSinkholes();
+}
+
+// 土属性树·陷坑场地生成：地刺消失时调用，产生一个持续牵引坑
+function spawnEarthSinkhole(x, y, m) {
+    const sr = Math.max(50, 80 + (m.sinkholeRadius || 0));
+    if (earthSinkholes.length >= EARTH_SINKHOLE_MAX_COUNT) earthSinkholes.shift();
+    earthSinkholes.push({
+        x, y, radius: sr,
+        born: Date.now(),
+        duration: EARTH_SINKHOLE_DURATION,
+        pull: m.sinkholePull || 0,
+        rot: 0
+    });
+    createSinkholeEffect(x, y, sr);
+}
+
+// 土属性树·陷坑场地更新：逐帧将范围内敌人缓慢拉向中心（移动过程，非瞬间位移）
+function updateEarthSinkholes() {
+    const now = Date.now();
+    for (let i = earthSinkholes.length - 1; i >= 0; i--) {
+        const h = earthSinkholes[i];
+        if (now - h.born > h.duration) { earthSinkholes.splice(i, 1); continue; }
+        h.rot += 0.05;
+        for (const z of zombies) {
+            if (z.health <= 1) continue;
+            const dx = h.x - z.x, dy = h.y - z.y;
+            const d = Math.hypot(dx, dy);
+            if (d < h.radius + z.radius && d > 1) {
+                // 每帧向中心移动一小段：取「固定步长」与「距离比例」的较小值，形成渐近收敛
+                const step = Math.min(h.pull * EARTH_SINKHOLE_PULL_PER_FRAME, d * 0.06);
+                z.x += dx / d * step;
+                z.y += dy / d * step;
+                clampZombieToField(z);
+            }
+        }
+    }
+}
+
+// 土属性树·陷坑场地绘制：深色旋转漩涡坑（绘制于僵尸下层，与地刺一致）
+function drawEarthSinkholes() {
+    if (earthSinkholes.length === 0) return;
+    const now = Date.now();
+    for (const h of earthSinkholes) {
+        if (now - h.born > h.duration) continue;
+        const p = (now - h.born) / h.duration;
+        const alpha = Math.min(1, (1 - p) * 1.4) * 0.9;
+        ctx.save();
+        ctx.translate(h.x, h.y);
+        ctx.globalAlpha = alpha;
+        // 外圈暗色坑沿
+        const grd = ctx.createRadialGradient(0, 0, h.radius * 0.15, 0, 0, h.radius);
+        grd.addColorStop(0, 'rgba(20,14,10,0.95)');
+        grd.addColorStop(0.7, 'rgba(60,42,30,0.85)');
+        grd.addColorStop(1, 'rgba(90,66,46,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, h.radius, h.radius * 0.78, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // 旋转漩涡纹
+        ctx.strokeStyle = 'rgba(30,20,14,0.7)';
+        ctx.lineWidth = 2;
+        for (let k = 0; k < 3; k++) {
+            ctx.beginPath();
+            const a0 = h.rot + k * (Math.PI * 2 / 3);
+            ctx.arc(0, 0, h.radius * (0.35 + k * 0.18), a0, a0 + Math.PI * 1.3);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+    ctx.globalAlpha = 1;
 }
 
 // 地刺单跳结算（isFirstTick 仅在第一跳触发震地/陷坑/岩盾等一次性场地效果）
@@ -2532,11 +2616,13 @@ function applyEarthSpikeHit(spike, isFirstTick) {
     }
 
     // 第一跳一次性场地效果（每簇地刺仅一次，避免多重地刺叠加失控）
+    // 注意：仅「震地」在第一跳同时生效；「陷坑」「岩盾」改在地刺消失时触发（见 updateEarthSpikes），
+    // 避免被地刺本体遮挡而看不见。
     if (isFirstTick) {
         // 震地
         if (m.quakeChance > 0 && Math.random() < m.quakeChance) {
             const qr = Math.max(40, 60 + m.quakeRadius);
-            createDustExplosion(spike.x, spike.y, qr);
+            createQuakeEffect(spike.x, spike.y, qr);
             for (let j = zombies.length - 1; j >= 0; j--) {
                 const z = zombies[j];
                 if (z.health <= 1) continue;
@@ -2546,25 +2632,6 @@ function applyEarthSpikeHit(spike, isFirstTick) {
                     if (m.quakeStunDur > 0) z.stunUntil = Math.max(z.stunUntil || 0, now + m.quakeStunDur);
                 }
             }
-        }
-        // 陷坑
-        if (m.sinkholeChance > 0 && Math.random() < m.sinkholeChance) {
-            const sr = Math.max(50, 80 + m.sinkholeRadius);
-            createSinkholeEffect(spike.x, spike.y, sr);
-            for (const z of zombies) {
-                if (z.health <= 1) continue;
-                const d = Math.hypot(spike.x - z.x, spike.y - z.y);
-                if (d < sr + z.radius && d > 1) {
-                    const pull = Math.min(m.sinkholePull, d * 0.5);
-                    z.x += (spike.x - z.x) / d * pull;
-                    z.y += (spike.y - z.y) / d * pull;
-                    clampZombieToField(z);
-                }
-            }
-        }
-        // 岩盾
-        if (m.shieldChance > 0 && Math.random() < m.shieldChance) {
-            createEarthShield(spike.x, spike.y, m);
         }
     }
 }
@@ -4983,6 +5050,18 @@ function createSinkholeEffect(x, y, radius) {
     hitEffects.push({ x: x, y: y, type: 'sinkhole', life: 500, maxLife: 500, rot: 0, radius: radius });
 }
 
+// 土系·震地视觉：强化的地震表现——屏幕抖动 + 双层棕色冲击波环 + 大量尘土（相比普通 dust 更明显）
+function createQuakeEffect(x, y, radius) {
+    if (typeof g !== 'undefined' && g && 'shake' in g) {
+        g.shake = Math.max(g.shake || 0, 0.5);   // 触发屏幕抖动，强化“地震”感受
+    }
+    // 内层快环
+    bombExplosionEffects.push({ x: x, y: y, radius: 0, life: 480, maxRadius: radius, color: [210, 160, 100] });
+    // 外层大环（扩得更大、更醒目）
+    bombExplosionEffects.push({ x: x, y: y, radius: 0, life: 600, maxRadius: radius * 1.6, color: [150, 110, 70] });
+    createDustExplosion(x, y, radius * 1.1);
+}
+
 // 土系·石化视觉：敌人身上爆开小石块
 function createRockEffect(x, y) {
     for (let i = 0; i < 6; i++) {
@@ -5800,6 +5879,7 @@ function startGame() {
     pendingWoodLogs = [];
     earthShields = [];
     earthSpikes = [];
+    earthSinkholes = [];
 
     // 重置炸弹
     bombCount = 0;
@@ -13089,6 +13169,8 @@ function gameLoop() {
         drawDeathRays();
         drawBombExplosions();
         drawFields();
+        drawEarthSpikes();        // 地刺绘制于僵尸下层（从地面向上突起，被敌人压在上方，与滚木相反）
+        drawEarthSinkholes();     // 陷坑场地绘制于僵尸下层（深色漩涡坑）
 
         const drawNow = Date.now();
         for (const zombie of zombies) {
@@ -13097,7 +13179,6 @@ function gameLoop() {
 
         drawLogs();               // 滚木绘制于僵尸上层（碾压时压在怪身上）
         drawEarthShields();       // 岩盾绘制于僵尸上层（挡在敌人路径上）
-        drawEarthSpikes();        // 地刺绘制于僵尸上层（从地面向上突起）
 
         drawWallHealthBar();      // 城墙血条（整组下沿贴齐城墙下沿，先画）
         drawPlayer();             // 坦克绘制于血条上层
@@ -13115,13 +13196,14 @@ function gameLoop() {
     } else if (gameState === 'upgrade') {
         drawBackground();
         drawFieldBorders();       // 升级暂停时仍显示战场边界
+        drawEarthSpikes();        // 升级暂停时仍把地刺压在怪下层
+        drawEarthSinkholes();     // 升级暂停时仍把陷坑压在怪下层
         const drawNow2 = Date.now();
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow2);
         }
         drawLogs();               // 升级暂停时仍把滚木压在怪上层
         drawEarthShields();       // 升级暂停时仍把岩盾压在怪上层
-        drawEarthSpikes();        // 升级暂停时仍把地刺压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
@@ -13130,13 +13212,14 @@ function gameLoop() {
     } else if (gameState === 'gameOver') {
         drawBackground();
         drawFieldBorders();       // 结算界面仍显示战场边界
+        drawEarthSpikes();        // 结算界面仍把地刺压在怪下层
+        drawEarthSinkholes();     // 结算界面仍把陷坑压在怪下层
         const drawNow3 = Date.now();
         for (const zombie of zombies) {
             drawZombie(zombie, drawNow3);
         }
         drawLogs();               // 结算界面仍把滚木压在怪上层
         drawEarthShields();       // 结算界面仍把岩盾压在怪上层
-        drawEarthSpikes();        // 结算界面仍把地刺压在怪上层
         drawWall();
         drawWallHealthBar();
         drawPlayer();
