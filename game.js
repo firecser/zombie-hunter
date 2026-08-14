@@ -2603,15 +2603,20 @@ function drawEarthSpikes() {
         ctx.moveTo(r * 0.2, -r * 0.08); ctx.lineTo(r * 0.55, 0.02);
         ctx.stroke();
 
-        // 石钟乳尖锥
+        // 石钟乳尖锥：扇形展开，中间最高、两侧依次降低、向外倾斜
         for (let i = 0; i < spikeCount; i++) {
-            const t = (spikeCount > 1) ? (i / (spikeCount - 1)) * 2 - 1 : 0;
-            const sx = t * r * 0.55;
-            const sw = r * (0.30 - Math.abs(t) * 0.09);
-            const sh = h * (0.9 + Math.abs(t) * 0.22);
-            const tipY = -sh;
+            const t = (spikeCount > 1) ? (i / (spikeCount - 1)) * 2 - 1 : 0; // -1 ~ +1，0 为正中
+            const sx = t * r * 0.55;                         // 地面根部水平排布
+            const angle = t * 0.45;                           // 外侧刺向外倾斜（弧度），中间垂直
+            const heightMul = 1 - Math.pow(Math.abs(t), 1.6) * 0.38; // 中间 100%，外侧降至约 62%
+            const sh = h * heightMul;
+            const sw = r * (0.30 - Math.abs(t) * 0.07);       // 外侧刺略细
 
-            const grd = ctx.createLinearGradient(sx, 0, sx, tipY);
+            ctx.save();
+            ctx.translate(sx, 0);
+            ctx.rotate(angle);
+
+            const grd = ctx.createLinearGradient(0, 0, 0, -sh);
             grd.addColorStop(0, '#4a3b2e');
             grd.addColorStop(0.45, '#8b6f4e');
             grd.addColorStop(1, '#c4a882');
@@ -2619,19 +2624,19 @@ function drawEarthSpikes() {
             ctx.fillStyle = grd;
             ctx.globalAlpha = 0.98 * alpha;
             ctx.beginPath();
-            ctx.moveTo(sx - sw / 2, 0);
-            ctx.lineTo(sx, tipY);
-            ctx.lineTo(sx + sw / 2, 0);
+            ctx.moveTo(-sw / 2, 0);
+            ctx.lineTo(0, -sh);
+            ctx.lineTo(sw / 2, 0);
             ctx.closePath();
             ctx.fill();
 
-            // 左侧高光
+            // 左侧高光（在旋转后的局部坐标里画，始终朝左上）
             ctx.strokeStyle = '#d9c4a8';
             ctx.lineWidth = 1.2;
             ctx.globalAlpha = 0.55 * alpha;
             ctx.beginPath();
-            ctx.moveTo(sx - sw * 0.22, 0);
-            ctx.lineTo(sx, tipY);
+            ctx.moveTo(-sw * 0.22, 0);
+            ctx.lineTo(0, -sh);
             ctx.stroke();
 
             // 表面裂纹
@@ -2639,9 +2644,11 @@ function drawEarthSpikes() {
             ctx.lineWidth = 0.8;
             ctx.globalAlpha = 0.45 * alpha;
             ctx.beginPath();
-            ctx.moveTo(sx, -sh * 0.25);
-            ctx.lineTo(sx + sw * 0.18, -sh * 0.55);
+            ctx.moveTo(0, -sh * 0.25);
+            ctx.lineTo(sw * 0.18, -sh * 0.55);
             ctx.stroke();
+
+            ctx.restore();
         }
 
         ctx.restore();
