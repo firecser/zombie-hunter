@@ -4600,12 +4600,7 @@ function updateBullets() {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '金'); checkCombos(z, '金'); }
                     }
                 }
-                if (_eem && _eem.rockShard) {
-                    for (let k = zombies.length - 1; k >= 0; k--) {
-                        const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 35) { damageZombie(z, player.damage * 0.08, false, '土'); checkCombos(z, '土'); }
-                    }
-                }
+                // 岩片溅射 / 碎岩迸发（土属性树「地刺贯穿」Lv5 / 「岩心暴击」Lv5 质变）已迁移至地刺场地逻辑 applyEarthSpikeHit，此处不再由子弹触发
                 // 暴击小爆炸 / 冰霜暴击（火/水属性树「暴击」满级质变）
                 if (isCrit && bullet.skillType === 'explosive' && skills.explosive._mods && skills.explosive._mods.critExplode) {
                     createExplosion(zombie.x, zombie.y, 50);
@@ -4621,13 +4616,7 @@ function updateBullets() {
                         if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 45) { damageZombie(z, player.damage * 0.25, false, '水'); checkCombos(z, '水'); }
                     }
                 }
-                if (isCrit && _eem && _eem.rockBurst) {
-                    createExplosion(zombie.x, zombie.y, 55);   // 碎岩迸发：暴击时小范围岩爆
-                    for (let k = zombies.length - 1; k >= 0; k--) {
-                        const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 55) { damageZombie(z, player.damage * 0.18, false, '土'); checkCombos(z, '土'); }
-                    }
-                }
+                // 碎岩迸发（土「岩心暴击」Lv5）已迁移至地刺场地逻辑 applyEarthSpikeHit，此处不再由子弹触发
 
                 // 命中附带：减速 / 冰霜爆炸（仅干冰弹水属性树的子弹触发）
                 // 干冰弹基础：主目标必定减速(软控)，并产生范围冰霜爆炸(伤害+范围减速)；
