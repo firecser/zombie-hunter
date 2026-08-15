@@ -12,7 +12,7 @@ var a=Math.log,b=Math.pow,c=Math.floor,d=Math.random,e=Math.exp,f=Math.abs,h=Mat
  var COLS=4;
  var gap=12;
  var NODE=Math.max(44,Math.floor((areaW-gap*(COLS-1))/COLS));
- var rowH=NODE+34;
+ var rowH=NODE+34*3;
  var viewH=botY-topY;
  var colMap={core:"#ffcf5c",wood:"#7ed957",born:"#4fd1c5",ball:"#ff8a5c",glow:"#c77dff",over:"#ff5d73",shield:"#5aa9ff"};
 
