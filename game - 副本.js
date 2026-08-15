@@ -10,17 +10,20 @@ var a=Math.log,b=Math.pow,c=Math.floor,d=Math.random,e=Math.exp,f=Math.abs,h=Mat
  var padX=14;
  var areaW=SW-padX*2;
  var COLS=4;
- var gap=10;
- var NODE=(areaW-gap*(COLS-1))/COLS;
+ var gap=12;
+ var NODE=Math.max(44,Math.floor((areaW-gap*(COLS-1))/COLS));
  var cellH=NODE+34;
- var ids=Object.keys(talentData);
- var n=ids.length;
- var rows=Math.ceil(n/COLS);
- var contentH=rows*cellH;
  var viewH=botY-topY;
- var maxScroll=Math.max(0,contentH-viewH);
- if(talentScrollY>maxScroll)talentScrollY=maxScroll;
- if(talentScrollY<0)talentScrollY=0;
+ var colMap={core:"#ffcf5c",wood:"#7ed957",born:"#4fd1c5",ball:"#ff8a5c",glow:"#c77dff",over:"#ff5d73",shield:"#5aa9ff"};
+
+ // 根脉 | 五行系(火/金/木/土/水) | 防御 | 统御
+ var branchOrder=[
+  [0,1,2,3,4,5],
+  [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40],
+  [41,42,43,44,45,71,46,47,72,48,73,49],
+  [50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70]
+ ];
+
  ctx.fillStyle="rgba(8,10,18,0.98)";
  ctx.fillRect(0,0,SW,SH);
  ctx.textAlign="left";
@@ -34,31 +37,83 @@ var a=Math.log,b=Math.pow,c=Math.floor,d=Math.random,e=Math.exp,f=Math.abs,h=Mat
  ctx.textAlign="center";
  ctx.fillStyle="#6f829a";
  ctx.font="12px sans-serif";
+
+ var layout={};
+ var maxRows=0;
+ for(var c=0;c<COLS;c++){
+  var ids=branchOrder[c];
+  maxRows=Math.max(maxRows,ids.length);
+  for(var r=0;r<ids.length;r++){
+   var id=ids[r]+"";
+   layout[id]={cx:padX+c*(NODE+gap)+NODE/2, cy:topY+r*cellH+NODE/2, col:c, row:r};
+  }
+ }
+ var contentH=maxRows*cellH;
+ var maxScroll=Math.max(0,contentH-viewH);
+ if(talentScrollY>maxScroll)talentScrollY=maxScroll;
+ if(talentScrollY<0)talentScrollY=0;
+
  ctx.fillText(maxScroll>0?"拖动屏幕滚动 · 点击天赋升级":"点击天赋升级",SW/2,SAFE_TOP_OFFSET+58);
  ctx.save();
  ctx.beginPath();
  ctx.rect(0,topY,SW,viewH);
  ctx.clip();
- var colMap={core:"#ffcf5c",wood:"#7ed957",born:"#4fd1c5",ball:"#ff8a5c",glow:"#c77dff",over:"#ff5d73",shield:"#5aa9ff"};
+
+ // draw dependency lines behind nodes
+ ctx.lineCap="round";
+ for(var id in talentData){
+  var L=layout[id];
+  if(!L) continue;
+  var node=talentData[id];
+  var p=node.prerequisite||{};
+  var locked=!isTalentUnlocked(id);
+  for(var pk in p){
+   var PL=layout[pk];
+   if(!PL) continue;
+   var pNode=talentData[pk];
+   var col=colMap[pNode.icon]||"#8aa0b8";
+   var x1=PL.cx, y1=PL.cy+NODE*0.42-talentScrollY;
+   var x2=L.cx, y2=L.cy-NODE*0.42-talentScrollY;
+   ctx.strokeStyle=locked?"#3a4252":col;
+   ctx.lineWidth=locked?2:4;
+   ctx.globalAlpha=locked?0.35:0.9;
+   ctx.beginPath();
+   ctx.moveTo(x1,y1);
+   ctx.lineTo(x2,y2);
+   ctx.stroke();
+   ctx.fillStyle=locked?"#3a4252":col;
+   ctx.globalAlpha=locked?0.45:1;
+   ctx.beginPath();
+   ctx.arc(x2,y2,locked?2:3,0,6.2832);
+   ctx.fill();
+  }
+ }
+ ctx.globalAlpha=1;
+
+ // draw nodes
  talentNodes=[];
- for(var i=0;i<n;i++){
-  var id=ids[i];
+ for(var id in layout){
+  var L=layout[id];
   var node=talentData[id];
   var lv=node.level|0;
   var mx=node.max|0;
   var col=colMap[node.icon]||"#8aa0b8";
   var locked=!isTalentUnlocked(id);
-  var cx=padX+(i%COLS)*(NODE+gap)+NODE/2;
-  var cy=topY+Math.floor(i/COLS)*cellH+NODE/2-talentScrollY;
-  var hb={};hb[a[3][0]]=cx;hb[a[3][1]]=cy;hb[a[2][15]]=NODE;hb[a[6][16]]=id;talentNodes.push(hb);
+  var cx=L.cx;
+  var cy=L.cy-talentScrollY;
   var x0=cx-NODE/2,y0=cy-NODE/2;
+  var hb={};hb[a[3][0]]=cx;hb[a[3][1]]=cy;hb[a[2][15]]=NODE;hb[a[6][16]]=id;talentNodes.push(hb);
+
   roundRect(ctx,x0,y0,NODE,NODE,10);
   ctx.fillStyle=lv>=mx?"#2a2410":(lv>0?(locked?"#1a1d24":"#10243a"):(locked?"#13151b":"#161b26"));
   ctx.fill();
   ctx.lineWidth=2;
   ctx.strokeStyle=lv>=mx?"#ffcf5c":(lv>0?(locked?"#3a4252":"#5aa9ff"):(locked?"#2a3040":"#3a4252"));
   ctx.stroke();
-  if(locked){ctx.fillStyle="#7c8aa0";ctx.font="bold 16px sans-serif";ctx.fillText("锁",cx,cy-NODE*0.16+5)}else{ctx.beginPath();ctx.arc(cx,cy-NODE*0.16,NODE*0.18,0,6.2832);ctx.fillStyle=col;ctx.fill()}
+
+  if(locked){ctx.fillStyle="#7c8aa0";ctx.font="bold 16px sans-serif";ctx.textAlign="center";ctx.fillText("锁",cx,cy-NODE*0.16+5)}
+  else{ctx.beginPath();ctx.arc(cx,cy-NODE*0.16,NODE*0.18,0,6.2832);ctx.fillStyle=col;ctx.fill()}
+
   ctx.fillStyle="#e8eef5";
   ctx.font="bold 12px sans-serif";
   ctx.textAlign="center";
@@ -68,6 +123,7 @@ var a=Math.log,b=Math.pow,c=Math.floor,d=Math.random,e=Math.exp,f=Math.abs,h=Mat
   ctx.fillText(node.name,cx,cy+NODE/2+15);
  }
  ctx.restore();
+
  if(maxScroll>0){
   var trackX=SW-5,trackW=3,trackTop=topY,trackH=viewH;
   ctx.fillStyle="rgba(255,255,255,0.12)";
