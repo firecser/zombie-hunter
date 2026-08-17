@@ -134,3 +134,15 @@
 - **可选全局缓和**：加速玩家成长 `expToLevel` 基数 50→42、增长 1.3→1.26（v1.1.0 暂未启用，因会波及所有关；若要全局更容易可开启）。
 - **工作流**：难度调整必须**用模拟器驱动**（`scripts/sim_stage1.js` 扫描崩盘中位数），而非凭感觉只调 STAGES 的 spawnMult/healthMult 等表面倍率。模拟器已参数化 hpGrow/spawnFloor/spawnDecay/expBase/expGrow，忠实复制刷怪/膨胀/僵尸 frame-based 移动/贴身掉血/升级逻辑。
 - ⚠️ 模拟器用 frame-based 移动（僵尸 `z.x+=cos*sp` 不乘 dt），screenHeight 默认 2532（物理像素近似）；到达时间随设备变化，但核心矛盾（膨胀+密度 vs 吞吐）与设备无关。
+
+## 金币资源键 lM[2][9] 的正确用法（2026-08-17 更新，跨会话有效）
+- **金币键 = `lM[2][9]`（"gold"）**，任何时候最安全的写法是**直接写 `player[lM[2][9]]`**，不要依赖局部变量 `c` 的绑定。
+- 混淆代码里 `c` 在不同函数绑定不同：
+  - `c=lM`（如 handleTalentClick）→ 必须 `player[c[2][9]]`。
+  - `c=lM[2]`（如 drawUI 战斗HUD、drawMainMenuShop、upgradeTalent）→ 必须 `player[c[9]]`。
+- **v1.1.46 曾把"凡取金币一律 `player[c[2][9]]`"当结论**，导致战斗 HUD/商店金币显示 undefined，v1.1.47 已还原。**改动前先确认所在函数 `c` 的绑定**。
+
+## 天赋树节点对象键（2026-08-17，关键）
+- `drawMainMenuTalent` 里节点对象 `hb` 的键是：`hb[lM[3][0]]=cx`（"apply"）、`hb[lM[3][1]]=cy`（"level"）、`hb[lM[2][15]]=NODE`（"size"）、`hb[lM[6][16]]=id`（"talentId"）。
+- 命中检测必须用 `d[c[3][0]]`/`d[c[3][1]]`（c=lM），**不能用 `d[r1]`/`d[r2]`**（r1="x"/r2="y" 只用于触摸坐标对象）。v1.1.43 之前的天赋点击"无反应"根因就在此（命中键不匹配）。
+- `calculatePower` 读的节点字段是 **`pwr`**（非 `perLevelPower`；talent_data_draft.js 同源），`pwr` 不在 lM 表里、是硬编码键。
