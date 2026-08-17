@@ -146,3 +146,8 @@
 - `drawMainMenuTalent` 里节点对象 `hb` 的键是：`hb[lM[3][0]]=cx`（"apply"）、`hb[lM[3][1]]=cy`（"level"）、`hb[lM[2][15]]=NODE`（"size"）、`hb[lM[6][16]]=id`（"talentId"）。
 - 命中检测必须用 `d[c[3][0]]`/`d[c[3][1]]`（c=lM），**不能用 `d[r1]`/`d[r2]`**（r1="x"/r2="y" 只用于触摸坐标对象）。v1.1.43 之前的天赋点击"无反应"根因就在此（命中键不匹配）。
 - `calculatePower` 读的节点字段是 **`pwr`**（非 `perLevelPower`；talent_data_draft.js 同源），`pwr` 不在 lM 表里、是硬编码键。
+
+## 天赋弹窗与前置对象（2026-08-17，关键）
+- `talentData[id]` 节点字段：`name/max/cost/pwr/effect/icon/level/prerequisite`。**无 `chapter` 字段**——弹窗里任何 `highestUnlockedChapter>=node["chapter"]` 的判定都要写成 `!node["chapter"]||条件`，否则恒 false、升级按钮永远禁用。
+- `prerequisite` 对象键是**前置天赋 id**（如 `{"6":1}` = 需要 6 号至少 1 级），不是通用字段名。取前置节点必须 `talentData[Object.keys(prereq)[i]]`，不能用 `prereq["id"]`。
+- 弹窗 `drawTalentModal` 顶部有兜底：`T=talentData[talentModal["talentId"]]; if(!T)return`，改弹窗代码时别删。
