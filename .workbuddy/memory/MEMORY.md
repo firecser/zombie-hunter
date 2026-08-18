@@ -151,3 +151,11 @@
 - `talentData[id]` 节点字段：`name/max/cost/pwr/effect/icon/level/prerequisite`。**无 `chapter` 字段**——弹窗里任何 `highestUnlockedChapter>=node["chapter"]` 的判定都要写成 `!node["chapter"]||条件`，否则恒 false、升级按钮永远禁用。
 - `prerequisite` 对象键是**前置天赋 id**（如 `{"6":1}` = 需要 6 号至少 1 级），不是通用字段名。取前置节点必须 `talentData[Object.keys(prereq)[i]]`，不能用 `prereq["id"]`。
 - 弹窗 `drawTalentModal` 顶部有兜底：`T=talentData[talentModal["talentId"]]; if(!T)return`，改弹窗代码时别删。
+
+## 禁止混淆代码（2026-08-18 用户硬性要求，最高优先级）
+- 用户原话："以后你不允许对代码进行混淆。" → **硬约束，优先级高于任何"为上传而加固"的便利**。
+- 含义：git 仓库里 `game.js` / `game - 副本.js` 必须始终是**可读多行源码**；禁止把 minify/混淆产物当源码提交或在仓库留存。
+- 由此修订旧「代码加固/源码管理」流程：若微信上传客观上仍需加固，只能在**上传动作内临时加固**，**上传完成后立即把可读源码拷回 `game.js` 再 `git add` 提交**；绝不允许混淆版停留在工作区被提交。
+- 现状告警（2026-08-18 复核）：当前工作区两份文件**都带 `//WXAG_OBF_PLUGIN_BY_` 混淆标记**，局部变量仍是单字母（a/b/c/W…）→ 原 MEMORY「副本.js=可读源码」设定**已失效**，当前没有任何一份纯可读源码残留。
+- 可读标识符（drawGameOver/startGame/talentData/talentScrollY/isTalentUpgrading…）在两文件计数一致、逻辑等价；`game.js` 略多恢复几个可读名，已将其同步为规范副本（副本.js = game.js）。编辑以 `game.js` 为准、两文件务必保持同步。
+- 方案A（prettier 多行化）已让两文件变成多行、可 grep/Edit，但**变量名仍是混淆的**。要真正可读需方案B（变量名还原/去混淆）。是否做方案B 待用户决定。
