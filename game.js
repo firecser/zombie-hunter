@@ -7151,7 +7151,140 @@ function drawTalentTab(r, active) {
     ctx.textBaseline = 'alphabetic';
 }
 
+// ---- 天赋拓扑布局（DAG）：按 prerequisite 链分层 + barycenter 排序，避免连线穿过图标 ----
+// 对每个子页布局一次，结果缓存于 talentPageLayout[pageId]，命中检测使用同一缓存
+const talentPageLayout = { root: null, element: null, supreme: null, defense: null };
+
+function layoutTalentPage(pageId, contentTop, contentW, nodeSizeParam, xGap, yGap) {
+    const items = talentLayout[pageId] || [];
+    const ids = items.filter(i => !i.h).map(i => i.id);
+    if (!ids.length) {
+        return { positions: {}, edges: [], layers: [], totalContentH: nodeSize + 20 };
+    }
+    const idSet = new Set(ids);
+
+    // 1. 拓扑分层：前置不在本页 → L0；前置在本页 → 1+max(parent.layer)
+    const layer = {};
+    for (const id of ids) layer[id] = 0;
+    for (let iter = 0; iter < 50; iter++) {
+        let changed = false;
+        for (const id of ids) {
+            const t = talentData[id];
+            const pre = t.prerequisite;
+            if (pre && idSet.has(pre.id)) {
+                const pl = layer[pre.id];
+                if (pl >= 0) {
+                    const nl = pl + 1;
+                    if (nl > layer[id]) { layer[id] = nl; changed = true; }
+                }
+            }
+        }
+        if (!changed) break;
+    }
+    // 层 0 含无前置或前置不在本页的节点；其余层号 ≥1
+    const maxLayer = Math.max(...Object.values(layer));
+    const layers = Array.from({ length: maxLayer + 1 }, () => []);
+    for (const id of ids) layers[layer[id]].push(id);
+
+    // 2. Barycenter 排序：双向 sweep × 24，极小化边交叉
+    const idxIn = (row, id) => row.indexOf(id);
+    for (let sweep = 0; sweep < 24; sweep++) {
+        for (let l = 1; l < layers.length; l++) {
+            const refPos = {};
+            layers[l - 1].forEach((id, i) => refPos[id] = i);
+            const bc = {};
+            for (let i = 0; i < layers[l].length; i++) {
+                const id = layers[l][i];
+                const pre = talentData[id].prerequisite;
+                if (pre && idSet.has(pre.id) && refPos[pre.id] !== undefined) {
+                    bc[id] = refPos[pre.id];
+                } else {
+                    bc[id] = i;
+                }
+            }
+            layers[l].sort((a, b) => bc[a] - bc[b]);
+        }
+        for (let l = layers.length - 2; l >= 0; l--) {
+            const refPos = {};
+            layers[l + 1].forEach((id, i) => refPos[id] = i);
+            const bc = {};
+            const childPos = {};
+            for (const cid of layers[l + 1]) {
+                const cpre = talentData[cid].prerequisite;
+                if (cpre && idSet.has(cpre.id)) {
+                    if (!childPos[cpre.id]) childPos[cpre.id] = [];
+                    childPos[cpre.id].push(refPos[cid]);
+                }
+            }
+            for (let i = 0; i < layers[l].length; i++) {
+                const id = layers[l][i];
+                if (childPos[id] && childPos[id].length) {
+                    bc[id] = childPos[id].reduce((a, b) => a + b, 0) / childPos[id].length;
+                } else {
+                    bc[id] = i;
+                }
+            }
+            layers[l].sort((a, b) => bc[a] - bc[b]);
+        }
+    }
+
+    // 5. 自适应 nodeSize：同行节点数最多的那层 = nMax；保证 nodeSize + 4px 间隙 ≤ contentW/(nMax+1)
+    let nMax = 0;
+    for (const row of layers) if (row.length > nMax) nMax = row.length;
+    const minSize = 24, maxSize = nodeSizeParam || 52, gapBuffer = 4;
+    let adaptSize = Math.min(maxSize, Math.floor(contentW / (nMax + 1)) - gapBuffer);
+    if (adaptSize < minSize) adaptSize = minSize;
+
+    // 6. 重算坐标（使用自适应 nodeSize，保证图标不重叠）
+    const positions = {};
+    const yStart = contentTop + adaptSize / 2 + 10;
+    for (let l = 0; l < layers.length; l++) {
+        const cy = yStart + l * (adaptSize + yGap);
+        const row = layers[l];
+        const n = row.length;
+        if (n === 1) {
+            positions[row[0]] = { x: contentW / 2, y: cy };
+        } else {
+            const slot = contentW / (n + 1);
+            for (let i = 0; i < n; i++) {
+                positions[row[i]] = { x: slot * (i + 1), y: cy };
+            }
+        }
+    }
+
+    // 4. edges（仅父在本页 → 子在本页 的直接前置关系）
+    const edges = [];
+    for (const id of ids) {
+        const pre = talentData[id].prerequisite;
+        if (pre && idSet.has(pre.id) && positions[pre.id] && positions[id]) {
+            edges.push({ from: pre.id, to: id });
+        }
+    }
+
+    const totalContentH = layers.length * (adaptSize + yGap) - yGap + 30;
+    return { positions, edges, layers, totalContentH, nodeSize: adaptSize, nMax };
+}
+
+// ---- 天赋边绘制：父底部 → 子顶部，L 形折线，不穿过其他图标 ----
+function drawTalentEdge(x1, y1, x2, y2, unlocked) {
+    ctx.strokeStyle = unlocked ? 'rgba(79,195,247,0.7)' : 'rgba(120,120,120,0.35)';
+    ctx.lineWidth = 2;
+    const midX = (x1 + x2) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(midX, y1);
+    ctx.lineTo(midX, y2);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // 子端点小圆点
+    ctx.fillStyle = unlocked ? '#4fc3f7' : '#888';
+    ctx.beginPath();
+    ctx.arc(x2, y2, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 // 天赋Tab（数据驱动：根脉 / 五行 / 统御 / 防御 四子页 + 滚动 + 前置连线）
+// 天赋Tab：DAG 拓扑布局 + 前置连线 + 滚动
 function drawMainMenuTalent() {
     // 清空节点位置（每帧重建，供点击命中检测）
     talentNodes = [];
@@ -7164,86 +7297,66 @@ function drawMainMenuTalent() {
     ctx.textAlign = 'center';
     ctx.fillText('天赋', screenWidth / 2, topOffset + 15);
 
-    // Tab 栏（与 getTalentTabRects 共用几何，保证点击一致）
+    // Tab 栏
     const tabRects = getTalentTabRects();
     tabRects.forEach(r => drawTalentTab(r, r.id === talentPage));
 
-    // 内容区域（Tab 之下、底部导航之上），用于裁剪与滚动
+    // 内容区域
     const contentTop = tabRects[0].y + tabRects[0].h + 10;
     const contentBottom = screenHeight - MAIN_MENU_NAV_H;
     const contentH = contentBottom - contentTop;
+    const contentW = screenWidth;
 
-    // 网格参数
-    const nodeSize = 54, nodeGap = 10;
-    const rowW = screenWidth - 24;
-    const cols = Math.max(1, Math.floor((rowW + nodeGap) / (nodeSize + nodeGap)));
-    const gridW = cols * (nodeSize + nodeGap) - nodeGap;
-    const startX = (screenWidth - gridW) / 2;
-    const headerH = 26;
+    const nodeSizeMax = 54, yGap = 56;
+    const paddingX = 12;
+    const usableW = contentW - paddingX * 2;
 
-    const items = talentLayout[talentPage];
-    const posMap = {};        // id -> {x, y}（内容坐标，未加滚动偏移）
-    const nodesToDraw = [];   // 有序节点 id
-    let csY = 0, col = 0, rowTopCsY = 0;
-
-    // ---- Pass 1：计算所有节点 / 表头位置 ----
-    for (const item of items) {
-        if (item.h) {
-            if (col !== 0) { csY = rowTopCsY + nodeSize + nodeGap; col = 0; }
-            csY += headerH;
-            rowTopCsY = csY;
-            col = 0;
-        } else {
-            if (col === 0) rowTopCsY = csY;
-            const nx = startX + col * (nodeSize + nodeGap) + nodeSize / 2;
-            const ny = contentTop + rowTopCsY + nodeSize / 2;
-            posMap[item.id] = { x: nx, y: ny };
-            nodesToDraw.push(item.id);
-            // 命中检测使用实际绘制坐标（已含滚动偏移），与显示保持一致
-            talentNodes.push({ x: nx, y: ny + talentScrollY, size: nodeSize, talentId: item.id });
-            col++;
-            if (col >= cols) { col = 0; csY = rowTopCsY + nodeSize + nodeGap; }
-        }
+    // 计算/复用本次页布局
+    const cached = talentPageLayout[talentPage];
+    let layout;
+    if (cached && cached.nodeSizeMax === nodeSizeMax && cached.yGap === yGap && cached.contentTop === contentTop && cached.usableW === usableW) {
+        layout = cached.layout;
+    } else {
+        layout = layoutTalentPage(talentPage, contentTop, usableW, nodeSizeMax, 0, yGap);
+        talentPageLayout[talentPage] = { nodeSizeMax, yGap, contentTop, usableW, layout };
     }
-    const totalContentH = csY + nodeSize + 20;
+    const { positions, edges, totalContentH, nodeSize } = layout;
 
-    // 裁剪到内容区域，避免节点溢出到 Tab / 导航
+    // 滚动约束（先算 maxScroll，等绘制后再 clamp）
+    const maxScroll = Math.max(0, totalContentH - contentH);
+
+    // 裁剪到内容区域
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, contentTop, screenWidth, contentH);
     ctx.clip();
 
-    // ---- Pass 2：前置连线（位于节点之下） ----
-    for (const item of items) {
-        if (item.h) continue;
-        const t = talentData[item.id];
-        const pre = t.prerequisite;
-        if (pre && posMap[pre.id]) {
-            const a = posMap[pre.id], b = posMap[item.id];
-            const unlocked = highestUnlockedChapter >= t.chapter && isTalentUnlocked(item.id);
-            ctx.strokeStyle = unlocked ? 'rgba(79,195,247,0.7)' : 'rgba(120,120,120,0.35)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y + talentScrollY + nodeSize / 2);
-            ctx.lineTo(b.x, b.y + talentScrollY - nodeSize / 2);
-            ctx.stroke();
-        }
+    // ---- Pass 1：绘制前置连线（节点之下） ----
+    for (const e of edges) {
+        const a = positions[e.from], b = positions[e.to];
+        if (!a || !b) continue;
+        const childCh = talentData[e.to].chapter;
+        const unlocked = highestUnlockedChapter >= childCh && isTalentUnlocked(e.to);
+        const ax = a.x + paddingX;
+        const ay = a.y + talentScrollY + nodeSize / 2;
+        const bx = b.x + paddingX;
+        const by = b.y + talentScrollY - nodeSize / 2;
+        drawTalentEdge(ax, ay, bx, by, unlocked);
     }
 
-    // ---- Pass 3：绘制节点 ----
-    for (const id of nodesToDraw) {
-        const p = posMap[id];
+    // ---- Pass 2：绘制节点 ----
+    for (const id in positions) {
+        const p = positions[id];
         const t = talentData[id];
-        drawTalentNode(p.x, p.y + talentScrollY, nodeSize, t, id, highestUnlockedChapter >= t.chapter);
+        const dx = p.x + paddingX;
+        const dy = p.y + talentScrollY;
+        talentNodes.push({ x: dx, y: dy, size: nodeSize, talentId: id });
+        drawTalentNode(dx, dy, nodeSize, t, id, highestUnlockedChapter >= t.chapter);
     }
 
     ctx.restore();
 
-    // 滚动约束 + 滚动条
-    const maxScroll = Math.max(0, totalContentH - contentH);
-    if (talentScrollY < -maxScroll) talentScrollY = -maxScroll;
-    if (talentScrollY > 0) talentScrollY = 0;
-
+    // 滚动条
     if (maxScroll > 0) {
         const scrollBarW = 4;
         const scrollBarH = Math.max(30, contentH * (contentH / totalContentH));
