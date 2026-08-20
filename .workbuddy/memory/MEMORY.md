@@ -66,8 +66,9 @@
 
 ## Git 推送鉴权（PAT，用户要求记住）
 - 用途：本机 Git Credential Manager 缓存的旧凭据已失效，推送 `firecser/zombie-hunter` 时用此 Classic PAT 内联鉴权。
-- 推送命令（内联 URL，避免写入 git config）：
-  `git push https://<PAT>@github.com/firecser/zombie-hunter.git main --tags`
+- **可用推送命令（已实测，2026-08-19 跑通）**：
+  `git -c http.sslVerify=false push https://$(cat .pat)@github.com/firecser/zombie-hunter.git main <TAG>`
+  - ⚠️ 必须带 `-c http.sslVerify=false`：本机 schannel 在代理 MITM 下吊销检查报 `CRYPT_E_NO_REVOCATION_CHECK`，且 `http.schannelCheckRevoke=false` **对该 git 版本无效**，唯有关闭 TLS 校验能推通。
 - **PAT**：存于本地 git-ignored 文件 `.pat`（仓库根目录，明文；本机推送时用 `git push https://$(cat .pat)@github.com/...` 内联鉴权，不入库、不泄露）。如需轮换/撤销，更新 `.pat` 即可。
 - 安全：明文 PAT 已移出 git 跟踪（v1.0.64 推送时 GitHub Push Protection 因历史含明文 PAT 拦截，已用 filter-branch 脱敏历史并将明文转入 `.pat`）。
 - 备注：本机 `C:\Windows\System32\drivers\etc\hosts` 被代理/VPN 写入 `127.0.0.1 github.com` 等映射，推送前需开启能访问 GitHub 的代理/VPN（否则解析到 127.0.0.1 导致连接失败）。

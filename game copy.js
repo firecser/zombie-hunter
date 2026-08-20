@@ -3804,15 +3804,16 @@ function drawGameOver() {
     const seconds = Math.floor((gameTime % 60000) / 1000);
     ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 125);
     
-    // 按钮（皇室战争风立体按钮）
-    const btnSize = 48;
-    const gap = 15;
-    const totalW = btnSize * 2 + gap;
+    // 按钮（皇室战争风立体按钮）：重玩 / 变强 / 返回
+    const btnSize = 44;
+    const gap = 12;
+    const totalW = btnSize * 3 + gap * 2;
     const startX = screenWidth / 2 - totalW / 2;
-    const btnY = modalY + 155;
+    const btnY = modalY + 150;
 
     drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'red');
-    drawRoyaleBevelButton({ x: startX + btnSize + gap, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
+    drawRoyaleBevelButton({ x: startX + (btnSize + gap), y: btnY, w: btnSize, h: btnSize, r: 10 }, '💪', 'gold');
+    drawRoyaleBevelButton({ x: startX + (btnSize + gap) * 2, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
 
     // 按钮文字
     ctx.fillStyle = '#fff';
@@ -3820,7 +3821,8 @@ function drawGameOver() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize + 14);
-    ctx.fillText('关卡', startX + btnSize + gap + btnSize / 2, btnY + btnSize + 14);
+    ctx.fillText('变强', startX + (btnSize + gap) + btnSize / 2, btnY + btnSize + 14);
+    ctx.fillText('返回', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize + 14);
 }
 
 // 通关界面
@@ -6442,6 +6444,152 @@ let talentData = {
     'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '击杀回血 +1', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
 };
 
+// ==================== 天赋分栏子页 + 五行深养成链 + 统御真前置树（v1.1.40 / v1.1.41） ====================
+// 说明：原 v1.1.40~v1.1.41 的混淆产物不可还原，此处为忠实重建的数据驱动天赋系统。
+// 四个分栏子页：根脉 / 五行 / 统御 / 防御。五行各含 I/II/III 三阶段深链 + 共鸣；统御为深前置树。
+
+const TALENT_PAGES = [
+    { id: 'root',    label: '根脉', icon: '🌱' },
+    { id: 'element', label: '五行', icon: '☯️' },
+    { id: 'supreme', label: '统御', icon: '👑' },
+    { id: 'defense', label: '防御', icon: '🛡️' }
+];
+
+// 每个分栏子页的有序布局项：{h:true,text} 表头 或 {id} 节点
+const talentLayout = { root: [], element: [], supreme: [], defense: [] };
+
+function mkTalent(o) {
+    return {
+        level: 0, max: o.max, cost: o.cost, perLevelPower: o.pp, effect: o.effect,
+        chapter: o.ch, prerequisite: o.prerequisite || null, page: o.page,
+        icon: o.icon, name: o.name, contrib: o.contrib || null
+    };
+}
+function scaleContrib(contrib, mul) {
+    const r = {};
+    for (const k in contrib) r[k] = contrib[k] * mul;
+    return r;
+}
+
+function buildTalentTree() {
+    const setPage = (id, page) => { if (talentData[id]) talentData[id].page = page; };
+
+    // ---- 根脉页：基础属性 ----
+    talentLayout.root.push({ h: true, text: '🌟 根脉 · 基础属性' });
+    ['core', 'damage', 'health', 'goldearn', 'expearn'].forEach(id => { setPage(id, 'root'); talentLayout.root.push({ id }); });
+    talentLayout.root.push({ h: true, text: '⚔️ 根脉 · 进阶属性' });
+    ['attackspeed', 'crit', 'piercing', 'shield', 'bombcount'].forEach(id => { setPage(id, 'root'); talentLayout.root.push({ id }); });
+
+    // ---- 五行页：基础技能 ----
+    talentLayout.element.push({ h: true, text: '🔥 五行 · 基础技能' });
+    ['explosive', 'freeze', 'slow', 'lightning', 'multishot'].forEach(id => { setPage(id, 'element'); talentLayout.element.push({ id }); });
+
+    // ---- 统御页：终极天赋（基础3个） ----
+    talentLayout.supreme.push({ h: true, text: '👑 统御 · 终极天赋' });
+    ['deathray', 'immortal', 'devour'].forEach(id => { setPage(id, 'supreme'); talentLayout.supreme.push({ id }); });
+
+    // ---- 五行深养成链（金/木/水/火/土 各 I/II/III + 共鸣） ----
+    const ELEMENTS = [
+        { key: 'jin',  name: '金', icon: '⚔️', src: 'lightning', contrib: { critChance: 0.005, lightningLevel: 1 },  desc: '暴击与雷电' },
+        { key: 'mu',   name: '木', icon: '🌿', src: 'health',    contrib: { healthBonus: 4, lifestealPerKill: 1 },    desc: '生命与汲取' },
+        { key: 'shui', name: '水', icon: '💧', src: 'freeze',    contrib: { freezeChance: 0.01, slowChance: 0.01 },   desc: '冰霜与减速' },
+        { key: 'huo',  name: '火', icon: '🔥', src: 'damage',    contrib: { damageBonus: 1 },                       desc: '烈焰与焚伤' },
+        { key: 'tu',   name: '土', icon: '⛰️', src: 'shield',    contrib: { shieldLevel: 1, healthBonus: 3 },       desc: '山岳与守护' }
+    ];
+    const TIERS = [
+        { t: 'I',   max: 10, cost: 400,  pp: 40,  ch: 2, mul: 1 },
+        { t: 'II',  max: 10, cost: 800,  pp: 80,  ch: 4, mul: 1.5 },
+        { t: 'III', max: 10, cost: 1500, pp: 150, ch: 6, mul: 2 }
+    ];
+    ELEMENTS.forEach(el => {
+        talentLayout.element.push({ h: true, text: el.icon + ' 五行 · ' + el.name + '系（' + el.desc + '）' });
+        let prevB = null;
+        TIERS.forEach((tier, ti) => {
+            const a = el.key + '_t' + (ti + 1) + 'a';
+            const b = el.key + '_t' + (ti + 1) + 'b';
+            const pre = ti === 0 ? el.src : prevB;
+            const mk = (id, sub) => talentData[id] = mkTalent({
+                name: el.name + '·' + tier.t + sub, icon: el.icon, max: tier.max, cost: tier.cost, pp: tier.pp, ch: tier.ch,
+                effect: el.desc + '强化（每级）', prerequisite: pre ? { id: pre, level: 5 } : null,
+                page: 'element', contrib: scaleContrib(el.contrib, tier.mul)
+            });
+            mk(a, '甲'); mk(b, '乙');
+            talentLayout.element.push({ id: a }, { id: b });
+            prevB = b;
+        });
+        const cap = el.key + '_cap';
+        talentData[cap] = mkTalent({
+            name: el.name + '·共鸣', icon: '✨', max: 5, cost: 3000, pp: 300, ch: 8,
+            effect: el.name + '系质变：全' + el.desc + '大幅提升', prerequisite: { id: prevB, level: 10 },
+            page: 'element', contrib: scaleContrib(el.contrib, 3)
+        });
+        talentLayout.element.push({ id: cap });
+    });
+
+    // ---- 统御真前置树（12 节点） ----
+    const S = (id, name, icon, max, cost, pp, ch, effect, pre, contrib) =>
+        talentData[id] = mkTalent({ name, icon, max, cost, pp, ch, effect, prerequisite: pre, page: 'supreme', contrib });
+    S('sup_war0',   '统御·战',   '⚔️', 10, 1000, 100, 8,  '战斗潜能（每级）',           { id: 'jin_cap',  level: 3 }, { damageBonus: 2 });
+    S('sup_war1',   '统御·战·极', '🗡️', 10, 2000, 200, 10, '伤害大幅提升（每级）',       { id: 'sup_war0', level: 10 }, { damageBonus: 3 });
+    S('sup_guard0', '统御·御',   '🛡️', 10, 1000, 100, 8,  '守护潜能（每级）',           { id: 'tu_cap',   level: 3 }, { shieldLevel: 2 });
+    S('sup_guard1', '统御·御·极', '🏰', 10, 2000, 200, 10, '减伤大幅提升（每级）',       { id: 'sup_guard0', level: 10 }, { shieldLevel: 3, healthBonus: 20 });
+    S('sup_celest', '统御·天',   '☀️', 5,  3000, 300, 10, '死亡射线 +1 级',             { id: 'huo_cap',  level: 3 }, { deathrayLevel: 1 });
+    S('sup_life',   '统御·命',   '❤️', 5,  3000, 300, 10, '不朽 +1 / 汲取 +2',          { id: 'mu_cap',   level: 3 }, { immortalCharges: 1, lifestealPerKill: 2 });
+    S('sup_wealth', '统御·财',   '🪙', 5,  3000, 300, 10, '金币/经验 +10%（每级）',      { id: 'shui_cap', level: 3 }, { goldMult: 0.1, expMult: 0.1 });
+    S('sup_core',   '统御·心',   '💠', 10, 1500, 150, 8,  '攻血兼修（每级）',           { id: 'devour',   level: 3 }, { damageBonus: 1, healthBonus: 10 });
+    S('sup_unify',  '统御·合',   '🔆', 10, 1500, 150, 8,  '五行协调（每级）',           { id: 'shui_cap', level: 3 }, { freezeChance: 0.005, slowChance: 0.005 });
+    S('sup_apex',   '统御·极',   '🌟', 5,  5000, 500, 10, '全能质变：全局强化',         { id: 'sup_war1', level: 10 }, { damageBonus: 5, shieldLevel: 3, healthBonus: 30, lifestealPerKill: 3 });
+    S('sup_apex2',  '统御·穹',   '🌌', 5,  5000, 500, 10, '全能质变：资源增益',         { id: 'sup_guard1', level: 10 }, { goldMult: 0.15, expMult: 0.15 });
+    S('sup_origin', '统御·源',   '🔮', 10, 1500, 150, 8,  '本源潜能（每级）',           { id: 'immortal', level: 3 }, { healthBonus: 15, lifestealPerKill: 2 });
+    ['sup_war0', 'sup_war1', 'sup_guard0', 'sup_guard1', 'sup_celest', 'sup_life', 'sup_wealth', 'sup_core', 'sup_unify', 'sup_apex', 'sup_apex2', 'sup_origin']
+        .forEach(id => talentLayout.supreme.push({ id }));
+
+    // ---- 防御深链（14 节点） ----
+    const D = (id, name, icon, max, cost, pp, ch, effect, pre, contrib) => {
+        talentData[id] = mkTalent({ name, icon, max, cost, pp, ch, effect, prerequisite: pre, page: 'defense', contrib });
+        talentLayout.defense.push({ id });
+    };
+    talentLayout.defense.push({ h: true, text: '🛡️ 防御 · 守护系' });
+    D('def_stone',  '岩盾',     '🪨', 10, 600,  60,  2,  '受伤 -1%/级',            { id: 'shield',    level: 5 }, { shieldLevel: 1 });
+    D('def_thorn',  '荆棘',     '🌵', 10, 800,  80,  4,  '反伤护盾 +1/级',        { id: 'def_stone', level: 5 }, { shieldLevel: 1 });
+    D('def_regen',  '回春',     '🌱', 10, 800,  80,  4,  '击杀回血 +1/级',        { id: 'def_stone', level: 5 }, { lifestealPerKill: 1 });
+    D('def_iron',   '铁壁',     '🧱', 10, 1000, 100, 6,  '受伤 -2%/级',           { id: 'def_thorn', level: 5 }, { shieldLevel: 2 });
+    D('def_unyield','不屈',     '💪', 5,  2000, 200, 8,  '复活 +1（每级）',       { id: 'def_iron',  level: 10 }, { immortalCharges: 1 });
+    D('def_barrier','壁垒',     '⛩️', 10, 1000, 100, 6,  '生命 +15/级',           { id: 'def_regen', level: 5 }, { healthBonus: 15 });
+    D('def_guard',  '守护',     '🔰', 10, 1500, 150, 8,  '受伤 -2%/级',           { id: 'def_barrier', level: 10 }, { shieldLevel: 2 });
+    D('def_aegis',  '庇护',     '✨', 5,  3000, 300, 10, '全减伤质变',            { id: 'def_guard', level: 10 }, { shieldLevel: 3, healthBonus: 30 });
+    talentLayout.defense.push({ h: true, text: '🩸 防御 · 汲取系' });
+    D('def_leech',  '汲取',     '🩸', 10, 600,  60,  2,  '击杀回血 +1/级',        { id: 'bombcount', level: 3 }, { lifestealPerKill: 1 });
+    D('def_vamp',   '嗜血',     '🧛', 10, 1000, 100, 6,  '击杀回血 +2/级',        { id: 'def_leech', level: 10 }, { lifestealPerKill: 2 });
+    D('def_eternal','不朽之拥', '♾️', 5,  3000, 300, 10, '复活 +1/级',            { id: 'def_vamp',  level: 10 }, { immortalCharges: 1 });
+    D('def_vital',  '生机',     '💗', 10, 800,  80,  4,  '生命 +10/级',           { id: 'def_leech', level: 5 }, { healthBonus: 10 });
+    D('def_bastion','堡垒',     '🏯', 10, 1500, 150, 8,  '生命 +20/级',           { id: 'def_vital', level: 10 }, { healthBonus: 20 });
+    D('def_sanct',  '圣域',     '⛪', 5,  3000, 300, 10, '生命质变 + 减伤',        { id: 'def_bastion', level: 10 }, { healthBonus: 40, shieldLevel: 2 });
+}
+buildTalentTree();
+
+// 天赋分栏子页 Tab 栏几何（绘制与点击共用，保证一致）
+function getTalentTabRects() {
+    const topOffset = SAFE_TOP_OFFSET;
+    const y = topOffset + 24;
+    const h = 34;
+    const padding = 12;
+    const gap = 8;
+    const w = (screenWidth - padding * 2 - gap * (TALENT_PAGES.length - 1)) / TALENT_PAGES.length;
+    return TALENT_PAGES.map((p, i) => ({ id: p.id, label: p.icon + ' ' + p.label, x: padding + i * (w + gap), y, w, h }));
+}
+
+// 天赋分栏子页 Tab 点击处理（返回 true 表示命中并切换）
+function handleTalentTabClick(x, y) {
+    for (const r of getTalentTabRects()) {
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+            if (talentPage !== r.id) { talentPage = r.id; talentScrollY = 0; }
+            return true;
+        }
+    }
+    return false;
+}
+
 // 本场战斗的天赋修正集合（startGame 时由 applyTalentsToBattle 计算填充）
 let talentMods = {
     damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
@@ -6492,6 +6640,23 @@ function applyTalentsToBattle() {
     m.deathrayLevel += t.deathray.level;                    // 死亡射线：每级 +1 级（每8秒全屏伤害）
     m.immortalCharges += t.immortal.level;                  // 不朽之身：每级 +1 次复活
     m.lifestealPerKill += t.devour.level;                   // 吞噬万物：每级击杀回血 +1
+
+    // 五行深链 / 统御 / 防御 等新节点的通用贡献（声明了 contrib 才生效；基础18节点不含 contrib，不受影响）
+    const CONTRIB_MULT = ['goldMult', 'expMult', 'critDamageMult'];
+    for (const key in talentData) {
+        const c = talentData[key].contrib;
+        if (!c) continue;
+        const lv = talentData[key].level;
+        if (lv <= 0) continue;
+        for (const k in c) {
+            if (CONTRIB_MULT.indexOf(k) >= 0) {
+                m[k] *= (1 + lv * c[k]);
+            } else {
+                m[k] += lv * c[k];
+            }
+        }
+    }
+
     talentMods = m;
 }
 
@@ -6969,12 +7134,29 @@ function drawMainMenuLevel() {
     }
 }
 
-// 天赋Tab
-function drawMainMenuTalent() {
-    const topOffset = SAFE_TOP_OFFSET;
+// 绘制天赋分栏子页 Tab
+function drawTalentTab(r, active) {
+    ctx.fillStyle = active ? '#ffd700' : '#222';
+    roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = active ? '#fff' : '#444';
+    ctx.lineWidth = active ? 2 : 1;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+    ctx.stroke();
+    ctx.fillStyle = active ? '#1a1a1a' : '#aaa';
+    ctx.font = 'bold 13px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(r.label, r.x + r.w / 2, r.y + r.h / 2);
+    ctx.textBaseline = 'alphabetic';
+}
 
-    // 清空节点位置
+// 天赋Tab（数据驱动：根脉 / 五行 / 统御 / 防御 四子页 + 滚动 + 前置连线）
+function drawMainMenuTalent() {
+    // 清空节点位置（每帧重建，供点击命中检测）
     talentNodes = [];
+
+    const topOffset = SAFE_TOP_OFFSET;
 
     // 标题
     ctx.fillStyle = '#ffd700';
@@ -6982,260 +7164,95 @@ function drawMainMenuTalent() {
     ctx.textAlign = 'center';
     ctx.fillText('天赋', screenWidth / 2, topOffset + 15);
 
-    const centerX = screenWidth / 2;
-    // 增加顶部间距，给核心天赋光晕留出空间
-    const contentTop = topOffset + 45;
-    const contentWidth = screenWidth - 24;
-    const nodeGap = 8;
-    
-    // ===== 当前进度提示 =====
-    const currentChapterText = highestUnlockedChapter <= 2 ? '第1-2章 · 入门篇' :
-                               highestUnlockedChapter <= 4 ? '第3-4章 · 进阶篇' :
-                               highestUnlockedChapter <= 6 ? '第5-6章 · 强化篇' :
-                               highestUnlockedChapter <= 8 ? '第7-8章 · 高级篇' : '第9-10章 · 终极篇';
-    
-    ctx.fillStyle = '#4fc3f7';
-    ctx.font = '10px Arial';
-    ctx.fillText('📍 当前: ' + currentChapterText, centerX, contentTop + 10);
-    
-    // ===== 天赋树结构 =====
-    // 核心天赋位置下移，避免挡住顶部文字
-    let currentY = contentTop + 50;
-    
-    // --- 核心天赋（怪物之心）---
-    const coreNodeR = 35;
-    
-    // 判断是否解锁
-    const coreUnlocked = highestUnlockedChapter >= 1;
-    
-    // 光晕效果
-    if (coreUnlocked) {
-        const coreGlow = ctx.createRadialGradient(centerX, currentY, coreNodeR * 0.5, centerX, currentY, coreNodeR * 2);
-        coreGlow.addColorStop(0, 'rgba(255, 215, 0, 0.4)');
-        coreGlow.addColorStop(1, 'rgba(255, 215, 0, 0)');
-        ctx.fillStyle = coreGlow;
-        ctx.beginPath();
-        ctx.arc(centerX, currentY, coreNodeR * 2, 0, Math.PI * 2);
+    // Tab 栏（与 getTalentTabRects 共用几何，保证点击一致）
+    const tabRects = getTalentTabRects();
+    tabRects.forEach(r => drawTalentTab(r, r.id === talentPage));
+
+    // 内容区域（Tab 之下、底部导航之上），用于裁剪与滚动
+    const contentTop = tabRects[0].y + tabRects[0].h + 10;
+    const contentBottom = screenHeight - MAIN_MENU_NAV_H;
+    const contentH = contentBottom - contentTop;
+
+    // 网格参数
+    const nodeSize = 54, nodeGap = 10;
+    const rowW = screenWidth - 24;
+    const cols = Math.max(1, Math.floor((rowW + nodeGap) / (nodeSize + nodeGap)));
+    const gridW = cols * (nodeSize + nodeGap) - nodeGap;
+    const startX = (screenWidth - gridW) / 2;
+    const headerH = 26;
+
+    const items = talentLayout[talentPage];
+    const posMap = {};        // id -> {x, y}（内容坐标，未加滚动偏移）
+    const nodesToDraw = [];   // 有序节点 id
+    let csY = 0, col = 0, rowTopCsY = 0;
+
+    // ---- Pass 1：计算所有节点 / 表头位置 ----
+    for (const item of items) {
+        if (item.h) {
+            if (col !== 0) { csY = rowTopCsY + nodeSize + nodeGap; col = 0; }
+            csY += headerH;
+            rowTopCsY = csY;
+            col = 0;
+        } else {
+            if (col === 0) rowTopCsY = csY;
+            const nx = startX + col * (nodeSize + nodeGap) + nodeSize / 2;
+            const ny = contentTop + rowTopCsY + nodeSize / 2;
+            posMap[item.id] = { x: nx, y: ny };
+            nodesToDraw.push(item.id);
+            // 命中检测使用实际绘制坐标（已含滚动偏移），与显示保持一致
+            talentNodes.push({ x: nx, y: ny + talentScrollY, size: nodeSize, talentId: item.id });
+            col++;
+            if (col >= cols) { col = 0; csY = rowTopCsY + nodeSize + nodeGap; }
+        }
+    }
+    const totalContentH = csY + nodeSize + 20;
+
+    // 裁剪到内容区域，避免节点溢出到 Tab / 导航
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, contentTop, screenWidth, contentH);
+    ctx.clip();
+
+    // ---- Pass 2：前置连线（位于节点之下） ----
+    for (const item of items) {
+        if (item.h) continue;
+        const t = talentData[item.id];
+        const pre = t.prerequisite;
+        if (pre && posMap[pre.id]) {
+            const a = posMap[pre.id], b = posMap[item.id];
+            const unlocked = highestUnlockedChapter >= t.chapter && isTalentUnlocked(item.id);
+            ctx.strokeStyle = unlocked ? 'rgba(79,195,247,0.7)' : 'rgba(120,120,120,0.35)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y + talentScrollY + nodeSize / 2);
+            ctx.lineTo(b.x, b.y + talentScrollY - nodeSize / 2);
+            ctx.stroke();
+        }
+    }
+
+    // ---- Pass 3：绘制节点 ----
+    for (const id of nodesToDraw) {
+        const p = posMap[id];
+        const t = talentData[id];
+        drawTalentNode(p.x, p.y + talentScrollY, nodeSize, t, id, highestUnlockedChapter >= t.chapter);
+    }
+
+    ctx.restore();
+
+    // 滚动约束 + 滚动条
+    const maxScroll = Math.max(0, totalContentH - contentH);
+    if (talentScrollY < -maxScroll) talentScrollY = -maxScroll;
+    if (talentScrollY > 0) talentScrollY = 0;
+
+    if (maxScroll > 0) {
+        const scrollBarW = 4;
+        const scrollBarH = Math.max(30, contentH * (contentH / totalContentH));
+        const scrollBarX = screenWidth - 6;
+        const scrollBarY = contentTop + (contentH - scrollBarH) * (-talentScrollY / maxScroll);
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        roundRect(ctx, scrollBarX, scrollBarY, scrollBarW, scrollBarH, 2);
         ctx.fill();
     }
-    
-    // 核心节点背景
-    const coreGrad = ctx.createRadialGradient(centerX, currentY - coreNodeR * 0.3, 0, centerX, currentY, coreNodeR);
-    coreGrad.addColorStop(0, coreUnlocked ? '#3a7aca' : '#333');
-    coreGrad.addColorStop(1, coreUnlocked ? '#1e5a9a' : '#222');
-    ctx.fillStyle = coreGrad;
-    ctx.beginPath();
-    ctx.arc(centerX, currentY, coreNodeR, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 边框
-    ctx.strokeStyle = coreUnlocked ? '#ffd700' : '#444';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(centerX, currentY, coreNodeR, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // 图标和文字
-    ctx.fillStyle = coreUnlocked ? '#fff' : '#666';
-    ctx.font = '28px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('👾', centerX, currentY - 8);
-    
-    ctx.font = '9px Arial';
-    ctx.fillText('怪物之心', centerX, currentY + 16);
-    ctx.fillStyle = coreUnlocked ? '#ffd700' : '#666';
-    ctx.font = '8px Arial';
-    ctx.fillText('核心 Lv.' + talentData['core'].level, centerX, currentY + 26);
-    
-    ctx.textBaseline = 'alphabetic';
-    
-    // 将核心天赋添加到点击检测数组
-    talentNodes.push({ x: centerX, y: currentY, size: coreNodeR * 2, talentId: 'core' });
-    
-    currentY += coreNodeR + 15;
-    
-    // --- 连接线 ---
-    ctx.strokeStyle = coreUnlocked ? '#4fc3f7' : '#333';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centerX, currentY - 10);
-    ctx.lineTo(centerX, currentY);
-    ctx.stroke();
-    
-    // ===== 第二章·基础属性 =====
-    currentY += 5;
-    
-    // 分组标题
-    ctx.fillStyle = '#4fc3f7';
-    ctx.font = '10px Arial';
-    ctx.fillText('📖 第二章 · 基础属性', centerX, currentY);
-    
-    // 装饰线
-    ctx.strokeStyle = 'rgba(79, 195, 247, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(centerX - 60, currentY - 5);
-    ctx.lineTo(centerX + 60, currentY - 5);
-    ctx.stroke();
-    
-    currentY += 15;
-    
-    // 4个节点
-    const row2Talents = ['damage', 'health', 'goldearn', 'expearn'];
-    const nodeSize = 50;
-    const row2Width = nodeSize * 4 + nodeGap * 3;
-    const row2StartX = centerX - row2Width / 2;
-    
-    const chapter2Unlocked = highestUnlockedChapter >= 2;
-    
-    row2Talents.forEach((talentId, i) => {
-        const t = talentData[talentId];
-        const nx = row2StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
-        const ny = currentY + nodeSize / 2;
-        
-        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter2Unlocked);
-    });
-    
-    currentY += nodeSize + 15;
-    
-    // 连接线
-    if (chapter2Unlocked) {
-        ctx.strokeStyle = '#4fc3f7';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX, currentY - 10);
-        ctx.lineTo(centerX, currentY);
-        ctx.stroke();
-    }
-    
-    currentY += 5;
-    
-    // ===== 第四章·进阶战斗 =====
-    ctx.fillStyle = '#4fc3f7';
-    ctx.font = '10px Arial';
-    ctx.fillText('📖 第四章 · 进阶战斗', centerX, currentY);
-    
-    currentY += 15;
-    
-    const chapter4Unlocked = highestUnlockedChapter >= 4;
-    const row3Talents = ['attackspeed', 'crit', 'piercing', 'shield'];
-    
-    row3Talents.forEach((talentId, i) => {
-        const t = talentData[talentId];
-        const nx = row2StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
-        const ny = currentY + nodeSize / 2;
-        
-        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter4Unlocked);
-    });
-    
-    currentY += nodeSize + 15;
-    
-    // 连接线
-    if (chapter4Unlocked) {
-        ctx.strokeStyle = '#4fc3f7';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX, currentY - 10);
-        ctx.lineTo(centerX, currentY);
-        ctx.stroke();
-    }
-    
-    currentY += 5;
-    
-    // ===== 第六章·技能强化 =====
-    ctx.fillStyle = '#4fc3f7';
-    ctx.font = '10px Arial';
-    ctx.fillText('📖 第六章 · 技能强化', centerX, currentY);
-    
-    currentY += 15;
-    
-    const chapter6Unlocked = highestUnlockedChapter >= 6;
-    const row4Talents = ['explosive', 'freeze', 'slow', 'bombcount'];
-    
-    row4Talents.forEach((talentId, i) => {
-        const t = talentData[talentId];
-        const nx = row2StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
-        const ny = currentY + nodeSize / 2;
-        
-        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter6Unlocked);
-    });
-    
-    currentY += nodeSize + 15;
-    
-    // 连接线
-    if (chapter6Unlocked) {
-        ctx.strokeStyle = '#4fc3f7';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX, currentY - 10);
-        ctx.lineTo(centerX, currentY);
-        ctx.stroke();
-    }
-    
-    currentY += 5;
-    
-    // ===== 第八章·高级技能 =====
-    ctx.fillStyle = '#4fc3f7';
-    ctx.font = '10px Arial';
-    ctx.fillText('📖 第八章 · 高级技能', centerX, currentY);
-    
-    currentY += 15;
-    
-    const chapter8Unlocked = highestUnlockedChapter >= 8;
-    const row5Talents = ['lightning', 'multishot'];
-    
-    // 两个节点居中
-    const row5Width = nodeSize * 2 + nodeGap;
-    const row5StartX = centerX - row5Width / 2;
-    
-    row5Talents.forEach((talentId, i) => {
-        const t = talentData[talentId];
-        const nx = row5StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
-        const ny = currentY + nodeSize / 2;
-        
-        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter8Unlocked);
-    });
-    
-    currentY += nodeSize + 15;
-    
-    // 连接线
-    if (chapter8Unlocked) {
-        ctx.strokeStyle = '#4fc3f7';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX, currentY - 10);
-        ctx.lineTo(centerX, currentY);
-        ctx.stroke();
-    }
-    
-    currentY += 5;
-    
-    // ===== 终极天赋（章节10） =====
-    ctx.fillStyle = '#ffd700';
-    ctx.font = '10px Arial';
-    ctx.fillText('👑 终极天赋 (章节10)', centerX, currentY);
-    
-    currentY += 15;
-    
-    const chapter10Unlocked = highestUnlockedChapter >= 10;
-    const row6Talents = ['deathray', 'immortal', 'devour'];
-    
-    const row6Width = nodeSize * 3 + nodeGap * 2;
-    const row6StartX = centerX - row6Width / 2;
-    
-    row6Talents.forEach((talentId, i) => {
-        const t = talentData[talentId];
-        const nx = row6StartX + i * (nodeSize + nodeGap) + nodeSize / 2;
-        const ny = currentY + nodeSize / 2;
-        
-        talentNodes.push({ x: nx, y: ny, size: nodeSize, talentId: talentId });
-        drawTalentNode(nx, ny, nodeSize, t, talentId, chapter10Unlocked);
-    });
 }
 
 // 绘制天赋节点
@@ -13352,10 +13369,13 @@ wx.onTouchStart((e) => {
             levelTouchStartY = y;
         }
 
-        // 天赋Tab：设置触摸起点
+        // 天赋Tab：设置触摸起点 + 拖动滚动起点
         if (mainMenuTab === 'talent') {
-            levelTouchStartX = x;  // 复用levelTouchStart坐标
+            levelTouchStartX = x;  // 复用levelTouchStart坐标（用于点击命中）
             levelTouchStartY = y;
+            talentDragStartY = y;
+            talentDragStartScrollY = talentScrollY;
+            isTalentDragging = false;
         }
 
         // 世界Tab：设置触摸起点（否则 handleWorldClick 用到的 levelTouchStart 会停留在切 tab 时的导航坐标，导致点省份无反应）
@@ -13529,24 +13549,34 @@ wx.onTouchStart((e) => {
         }
         }
     } else if (gameState === 'gameOver') {
-        // 与drawGameOver一致的弹窗位置
+        // 与drawGameOver一致的弹窗位置（重玩 / 变强 / 返回）
         const modalW = Math.min(300, screenWidth * 0.85);
         const modalH = 220;
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
-        
-        const btnW = 90;
-        const btnH = 32;
-        const gap = 10;
-        const totalW = btnW * 2 + gap;
+
+        const btnSize = 44;
+        const gap = 12;
+        const totalW = btnSize * 3 + gap * 2;
         const startX = screenWidth / 2 - totalW / 2;
-        const btnY = modalY + 160;
-        
-        if (y >= btnY && y <= btnY + btnH) {
-            if (x >= startX && x <= startX + btnW) {
+        const btnY = modalY + 150;
+
+        if (y >= btnY && y <= btnY + btnSize) {
+            if (x >= startX && x <= startX + btnSize) {
+                // 重玩
                 startGame();
                 return;
-            } else if (x >= startX + btnW + gap && x <= startX + totalW) {
+            } else if (x >= startX + (btnSize + gap) && x <= startX + (btnSize + gap) + btnSize) {
+                // 变强：进入天赋页
+                levelReturnHandled = true;  // 标记已处理
+                gameState = 'mainMenu';
+                mainMenuTab = 'talent';
+                talentPage = 'root';
+                talentScrollY = 0;
+                isSkillLab = false;
+                return;
+            } else if (x >= startX + (btnSize + gap) * 2 && x <= startX + totalW) {
+                // 返回：回到关卡选择
                 levelReturnHandled = true;  // 标记已处理
                 gameState = 'mainMenu';
                 mainMenuTab = 'level';  // 确保回到关卡Tab
@@ -13674,6 +13704,17 @@ wx.onTouchMove((e) => {
     if (mainMenuTab === 'level' && isLevelDragging) {
         const deltaY = y - levelDragStartY;
         levelScrollY = levelDragStartScrollY + deltaY * LEVEL_SCROLL_SENSITIVITY;
+    }
+
+    // 天赋Tab滚动（拖动超过10px判定为滚动，避免误触节点）
+    if (mainMenuTab === 'talent') {
+        if (!isTalentDragging && Math.abs(y - talentDragStartY) > 10) {
+            isTalentDragging = true;
+        }
+        if (isTalentDragging) {
+            const deltaY = y - talentDragStartY;
+            talentScrollY = talentDragStartScrollY + deltaY;
+        }
     }
 
     // 排行榜Tab滚动
@@ -13849,7 +13890,12 @@ wx.onTouchEnd((e) => {
     // 如果没有真正拖动，且在天赋Tab，执行点击处理
     if (!isLevelDragging && gameState === 'mainMenu' && mainMenuTab === 'talent' && !gamePaused) {
         if (!talentModal.show) {
-            handleTalentClick(levelTouchStartX, levelTouchStartY);
+            // 先判断是否点中分栏子页 Tab（根脉/五行/统御/防御），命中则切换并不触发节点点击
+            if (!isTalentDragging && handleTalentTabClick(levelTouchStartX, levelTouchStartY)) {
+                // 已切换子页
+            } else if (!isTalentDragging) {
+                handleTalentClick(levelTouchStartX, levelTouchStartY);
+            }
         } else {
             // 弹窗显示时，处理按钮点击（关闭/升级）
             handleTalentModalClick(endX, endY);
@@ -13913,6 +13959,7 @@ wx.onTouchEnd((e) => {
     // 重置状态
     isLevelLongPressing = false;
     isLevelDragging = false;
+    isTalentDragging = false;
     isRankDragging = false;
     isShopDragging = false;
 });
@@ -13984,6 +14031,14 @@ function handleLevelClick(x, y) {
 
 // 天赋节点位置存储（用于点击检测）
 let talentNodes = [];
+
+// 天赋分栏子页（v1.1.40 分栏子页：根脉/五行/统御/防御）+ 滚动偏移
+let talentPage = 'root'; // 'root' | 'element' | 'supreme' | 'defense'
+let talentScrollY = 0;
+// 天赋页拖动滚动状态
+let talentDragStartY = 0;
+let talentDragStartScrollY = 0;
+let isTalentDragging = false;
 
 // 天赋点击处理
 function handleTalentClick(x, y) {
