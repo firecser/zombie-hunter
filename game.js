@@ -135,27 +135,100 @@ function getWaveTier(wave) {
     return WAVE_TIER_TABLE[WAVE_TIER_TABLE.length - 1];
 }
 
-const STAGES = [
-    // 关1 新手教学：以 tier 表为基线，healthMult 调低让"全曲线绝对值"落在舒适区
-    { id: 1, name: '霜冻平原', icon: '❄️', desc: '基础关卡·教学', difficulty: 1, descColor: '#88cc88',
-      speedMult: 0.95, healthMult: 0.85, damageMult: 0.95, spawnMult: 0.95, bossTime: 240, tankChance: 0.10, fastChance: 0.15,
-      hpGrow: 150, spawnFloor: 650, spawnDecay: 4 },
-    // 关2 速度关：基础抬高一档，与玩家 tier 4 同进入；tier 表主导增长
-    { id: 2, name: '暴风雪谷', icon: '🌨️', desc: '速度+25%·快速僵尸多', difficulty: 2, descColor: '#88aacc',
-      speedMult: 1.20, healthMult: 1.00, damageMult: 1.05, spawnMult: 1.00, bossTime: 150, tankChance: 0.12, fastChance: 0.45 },
-    // 关3 厚血关：healthMult 抬 1.2，让 tier 7-9 时玩家面临较大压力
-    { id: 3, name: '冰川裂隙', icon: '🧊', desc: '血量+50%·重甲僵尸多', difficulty: 3, descColor: '#66bbcc',
-      speedMult: 1.00, healthMult: 1.30, damageMult: 1.10, spawnMult: 1.05, bossTime: 120, tankChance: 0.35, fastChance: 0.20 },
-    // 关4 五行实战：Boss 提前，难度整体再抬
-    { id: 4, name: '冰霜要塞', icon: '🏔️', desc: 'Boss提前·五行克制实战', difficulty: 4, descColor: '#aaaacc',
-      speedMult: 1.15, healthMult: 1.50, damageMult: 1.20, spawnMult: 1.10, bossTime: 60, tankChance: 0.25, fastChance: 0.28 },
-    // 关5 高强度综合：考验火力强化+属性技能+五行克制+急速冷却全套协同
-    { id: 5, name: '永冻之巅', icon: '👑', desc: '全属性增强·技能协同', difficulty: 5, descColor: '#cc88cc',
-      speedMult: 1.30, healthMult: 1.75, damageMult: 1.40, spawnMult: 1.20, bossTime: 50, tankChance: 0.32, fastChance: 0.33 },
-    // 关6 终极挑战：高质量 build 才能通关
-    { id: 6, name: '极寒地狱', icon: '👾', desc: '究极挑战·高频Boss', difficulty: 6, descColor: '#ff6666',
-      speedMult: 1.45, healthMult: 2.00, damageMult: 1.65, spawnMult: 1.40, bossTime: 35, tankChance: 0.38, fastChance: 0.38 }
+// ==================== 章节主题：五行 + 极地怪物世界观 ====================
+// 每章赋予怪物一个主导五行「单系」属性，或一对「相生」双系属性，并指定极地特色怪物皮肤。
+// 五行克制（攻击五行 → 被克五行）：火克金、金克木、木克土、土克水、水克火。
+//   → 金怪用「火」技能克、木怪用「金」、土怪用「木」、水怪用「土」、火怪用「水」（推荐）。
+// 五行相生（A 生 B）：火生土、土生金、金生水、水生木、木生火。
+//   → 第 7~10 章为「双系相生」强化怪物：单属性技能难以同时压制（取各系最差克制），需对应相生配对或暴力物理流。
+const CHAPTER_THEMES = [
+    { id:1,  name:'冰雪初现', icon:'❄️', element:'normal', elements:null,
+      creature:'seal',      bossCreature:'sealKing',
+      desc:'教学关卡·普通冰雪僵尸',             descColor:'#88cc88', terrain:'#1b3a4b' },
+    { id:2,  name:'暴风骤起', icon:'🌨️', element:'水',     elements:null,
+      creature:'penguin',   bossCreature:'emperorPenguin',
+      desc:'水属性·用「土」技能克制',             descColor:'#37c6ff', terrain:'#16384f' },
+    { id:3,  name:'冰川裂缝', icon:'🧊', element:'木',     elements:null,
+      creature:'polarBear', bossCreature:'bearTroll',
+      desc:'木属性·用「金」技能克制',             descColor:'#46d35a', terrain:'#1d4f3a' },
+    { id:4,  name:'寒霜要塞', icon:'🔥', element:'火',     elements:null,
+      creature:'walrus',    bossCreature:'lavaWalrus',
+      desc:'火属性·用「水」技能克制（推荐）',     descColor:'#ff7a1a', terrain:'#4b2a1b' },
+    { id:5,  name:'永冻深渊', icon:'⚡', element:'金',     elements:null,
+      creature:'arcticFox', bossCreature:'foxDemon',
+      desc:'金属性·用「火」技能克制',             descColor:'#ffd23a', terrain:'#3a2f1b' },
+    { id:6,  name:'冰封王座', icon:'🪨', element:'土',     elements:null,
+      creature:'reindeer',  bossCreature:'reindeerKing',
+      desc:'土属性·用「木」技能克制',             descColor:'#c8915a', terrain:'#43381f' },
+    { id:7,  name:'极寒之地', icon:'🌊', element:null,     elements:['金','水'],
+      creature:'orca',      bossCreature:'orcaKing',
+      desc:'金+水双系相生·需土/水配对或暴力',    descColor:'#8fe3ff', terrain:'#14354a' },
+    { id:8,  name:'霜雪领域', icon:'🦉', element:null,     elements:['火','土'],
+      creature:'snowyOwl',  bossCreature:'owlKing',
+      desc:'火+土双系相生·需水/木配对或暴力',    descColor:'#ff9a4a', terrain:'#3a2b1b' },
+    { id:9,  name:'冰河世纪', icon:'🐧', element:null,     elements:['木','火'],
+      creature:'puffin',    bossCreature:'puffinKing',
+      desc:'木+火双系相生·需金/水配对或暴力',    descColor:'#ff6a6a', terrain:'#3f2230' },
+    { id:10, name:'终结之战', icon:'🐉', element:null,     elements:['水','木'],
+      creature:'iceDragon', bossCreature:'dragonKing',
+      desc:'水+木双系相生·终焉之战',             descColor:'#ff4dff', terrain:'#2a1b3f' }
 ];
+
+// 元素 → 推荐克制技能（用于 HUD / 关卡选择提示）
+const ELEMENT_COUNTER = { '金':'火', '木':'金', '土':'木', '水':'土', '火':'水' };
+
+// 难度锯齿曲线：
+//   · 整体随章节按 pow(1.12, ch-1) 阶梯上升；
+//   · 章内随关卡 1 + 0.03*(lvInCh-1) 平滑升压；
+//   · 天赋解锁章节（2/4/6/8/10）首关给「喘息」×0.85——玩家能力跃升时难度回落，与能力交替上升；
+//   · 每章末关为 Boss 高潮 ×1.12。
+const TALENT_CHAPTERS = [2, 4, 6, 8, 10];
+function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function _round2(v) { return Math.round(v * 100) / 100; }
+
+function buildStages() {
+    const stages = [];
+    for (let lv = 1; lv <= 60; lv++) {
+        const ch = Math.ceil(lv / 6);              // 1..10
+        const lvInCh = ((lv - 1) % 6) + 1;          // 1..6
+        const theme = CHAPTER_THEMES[ch - 1];
+
+        const base = Math.pow(1.12, ch - 1);
+        const within = 1 + 0.03 * (lvInCh - 1);
+        const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
+        const climax = (lvInCh === 6) ? 1.12 : 1;
+        const D = base * within * breather * climax;
+
+        const healthMult = _round2(D);
+        const damageMult = _round2(_clamp(D * 0.62, 0.6, 2.6));
+        const speedMult  = _round2(_clamp(0.92 + 0.03 * (ch - 1) + 0.01 * (lvInCh - 1), 0.9, 1.5));
+        const spawnMult  = _round2(_clamp(0.9 + 0.045 * (ch - 1) + 0.012 * (lvInCh - 1), 0.85, 1.6));
+
+        // Boss 频率：越后期 Boss 越早出现（章末关强制高频 Boss）
+        const bossTime = lvInCh === 6 ? 35 : _round2(_clamp(260 - (ch - 1) * 22, 40, 260));
+        const tankChance = _round2(_clamp(0.08 + 0.03 * (ch - 1) + 0.015 * (lvInCh - 1), 0.05, 0.45));
+        const fastChance = _round2(_clamp(0.12 + 0.02 * (ch - 1), 0.1, 0.45));
+
+        stages.push({
+            id: lv,
+            name: `${theme.name} ${lvInCh}/6`,
+            icon: theme.icon,
+            desc: theme.desc,
+            difficulty: ch,
+            descColor: theme.descColor,
+            terrain: theme.terrain,
+            speedMult, healthMult, damageMult, spawnMult,
+            bossTime: Math.round(bossTime), tankChance, fastChance,
+            // 五行属性：单系用 element，双系相生用 elements（zombie.elements）；normal 章节两者皆无
+            element: theme.elements ? 'normal' : theme.element,
+            elements: theme.elements || null,
+            creature: theme.creature,
+            bossCreature: theme.bossCreature
+        });
+    }
+    return stages;
+}
+const STAGES = buildStages();
 
 let currentStage = 1;
 let stageProgress = [];
@@ -169,7 +242,8 @@ try {
 }
 
 function getCurrentStage() {
-    return STAGES[currentStage - 1];
+    const idx = Math.max(0, Math.min(STAGES.length - 1, (currentStage || 1) - 1));
+    return STAGES[idx];
 }
 
 // ==================== 统一数据持久化 ====================
@@ -1623,6 +1697,15 @@ function recomputeWuxingSynergy() {
     wuxingSynergyMult = 1 + WUXING_GENERATE_BONUS * pairs - Math.max(0, treeCount - 2) * WUXING_SPREAD_PENALTY;
 }
 
+// 五行压制加值（不含相生全局倍率）：攻击五行 atkWx 对「目标单系 targetElement」的克制收益。
+function _wuxingSuppressBonus(atkWx, targetElement) {
+    if (!atkWx) return 0;
+    if (!targetElement || targetElement === 'normal') return WUXING_BASE_BONUS;   // 普通僵尸：仅默认压制 +30%
+    if (WUXING_OVERCOME[atkWx] === targetElement) return WUXING_BASE_BONUS + WUXING_OVERCOME_BONUS;     // 我克它：+30% + 克制 +30%
+    if (atkWx === WUXING_OVERCOME[targetElement]) return WUXING_BASE_BONUS - WUXING_OVERCOME_BONUS;     // 它克我：+30% − 克制 30%
+    return WUXING_BASE_BONUS;                                                                       // 无关属性：仅默认压制 +30%
+}
+
 // 计算元素伤害倍率：状态异常加成 + 五行克制 + 五行相生协同
 function getElementBonus(zombie, element) {
     if (!zombie || !element) return 1;
@@ -1633,18 +1716,17 @@ function getElementBonus(zombie, element) {
     if (zombie.frozenUntil > now && STATUS_ELEMENT_BONUS.frozen[element]) mult += STATUS_ELEMENT_BONUS.frozen[element];
     if (zombie.slowUntil > now && STATUS_ELEMENT_BONUS.slow[element]) mult += STATUS_ELEMENT_BONUS.slow[element];
     if (zombie.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
-    // 五行压制（标配）：五行技能对「普通」僵尸默认 +30% 压制增伤；物理火力强化 atkWx 未定义不享受（克制系数恒为 1）
-    if (atkWx) {
-        if (!zombie.element || zombie.element === 'normal') {
-            mult += WUXING_BASE_BONUS;                              // 普通僵尸：仅五行默认压制 +30%
-        } else if (WUXING_OVERCOME[atkWx] === zombie.element) {
-            mult += WUXING_BASE_BONUS + WUXING_OVERCOME_BONUS;     // 我克它：压制 +30% + 克制 +30%
-        } else if (atkWx === WUXING_OVERCOME[zombie.element]) {
-            mult += WUXING_BASE_BONUS - WUXING_OVERCOME_BONUS;     // 它克我：压制 +30% − 克制 30%（≈物理，无五行优势）
-        } else {
-            mult += WUXING_BASE_BONUS;                             // 无关属性：仅五行默认压制 +30%
-        }
+    // 五行压制 + 克制：单系怪直接算；双系相生怪取「各系最差克制」的最小值，
+    // 防止单属性技能同时碾压两系（需对应相生配对或暴力物理流才能突破）。
+    let suppress;
+    if (zombie.elements && zombie.elements.length > 1) {
+        let worst = Infinity;
+        for (const e of zombie.elements) worst = Math.min(worst, _wuxingSuppressBonus(atkWx, e));
+        suppress = (worst === Infinity) ? WUXING_BASE_BONUS : worst;
+    } else {
+        suppress = _wuxingSuppressBonus(atkWx, zombie.element || 'normal');
     }
+    mult += suppress;
     // 五行相生：全局倍率（峰值在恰好 2 棵相生树；单树无协同、3+ 树因分散而衰减）
     if (atkWx) mult *= wuxingSynergyMult;
     return mult;
@@ -2102,7 +2184,38 @@ function drawFieldBorders() {
     ctx.fillRect(FIELD_X1 - strip, 0, strip, screenHeight);
 }
 
-// 绘制僵尸（冰雪风格）
+// ====== 极地怪物皮肤（冰雪僵尸世界观：南北极海陆空动植物）======
+// 每只怪物以「海豹僵尸」为基底造型，叠加 species 专属特征（耳/獠牙/喙/鳍/翼/角/尾/王冠）。
+// body/coat/outline 为身体配色；feature 决定附加特征（空格分隔）；boss 系带 crown 且体型更大。
+const CREATURE_VISUAL = {
+    seal:          { body:'#3fa34d', coat:'#5cc04f', outline:'#1f5e26', feature:'' },
+    sealKing:      { body:'#d63b40', coat:'#ff5a5f', outline:'#8a1f24', feature:'crown' },
+    penguin:       { body:'#2b3a55', coat:'#3f5a82', outline:'#16233a', feature:'beak' },
+    emperorPenguin:{ body:'#d63b40', coat:'#ff6a4d', outline:'#8a1f24', feature:'beak crown' },
+    polarBear:     { body:'#9fb6c9', coat:'#cfe0ec', outline:'#5b7488', feature:'ears' },
+    bearTroll:     { body:'#7a45d6', coat:'#a06bff', outline:'#4a2589', feature:'ears crown' },
+    walrus:        { body:'#b5652e', coat:'#d98a4a', outline:'#7a3f12', feature:'tusks' },
+    lavaWalrus:    { body:'#d63b40', coat:'#ff7a1a', outline:'#8a1f24', feature:'tusks crown' },
+    arcticFox:     { body:'#cfd6e6', coat:'#eef3fb', outline:'#8a93a8', feature:'ears' },
+    foxDemon:      { body:'#ffd23a', coat:'#ffe880', outline:'#9a7a10', feature:'ears crown' },
+    reindeer:      { body:'#9c6b3f', coat:'#c8915a', outline:'#5e3c1f', feature:'horns' },
+    reindeerKing:  { body:'#c8915a', coat:'#f1d4ad', outline:'#5e3c1f', feature:'horns crown' },
+    orca:          { body:'#1c2733', coat:'#33485c', outline:'#0c141c', feature:'fins' },
+    orcaKing:      { body:'#1c2733', coat:'#39e0ff', outline:'#0c141c', feature:'fins crown' },
+    snowyOwl:      { body:'#dfe6ee', coat:'#f4f8fc', outline:'#9aa6b4', feature:'wings' },
+    owlKing:       { body:'#ff9a4a', coat:'#ffd0a0', outline:'#9a5a10', feature:'wings crown' },
+    puffin:        { body:'#2b3a55', coat:'#ff6a6a', outline:'#16233a', feature:'beak' },
+    puffinKing:    { body:'#ff6a6a', coat:'#ffae3a', outline:'#8a1f24', feature:'beak crown' },
+    iceDragon:     { body:'#2bd6c0', coat:'#7af0e0', outline:'#0f7a6e', feature:'wings tail' },
+    dragonKing:    { body:'#ff4dff', coat:'#ff9aff', outline:'#7a1f7a', feature:'wings tail crown' }
+};
+
+// 怪物五行属性环：单系一圈；双系相生左右各半（让玩家一眼识别属性弱点）
+const ELEMENT_RING = {
+    '金':'#ffd23a', '木':'#46d35a', '水':'#37c6ff', '火':'#ff6a14', '土':'#c8915a', 'normal':null
+};
+
+// 绘制僵尸（冰雪风格 + 极地怪物皮肤）
 function drawZombie(zombie, now) {
     const x = zombie.x;
     const y = zombie.y;
@@ -2116,14 +2229,9 @@ function drawZombie(zombie, now) {
     ctx.fillStyle = 'rgba(100, 150, 180, 0.3)';
     ctx.fill();
     
-    // 身体颜色（高饱和 + 强描边，暗背景上高对比）
-    const bodyColors = {
-        normal: { body: '#3fa34d', coat: '#5cc04f', outline: '#1f5e26' },
-        fast: { body: '#e8932e', coat: '#ffb347', outline: '#9a5a10' },
-        tank: { body: '#7a45d6', coat: '#a06bff', outline: '#4a2589' },
-        boss: { body: '#d63b40', coat: '#ff5a5f', outline: '#8a1f24' }
-    };
-    const colors = bodyColors[zombie.type] || bodyColors.normal;
+    // 身体颜色（由怪物皮肤决定；无皮肤回退海豹僵尸）
+    const colors = CREATURE_VISUAL[zombie.creature] || CREATURE_VISUAL.seal;
+    const feats = (colors.feature || '').split(' ').filter(Boolean);
     
     // 身体主体
     ctx.beginPath();
@@ -2169,7 +2277,7 @@ function drawZombie(zombie, now) {
     ctx.arc(x + r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
     ctx.fill();
     
-    // 嘴巴
+    // 嘴巴（有喙的物种会被喙覆盖）
     ctx.fillStyle = '#2a1a1a';
     ctx.beginPath();
     ctx.ellipse(x, y - r * 0.1, r * 0.15, r * 0.1, 0, 0, Math.PI * 2);
@@ -2183,6 +2291,108 @@ function drawZombie(zombie, now) {
     ctx.beginPath();
     ctx.ellipse(x + r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
+
+    // ============ 物种特征（耳/獠牙/喙/鳍/翼/角/尾/王冠）============
+    for (const f of feats) {
+        if (f === 'ears') {
+            ctx.fillStyle = colors.outline;
+            ctx.beginPath(); ctx.arc(x - r * 0.45, y - r * 0.62, r * 0.22, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x + r * 0.45, y - r * 0.62, r * 0.22, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = colors.coat;
+            ctx.beginPath(); ctx.arc(x - r * 0.45, y - r * 0.62, r * 0.11, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x + r * 0.45, y - r * 0.62, r * 0.11, 0, Math.PI * 2); ctx.fill();
+        } else if (f === 'beak') {
+            ctx.fillStyle = '#ff9a2e';
+            ctx.beginPath();
+            ctx.moveTo(x - r * 0.16, y - r * 0.12);
+            ctx.lineTo(x + r * 0.16, y - r * 0.12);
+            ctx.lineTo(x, y + r * 0.05);
+            ctx.closePath(); ctx.fill();
+        } else if (f === 'tusks') {
+            ctx.fillStyle = '#fdfdfd';
+            ctx.beginPath();
+            ctx.moveTo(x - r * 0.14, y - r * 0.02); ctx.lineTo(x - r * 0.08, y - r * 0.02); ctx.lineTo(x - r * 0.11, y + r * 0.24);
+            ctx.closePath(); ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(x + r * 0.14, y - r * 0.02); ctx.lineTo(x + r * 0.08, y - r * 0.02); ctx.lineTo(x + r * 0.11, y + r * 0.24);
+            ctx.closePath(); ctx.fill();
+        } else if (f === 'fins') {
+            ctx.fillStyle = colors.outline;
+            ctx.beginPath();   // 背鳍
+            ctx.moveTo(x - r * 0.18, y - r * 0.9); ctx.lineTo(x + r * 0.18, y - r * 0.9); ctx.lineTo(x, y - r * 1.38);
+            ctx.closePath(); ctx.fill();
+            ctx.beginPath();   // 尾鳍
+            ctx.moveTo(x + r * 0.82, y); ctx.lineTo(x + r * 1.35, y - r * 0.32); ctx.lineTo(x + r * 1.35, y + r * 0.32);
+            ctx.closePath(); ctx.fill();
+        } else if (f === 'wings') {
+            ctx.fillStyle = colors.outline;
+            ctx.beginPath();
+            ctx.moveTo(x - r * 0.8, y - r * 0.1);
+            ctx.quadraticCurveTo(x - r * 1.45, y - r * 0.6, x - r * 1.1, y + r * 0.55);
+            ctx.quadraticCurveTo(x - r * 0.9, y + r * 0.2, x - r * 0.8, y - r * 0.1);
+            ctx.closePath(); ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(x + r * 0.8, y - r * 0.1);
+            ctx.quadraticCurveTo(x + r * 1.45, y - r * 0.6, x + r * 1.1, y + r * 0.55);
+            ctx.quadraticCurveTo(x + r * 0.9, y + r * 0.2, x + r * 0.8, y - r * 0.1);
+            ctx.closePath(); ctx.fill();
+        } else if (f === 'horns') {
+            ctx.strokeStyle = colors.outline;
+            ctx.lineWidth = Math.max(2, r * 0.08);
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(x - r * 0.3, y - r * 0.55); ctx.lineTo(x - r * 0.5, y - r * 0.98);
+            ctx.moveTo(x - r * 0.4, y - r * 0.82); ctx.lineTo(x - r * 0.62, y - r * 0.98);
+            ctx.moveTo(x + r * 0.3, y - r * 0.55); ctx.lineTo(x + r * 0.5, y - r * 0.98);
+            ctx.moveTo(x + r * 0.4, y - r * 0.82); ctx.lineTo(x + r * 0.62, y - r * 0.98);
+            ctx.stroke();
+        } else if (f === 'tail') {
+            ctx.fillStyle = colors.outline;
+            ctx.beginPath();
+            ctx.moveTo(x - r * 0.55, y + r * 0.7);
+            ctx.quadraticCurveTo(x - r * 1.25, y + r * 1.1, x - r * 1.02, y + r * 1.55);
+            ctx.lineTo(x - r * 0.72, y + r * 1.32);
+            ctx.quadraticCurveTo(x - r * 0.82, y + r * 1.0, x - r * 0.4, y + r * 0.8);
+            ctx.closePath(); ctx.fill();
+        } else if (f === 'crown') {
+            ctx.save();
+            ctx.globalAlpha = 0.32;
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath(); ctx.arc(x, y, r * 1.2, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+            ctx.fillStyle = '#ffd700';
+            ctx.strokeStyle = '#9a7a10';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - r * 0.5, y - r * 0.7);
+            ctx.lineTo(x - r * 0.5, y - r * 1.05);
+            ctx.lineTo(x - r * 0.25, y - r * 0.82);
+            ctx.lineTo(x, y - r * 1.18);
+            ctx.lineTo(x + r * 0.25, y - r * 0.82);
+            ctx.lineTo(x + r * 0.5, y - r * 1.05);
+            ctx.lineTo(x + r * 0.5, y - r * 0.7);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+        }
+    }
+
+    // ============ 五行属性环（单系整圈 / 双系相生左右各半）============
+    const elems = (zombie.elements && zombie.elements.length > 1)
+        ? zombie.elements
+        : (ELEMENT_RING[zombie.element] ? [zombie.element] : null);
+    if (elems) {
+        ctx.save();
+        ctx.lineWidth = Math.max(2, r * 0.08);
+        if (elems.length === 1) {
+            ctx.strokeStyle = ELEMENT_RING[elems[0]] || '#ffffff';
+            ctx.beginPath(); ctx.arc(x, y, r * 1.08, 0, Math.PI * 2); ctx.stroke();
+        } else {
+            ctx.strokeStyle = ELEMENT_RING[elems[0]] || '#ffffff';
+            ctx.beginPath(); ctx.arc(x, y, r * 1.08, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+            ctx.strokeStyle = ELEMENT_RING[elems[1]] || '#ffffff';
+            ctx.beginPath(); ctx.arc(x, y, r * 1.08, Math.PI / 2, Math.PI * 1.5); ctx.stroke();
+        }
+        ctx.restore();
+    }
     
     // ========== 状态表现：冰冻 / 减速 ==========
     const nowZ = now || Date.now();
@@ -3108,6 +3318,17 @@ function drawUI() {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(`第${currentStage}关 ${stage.name}`, panelX + 8, panelY + 12);
+
+    // 五行属性点（面板右上角）：提示本章怪物属性（单系圆点 / 双系相生双色）
+    if (stage.elements && stage.elements.length > 1) {
+        ctx.fillStyle = ELEMENT_RING[stage.elements[0]] || '#fff';
+        ctx.beginPath(); ctx.arc(panelX + panelW - 14, panelY + 12, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = ELEMENT_RING[stage.elements[1]] || '#fff';
+        ctx.beginPath(); ctx.arc(panelX + panelW - 4, panelY + 12, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (ELEMENT_RING[stage.element]) {
+        ctx.fillStyle = ELEMENT_RING[stage.element];
+        ctx.beginPath(); ctx.arc(panelX + panelW - 9, panelY + 12, 4, 0, Math.PI * 2); ctx.fill();
+    }
     
     // 第二行：等级 + 经验条
     ctx.fillStyle = '#fff';
@@ -3739,6 +3960,18 @@ function drawStageSelect() {
         ctx.lineWidth = 2;
         roundRect(ctx, x, y, cardW, cardH, 8);
         ctx.stroke();
+
+        // 五行属性徽标（单系圆点 / 双系相生双色）
+        if (stage.elements && stage.elements.length > 1) {
+            ctx.fillStyle = ELEMENT_RING[stage.elements[0]] || '#fff';
+            ctx.beginPath(); ctx.arc(x + cardW - 17, y + 14, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = ELEMENT_RING[stage.elements[1]] || '#fff';
+            ctx.beginPath(); ctx.arc(x + cardW - 5, y + 14, 6, 0, Math.PI * 2); ctx.fill();
+        } else if (ELEMENT_RING[stage.element]) {
+            ctx.fillStyle = ELEMENT_RING[stage.element];
+            ctx.beginPath(); ctx.arc(x + cardW - 12, y + 14, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1; ctx.stroke();
+        }
         
         // 图标
         ctx.font = '26px Arial';
@@ -5489,15 +5722,20 @@ function spawnWave(w, stage) {
     waveAlive[w.i] = w.comp.length;
     // 同一波的所有怪均匀错峰入队：每只在 w.spawnAt + s*WAVE_INTERVAL ± 抖动 入场，
     // 铺满本波独占的时间段；下一波在末尾紧接，全程连绵不绝、不会一排同时出现。
-    // 五行属性：当前关卡统一为「普通」（克制系数=1）；后续由关卡设计在 stage/wave 数据中
-    // 指定具体五行属性（如 zElement:'火'），让特定关卡需要对应五行技能才能轻松通过。
-    const zElement = 'normal';
+    // 五行属性 / 怪物皮肤：由关卡（stage）统一指定。
+    //   · 单系章节：所有怪 element = stage.element（normal 章节为 'normal'，克制系数=1）。
+    //   · 双系相生章节：elements = stage.elements（取各系最差克制，见 getElementBonus）。
+    //   · creature 决定极地皮肤；Boss 使用 bossCreature。
+    const zElement = stage.element || 'normal';
+    const zElements = stage.elements || null;
     for (let s = 0; s < w.comp.length; s++) {
         const type = w.comp[s];
         pendingSpawns.push({
             at: w.spawnAt + s * WAVE_INTERVAL + (Math.random() * 2 - 1) * WAVE_JITTER,
             type: type,
             zElement: zElement,
+            zElements: zElements,
+            creature: type === 'boss' ? stage.bossCreature : stage.creature,
             stage: stage,
             wave: w.i
         });
@@ -5523,6 +5761,8 @@ function updatePendingSpawns() {
             x: Math.random() * screenWidth,
             y: -50,
             element: p.zElement || 'normal',
+            elements: p.zElements || null,
+            creature: p.creature || 'seal',
             radius: template.radius,
             speed: template.speed * stage.speedMult,
             health: template.health * healthMult,
