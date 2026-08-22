@@ -1689,6 +1689,10 @@ for (const _t in SKILL_DEFS) {
 
 const MAX_SKILLS = 6;          // damage + 火/水/金/木/土 五属性树，共 6 槽
 let acquiredSkills = ['damage'];
+// C 难度重平衡：本局开局技能等级总和基线（开局重置后、任何局内升级前）。
+// 用于「难度-玩家等级耦合」：怪物强度随玩家局内累计等级增长而抬升，且因等级只增不减，
+// 耦合系数恒 ≥1（前段≈1 不削弱、后段>1 加压），满足"只能变难不能变弱"。
+let runBaseSkillSum = 0;
 
 // 灼烧(引燃/油渍)的固定持续时长（毫秒）：引燃只增伤不延长，故为常量
 const BURN_DURATION = 1500;
@@ -6205,8 +6209,16 @@ function updatePendingSpawns() {
         // tier.hpT/dmgT 已按"玩家技能解锁等级(Lv5/8/11/14/17/18) + 火力成长"反推，使两条曲线交叉上升、偏离≤20%。
         // 原 hpWaveGrow/hpGrow 指数/时间线性增长已废弃，改由 tier 表单一主控（STAGES.healthMult 仅作关卡间基线差）。
         const tier = getWaveTier(p.wave);
-        const healthMult = stage.healthMult * tier.hpT;
-        const damageMult = stage.damageMult * tier.dmgT;
+        // C 难度重平衡：难度-玩家等级耦合。怪物强度随玩家局内累计技能等级增长而抬升。
+        // 等级只增不减 → 系数恒 ≥1：前段（累计未超基线+宽限期）≈1 不削弱，后段逐步加压。
+        // EARLY_GRACE=5：前 5 波累计增量内不加压（保护前期平滑）；K 控制后段加压斜率。
+        let curSkillSum = 0;
+        for (const t of acquiredSkills) curSkillSum += (skills[t] ? skills[t].level : 0);
+        const LEVEL_COUPLE_K = 0.020;   // 每超出 1 级累计，怪物强度 +2.0%（仅后段加压，斜率保守避免后段不可清）
+        const EARLY_GRACE = 5;
+        const levelCouple = Math.max(1, 1 + Math.max(0, curSkillSum - runBaseSkillSum - EARLY_GRACE) * LEVEL_COUPLE_K);
+        const healthMult = stage.healthMult * tier.hpT * levelCouple;
+        const damageMult = stage.damageMult * tier.dmgT * levelCouple;
         zombies.push({
             id: _zombieIdSeq++,
             x: p._adTemp ? p._adTemp.x : (Math.random() * screenWidth),
@@ -6576,6 +6588,9 @@ function startGame() {
     recomputeEarthMods();
     // 五行相生协同：开局按初始已拥有技能计算
     recomputeWuxingSynergy();
+    // C 难度重平衡：记录开局技能等级总和基线（开局重置/天赋折入后、任何局内升级前）
+    runBaseSkillSum = 0;
+    for (const t of acquiredSkills) runBaseSkillSum += (skills[t] ? skills[t].level : 0);
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
