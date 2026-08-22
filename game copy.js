@@ -465,9 +465,20 @@ function buildWavePlan() {
         }
         // 剩余用普通怪(1经验)填满，保证经验总和精确等于 targetExp
         while (remaining > 0) { comp.push('normal'); remaining -= 1; }
-        // A 难度重平衡：前 5 波降密度（平滑前期压力），后期维持 ×1.5。
+        // A 难度重平衡 + 中后段怪量阶梯：前 5 波降密度（平滑前期压力）；
+        // 中后段按「波次(≈卡池进度)」阶梯抬升怪量——玩家强化越多，战场压迫感越强。
+        //   · 波 1-5 ：×1.2（降密度，平滑）
+        //   · 波 6-10：×1.5（基准密度）
+        //   · 波11-14：×1.9（阶梯一：多重/穿透成型，怪量明显加压）
+        //   · 波15-17：×2.3（阶梯二：属性树高阶，更多目标）
+        //   · 波18-20：×2.8（阶梯三：终极波，大军压境；boss 波略收避免单点过载）
         // 密度仅影响「总怪数」，出怪经验按同比例除以 density → 总经验仍=targetExp（升级节奏不变）。
-        const waveDensity = (i <= 5) ? Math.min(MONSTER_DENSITY, 1.2) : MONSTER_DENSITY;
+        let waveDensity = (i <= 5) ? Math.min(MONSTER_DENSITY, 1.2)
+                        : (i <= 10) ? MONSTER_DENSITY
+                        : (i <= 14) ? 1.9
+                        : (i <= 17) ? 2.3
+                        : 2.8;
+        if (isBoss) waveDensity = Math.min(waveDensity, 2.0);   // boss 波怪量上限，避免单点瞬间过载啄墙
         if (waveDensity > 1) {
             const extra = [];
             for (const t of comp) {
@@ -6240,14 +6251,35 @@ function getPlayerDpsIndex() {
     return idx;
 }
 
-// 多段火力耦合系数：把"等效 DPS 指数"按波次分段映射为怪物 HP 倍率。
-// 设计原则：前期不耦合（保护已调好的平滑手感）、后段强耦合（抵消 DPS 复利、填平空虚），
-// 且 idx 恒 ≥1 → 各段返回恒 ≥1，满足"只能变难不能变弱"。
-function getDmgCouple(idx, wave) {
-    if (wave <= 8) return 1;                                    // 前期：完全不耦合
-    if (wave <= 14) return Math.min(2.2, Math.pow(idx, 0.32));  // 中段：轻度跟随，封顶防跳变
-    if (wave <= 17) return Math.pow(idx, 0.45);                 // 后段一
-    return Math.pow(idx, 0.50);                                 // 后段二（波18-20 最压）
+// 战斗内「三选一卡池进度」：累计已做出的强化选择次数 = 当前等级 - 1（开局 Lv1=0 次）。
+// 每清一波升 1 级 → 触发一次三选一面板 → 选 1 次（基础升级或分支升级均 +1 级，故与 level 严格同步）。
+// 相比"拍脑袋按波次"，用真实卡池进度分段更准确：它直接反映玩家实际拿到的强化节点数量，
+// 火力/多重/穿透/各属性树的解锁与抬升都落在这些选择节点上。难度分段应贴合这些节点。
+function getPickProgress() {
+    return Math.max(0, player.level - 1);
+}
+
+// 多段火力耦合系数：把"等效 DPS 指数"按【卡池进度】分段映射为怪物 HP 倍率。
+// 设计原则：
+//   · 不拍脑袋按波次，而按三选一卡池进度（getPickProgress）分段——进度越高=玩家强化越多=越该加压。
+//   · 混合函数类型：低段用指数函数(平滑跟随 idx)，高段叠加阶梯跳跃(step)制造"质变里程碑"式陡增。
+//   · 前期(进度0-4)完全不耦合，保护已调好的平滑手感；lv5 前仍轻松可升。
+//   · idx 恒 ≥1 → 各段返回恒 ≥1，满足"只能变难不能变弱"。
+// 分段锚点(进度=选择次数)与关键强化里程碑对齐：
+//   0-4  : 前 5 次选择（开局火力卡 + 前 4 波强制火力卡 + 早期分支），手感平滑
+//   5-7  : lv6-8，火力开始复利，轻度跟随
+//   8-10 : lv9-11，多重弹/穿透陆续解锁，阶梯抬一档
+//   11-13: lv12-14，属性树高阶，再抬一档
+//   14-16: lv15-17，闪电链/木全屏成型，阶梯跳跃 +0.3
+//   ≥17  : lv18+，终极波，最强耦合 + 阶梯跳跃 +0.5
+function getDmgCouple(idx, progress) {
+    const p = progress;
+    if (p <= 4)  return 1;                                       // 前期：完全不耦合
+    if (p <= 7)  return Math.min(1.8, Math.pow(idx, 0.25));      // 轻度指数跟随，封顶防跳变
+    if (p <= 10) return Math.min(2.6, Math.pow(idx, 0.40));      // 阶梯一：多重/穿透解锁
+    if (p <= 13) return Math.min(3.2, Math.pow(idx, 0.48));      // 阶梯二：属性树高阶
+    if (p <= 16) return Math.min(4.0, Math.pow(idx, 0.55)) + 0.3;// 阶梯三：闪电链/木成型，跳 +0.3
+    return Math.min(5.0, Math.pow(idx, 0.60)) + 0.5;             // 终极段：最强耦合 + 跳 +0.5
 }
 
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
@@ -6262,15 +6294,18 @@ function updatePendingSpawns() {
         // tier.hpT/dmgT 已按"玩家技能解锁等级(Lv5/8/11/14/17/18) + 火力成长"反推，使两条曲线交叉上升、偏离≤20%。
         // 原 hpWaveGrow/hpGrow 指数/时间线性增长已废弃，改由 tier 表单一主控（STAGES.healthMult 仅作关卡间基线差）。
         const tier = getWaveTier(p.wave);
-        // C 难度重平衡（方向1·等效火力耦合·多段函数）：火力基底 player.damage 是五行/AOE/DOT 公共基底，
-        // 叠加多重弹/穿透/各属性树后，真实 DPS 复利远超单一曲线能描述的成长，若全程用一条幂次耦合，
-        // 前期(idx 已因强制火力卡+AOE 不小)会被一并压难(旧版 lv5 升不上去正是此因)。故改为「多段函数」：
-        //   波 1-8  ：couple = 1      （前期完全不耦合，沿用 A+B 已调好的平滑手感）
-        //   波 9-14 ：couple = min(2.2, idx^0.32)（中段轻度跟随，封顶防跳变）
-        //   波15-17 ：couple = idx^0.45（后段一：明显加压）
-        //   波18-20 ：couple = idx^0.50（后段二：终极波最压，仍保证可清）
+        // C 难度重平衡（方向1·等效火力耦合·按卡池进度分段·混合指数+阶梯）：
+        // 分段锚点改为「三选一卡池进度」(getPickProgress = 累计选择次数 = level-1)，而非拍脑袋波次——
+        // 进度直接对应玩家真实拿到的强化节点（火力/多重/穿透/属性树解锁都落在此）。
+        // 低段用指数平滑跟随 idx，高段叠加阶梯跳跃(step)制造质变里程碑式陡增；中后段另叠怪量(见 buildWavePlan)。
+        //   进度 0-4  ：couple = 1                （前期不耦合，沿用 A+B 平滑手感，lv5 可升）
+        //   进度 5-7  ：min(1.8, idx^0.25)
+        //   进度 8-10 ：min(2.6, idx^0.40)        （阶梯一：多重/穿透解锁）
+        //   进度11-13 ：min(3.2, idx^0.48)        （阶梯二：属性树高阶）
+        //   进度14-16 ：min(4.0, idx^0.55) + 0.3  （阶梯三：闪电链/木成型，跳 +0.3）
+        //   进度 ≥17  ：min(5.0, idx^0.60) + 0.5  （终极段最强耦合 + 跳 +0.5）
         // getPlayerDpsIndex() 所有因子只增不减 → idx 恒 ≥1 → 各段 couple 恒 ≥1（只能变难不变弱）。
-        const dmgCouple = getDmgCouple(getPlayerDpsIndex(), p.wave);
+        const dmgCouple = getDmgCouple(getPlayerDpsIndex(), getPickProgress());
         const healthMult = stage.healthMult * tier.hpT * dmgCouple;
         const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
