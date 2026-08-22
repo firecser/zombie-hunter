@@ -342,7 +342,17 @@ function saveProgress() {
         playerSkills: { ...skills },
         playerAcquiredSkills: [...acquiredSkills],
         // 第一关买量演示是否已展示过（整个生命周期只出现一次）
-        l1IntroDone: l1IntroDone
+        l1IntroDone: l1IntroDone,
+        // 每日签到
+        lastSignInDate: lastSignInDate,
+        signStreak: signStreak,
+        signTodayClaimed: signTodayClaimed,
+        // 每日任务
+        dailyTaskDate: dailyTaskDate,
+        dailyTaskClaimed: dailyTaskClaimed,
+        dtClear: dtClear,
+        dtKill: dtKill,
+        dtAd: dtAd
     };
     wx.setStorageSync('zombieHunterProgress', JSON.stringify(stageProgress));
     wx.setStorageSync('zombieHunterGameData', JSON.stringify(gameData));
@@ -381,6 +391,18 @@ function loadGameData() {
 
             // 第一关买量演示是否已展示过（整个生命周期只出现一次）
             if (data.l1IntroDone) l1IntroDone = true;
+
+            // 每日签到
+            if (data.lastSignInDate) lastSignInDate = data.lastSignInDate;
+            if (typeof data.signStreak === 'number') signStreak = data.signStreak;
+            if (typeof data.signTodayClaimed === 'boolean') signTodayClaimed = data.signTodayClaimed;
+
+            // 每日任务
+            if (data.dailyTaskDate) dailyTaskDate = data.dailyTaskDate;
+            if (typeof data.dailyTaskClaimed === 'boolean') dailyTaskClaimed = data.dailyTaskClaimed;
+            if (typeof data.dtClear === 'number') dtClear = data.dtClear;
+            if (typeof data.dtKill === 'number') dtKill = data.dtKill;
+            if (typeof data.dtAd === 'number') dtAd = data.dtAd;
         }
     } catch (e) {
         console.log('加载游戏数据失败', e);
@@ -554,6 +576,313 @@ let adEnergyCount = 0;                      // 今日已观看广告次数
 const MAX_AD_ENERGY_PER_DAY = 5;             // 每日最多观看5次
 const AD_ENERGY_RECOVER = 30;                // 观看广告恢复30点体力
 let lastAdEnergyDate = '';                   // 上次重置日期
+
+// ==================== 失败金币重试 ====================
+// 失败界面「重玩」改为消耗金币直接重开当前关（不额外扣体力，作为体力耗尽时的续玩通道）
+const GOLD_RETRY_COST = 50;  // 失败重玩消耗金币
+
+// ==================== 每日签到 / 连续登录 ====================
+// 留存钩子：跨天进入游戏弹出签到，连签天数阶梯奖励（金币/体力/技能点）
+let lastSignInDate = '';        // 最近一次签到日期（toDateString）
+let signStreak = 0;             // 连续签到天数
+let signTodayClaimed = false;   // 今日是否已签到
+let signModal = { show: false }; // 签到弹窗
+let isReturningPlayer = false;  // 本次进入为「跨天回归」（昨日玩过、今日回来）——触发回归礼
+
+// 连续签到奖励表（按 streak 取模循环，第1天=index0）
+// reward: { gold, energy }
+const SIGN_REWARDS = [
+    { day: 1, gold: 100, energy: 20 },
+    { day: 2, gold: 150, energy: 20 },
+    { day: 3, gold: 200, energy: 30 },
+    { day: 4, gold: 250, energy: 30 },
+    { day: 5, gold: 300, energy: 40 },
+    { day: 6, gold: 400, energy: 40 },
+    { day: 7, gold: 500, energy: 50 }  // 第7天大额，循环后回到第1天
+];
+
+function getTodayString() { return new Date().toDateString(); }
+
+// 进入游戏时调用：跨天且未签到则弹签到面板
+function checkDailySignIn() {
+    const today = getTodayString();
+    // 跨天（昨天之前）-> 重置连签计数（断签）；当天已签 -> 不弹
+    if (lastSignInDate !== today) {
+        const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toDateString();
+        if (lastSignInDate !== yesterday) signStreak = 0; // 断签
+        // 昨日玩过、今日回来 = 回归玩家（触发回归礼）；首登（lastSignInDate 为空）不算回归
+        isReturningPlayer = !!lastSignInDate;
+        signTodayClaimed = false;
+        signModal.show = true; // 弹出等待领取
+    }
+}
+
+// 领取今日签到
+function claimDailySignIn() {
+    if (signTodayClaimed) return;
+    const today = getTodayString();
+    signStreak += 1;
+    const reward = SIGN_REWARDS[(signStreak - 1) % SIGN_REWARDS.length];
+    player.gold += reward.gold;
+    playerEnergy = Math.min(ENERGY_CONFIG.maxEnergy, playerEnergy + reward.energy);
+    // 回归礼：跨天回归额外赠送（欢迎回来，强化次日留存）
+    let returnBonus = 0;
+    if (isReturningPlayer) {
+        returnBonus = 100;            // 回归额外金币
+        player.gold += returnBonus;
+        playerEnergy = Math.min(ENERGY_CONFIG.maxEnergy, playerEnergy + 30); // 回归额外体力
+        isReturningPlayer = false;
+    }
+    lastSignInDate = today;
+    signTodayClaimed = true;
+    signModal.show = false;
+    saveProgress();
+    const msg = returnBonus > 0
+        ? `欢迎回来！签到+${reward.gold} 回归+${returnBonus}`
+        : `签到+${reward.gold}金币`;
+    if (wx.showToast) wx.showToast({ title: msg, icon: 'success' });
+}
+
+// 签到面板按钮命中区（供点击检测）
+let signClaimBtn = { x: 0, y: 0, w: 0, h: 0 };
+
+// 绘制每日签到弹窗
+function drawSignInModal() {
+    if (!signModal.show) return;
+    ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    const modalW = Math.min(320, screenWidth * 0.9);
+    const modalH = 360;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 16);
+    ctx.strokeStyle = ROYALE.gold;
+    ctx.lineWidth = 2;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.stroke();
+
+    ctx.fillStyle = ROYALE.gold;
+    ctx.font = 'bold 20px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isReturningPlayer ? '📅 欢迎回来' : '📅 每日签到', modalX + modalW / 2, modalY + 32);
+
+    ctx.fillStyle = '#cfd8e3';
+    ctx.font = '13px Arial';
+    ctx.fillText(isReturningPlayer ? `回归礼 +100金币 +30体力 · 连签${signStreak}天`
+                                   : `连续签到 ${signStreak} 天`, modalX + modalW / 2, modalY + 56);
+
+    // 7天奖励格子
+    const cellW = (modalW - 40) / 7;
+    const cellH = 78;
+    const gridY = modalY + 76;
+    for (let i = 0; i < SIGN_REWARDS.length; i++) {
+        const r = SIGN_REWARDS[i];
+        const cx = modalX + 20 + i * cellW;
+        const claimed = (i < (signStreak % SIGN_REWARDS.length)) && signStreak > 0 && signTodayClaimed;
+        ctx.fillStyle = (i === (signStreak % SIGN_REWARDS.length)) ? 'rgba(255,210,74,0.25)' : 'rgba(15,52,96,0.6)';
+        roundRect(ctx, cx + 2, gridY, cellW - 4, cellH, 8);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(`第${i + 1}天`, cx + cellW / 2, gridY + 14);
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#ffd24a';
+        ctx.fillText(`${r.gold}💰`, cx + cellW / 2, gridY + 36);
+        ctx.fillStyle = '#9fe0a0';
+        ctx.fillText(`${r.energy}⚡`, cx + cellW / 2, gridY + 56);
+    }
+
+    // 领取按钮
+    const btnW = modalW - 60;
+    const btnH = 48;
+    const btnX = modalX + 30;
+    const btnY = gridY + cellH + 18;
+    signClaimBtn = { x: btnX, y: btnY, w: btnW, h: btnH };
+    drawRoyaleBevelButton({ x: btnX, y: btnY, w: btnW, h: btnH, r: 12 }, '🎁 领取今日奖励', 'gold');
+}
+
+// 签到弹窗点击
+function handleSignInClick(x, y) {
+    if (!signModal.show) return false;
+    if (x >= signClaimBtn.x && x <= signClaimBtn.x + signClaimBtn.w &&
+        y >= signClaimBtn.y && y <= signClaimBtn.y + signClaimBtn.h) {
+        claimDailySignIn();
+        return true;
+    }
+    return false; // 点击空白不关闭，强制领取
+}
+
+// ==================== 订阅消息召回（次日留存） ====================
+// 需在微信公众平台「订阅消息」后台创建模板，将模板ID填入下方数组。
+// 模板建议：① 体力回满提醒 ② 每日签到/活动提醒
+const RESUBSCRIBE_TEMPLATE_IDS = [
+    // 'TEMPLATE_ID_ENERGY_FULL',   // TODO: 替换为实际模板ID
+    // 'TEMPLATE_ID_DAILY_REWARD'   // TODO: 替换为实际模板ID
+];
+let subscribeAskedDate = '';   // 最近一次已申请订阅的日期（避免每天多次打扰）
+
+// 在通关/失败节点申请订阅授权（用户同意后，服务端可次日推送召回）
+function requestRecallSubscribe() {
+    if (typeof wx === 'undefined' || !wx.requestSubscribeMessage) return;
+    if (RESUBSCRIBE_TEMPLATE_IDS.length === 0) return; // 未配置模板则不打扰
+    const today = getTodayString();
+    if (subscribeAskedDate === today) return; // 当日已申请过
+    subscribeAskedDate = today;
+    try {
+        wx.requestSubscribeMessage({
+            tmplIds: RESUBSCRIBE_TEMPLATE_IDS,
+            success(res) {
+                // res[tmplId] === 'accept' 表示用户同意；可上报服务端用于次日推送
+                console.log('订阅召回授权结果', res);
+            },
+            fail(err) {
+                console.log('订阅召回授权失败', err);
+            }
+        });
+    } catch (e) {
+        console.log('requestSubscribeMessage 异常', e);
+    }
+}
+
+// ==================== 每日任务（次日留存 + 单日活跃） ====================
+let dailyTaskDate = '';                 // 当前任务所属日期
+let dailyTaskClaimed = false;           // 今日任务是否已领奖
+let dtClear = 0, dtKill = 0, dtAd = 0;  // 今日进度：通关次数/击杀数/看广告次数
+const DAILY_TASKS = [
+    { id: 'clear', target: 3,  reward: { gold: 150, energy: 20 }, desc: (p) => `今日通关 ${Math.min(p, 3)}/3 次` },
+    { id: 'kill',  target: 100, reward: { gold: 100, energy: 10 }, desc: (p) => `今日击杀 ${Math.min(p, 100)}/100 僵尸` },
+    { id: 'ad',    target: 1,  reward: { gold: 80,  energy: 10 },  desc: (p) => `今日看广告 ${Math.min(p, 1)}/1 次` }
+];
+let dailyTaskModal = { show: false };
+
+function resetDailyTasksIfNeeded() {
+    const today = getTodayString();
+    if (dailyTaskDate !== today) {
+        dailyTaskDate = today;
+        dailyTaskClaimed = false;
+        dtClear = 0; dtKill = 0; dtAd = 0;
+    }
+}
+function dailyTaskProgressById(id) {
+    if (id === 'clear') return dtClear;
+    if (id === 'kill') return dtKill;
+    if (id === 'ad') return dtAd;
+    return 0;
+}
+function dailyTaskAllDone() {
+    return DAILY_TASKS.every(t => dailyTaskProgressById(t.id) >= t.target);
+}
+function addDailyTaskProgress(id, n = 1) {
+    resetDailyTasksIfNeeded();
+    if (id === 'clear') dtClear += n;
+    else if (id === 'kill') dtKill += n;
+    else if (id === 'ad') dtAd += n;
+}
+function claimDailyTask() {
+    if (dailyTaskClaimed || !dailyTaskAllDone()) return;
+    let g = 0, e = 0;
+    for (const t of DAILY_TASKS) { g += t.reward.gold; e += t.reward.energy; }
+    player.gold += g;
+    playerEnergy = Math.min(ENERGY_CONFIG.maxEnergy, playerEnergy + e);
+    dailyTaskClaimed = true;
+    saveProgress();
+    if (wx.showToast) wx.showToast({ title: `任务完成 +${g}金币`, icon: 'success' });
+}
+// 任务弹窗按钮命中区
+let dailyTaskClaimBtn = { x: 0, y: 0, w: 0, h: 0 };
+
+function drawDailyTaskModal() {
+    if (!dailyTaskModal.show) return;
+    ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    const modalW = Math.min(320, screenWidth * 0.9);
+    const modalH = 320;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+
+    drawRoyalePanel(modalX, modalY, modalW, modalH, 16);
+    ctx.strokeStyle = ROYALE.gold;
+    ctx.lineWidth = 2;
+    roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.stroke();
+
+    ctx.fillStyle = ROYALE.gold;
+    ctx.font = 'bold 20px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📋 每日任务', modalX + modalW / 2, modalY + 30);
+
+    let rowY = modalY + 60;
+    for (const t of DAILY_TASKS) {
+        const p = dailyTaskProgressById(t.id);
+        const done = p >= t.target;
+        ctx.fillStyle = 'rgba(15,52,96,0.6)';
+        roundRect(ctx, modalX + 18, rowY, modalW - 36, 56, 10);
+        ctx.fill();
+        ctx.fillStyle = done ? '#9fe0a0' : '#fff';
+        ctx.font = '13px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(t.desc(p), modalX + 32, rowY + 22);
+        ctx.fillStyle = '#ffd24a';
+        ctx.fillText(done ? '✓ 已完成' : `奖励 ${t.reward.gold}💰 ${t.reward.energy}⚡`, modalX + 32, rowY + 42);
+        rowY += 66;
+    }
+
+    // 领取按钮
+    const btnW = modalW - 60;
+    const btnH = 46;
+    const btnX = modalX + 30;
+    const btnY = modalY + modalH - 62;
+    dailyTaskClaimBtn = { x: btnX, y: btnY, w: btnW, h: btnH };
+    const canClaim = dailyTaskAllDone() && !dailyTaskClaimed;
+    drawRoyaleBevelButton({ x: btnX, y: btnY, w: btnW, h: btnH, r: 12 },
+        dailyTaskClaimed ? '今日已领取' : (canClaim ? '🎁 领取奖励' : '未完成'),
+        canClaim ? 'gold' : 'blue');
+}
+
+function handleDailyTaskClick(x, y) {
+    if (!dailyTaskModal.show) return false;
+    if (dailyTaskClaimed) { dailyTaskModal.show = false; return true; }
+    if (x >= dailyTaskClaimBtn.x && x <= dailyTaskClaimBtn.x + dailyTaskClaimBtn.w &&
+        y >= dailyTaskClaimBtn.y && y <= dailyTaskClaimBtn.y + dailyTaskClaimBtn.h) {
+        claimDailyTask();
+        return true;
+    }
+    return false;
+}
+
+// 每日任务浮动入口按钮（右下角，导航栏上方）
+let dailyTaskEntryBtn = { x: 0, y: 0, w: 0, h: 0 };
+function drawDailyTaskEntryButton() {
+    const w = 52, h = 52;
+    const x = screenWidth - w - 12;
+    const y = screenHeight - MAIN_MENU_NAV_H - h - 12;
+    dailyTaskEntryBtn = { x, y, w, h };
+    // 背景圆
+    ctx.fillStyle = dailyTaskAllDone() && !dailyTaskClaimed ? 'rgba(255,210,74,0.95)' : 'rgba(30,58,95,0.9)';
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h / 2, w / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ROYALE.gold;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📋', x + w / 2, y + h / 2);
+    // 可领取红点
+    if (dailyTaskAllDone() && !dailyTaskClaimed) {
+        ctx.fillStyle = '#ff5050';
+        ctx.beginPath();
+        ctx.arc(x + w - 8, y + 8, 7, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
 
 // 按钮位置（放在左下角）
 const soundBtnX = 10;
@@ -1877,6 +2206,7 @@ function showRewardedAd(onReward) {
     if (!ad) {
         // 非微信环境（如本地预览/测试）：直接视为已发放奖励，便于联调
         if (onReward) onReward();
+        addDailyTaskProgress('ad');
         resume();
         return;
     }
@@ -1884,6 +2214,7 @@ function showRewardedAd(onReward) {
         // 新接口：res.isEnded === true 表示看完激励；旧接口：res 为 undefined 也表示发放
         if (res === undefined || (res && res.isEnded)) {
             if (onReward) onReward();
+            addDailyTaskProgress('ad');
         }
         ad.offClose(handler);
         resume(); // 广告结束（无论是否看完）都恢复游戏
@@ -4104,7 +4435,7 @@ function drawGameOver() {
     ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize + 14);
+    ctx.fillText(`💰${GOLD_RETRY_COST}`, startX + btnSize / 2, btnY + btnSize + 14);
     ctx.fillText('变强', startX + (btnSize + gap) + btnSize / 2, btnY + btnSize + 14);
     ctx.fillText('返回', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize + 14);
 }
@@ -5084,6 +5415,7 @@ function damageZombie(zombie, damage, isCrit, element) {
     
     if (zombie.health <= 0) {
         player.kills++;
+        addDailyTaskProgress('kill');
 
         // 吞噬万物（天赋）：击杀回血
         if (talentMods.lifestealPerKill > 0) {
@@ -6045,6 +6377,7 @@ function gameOver() {
     savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
     AudioSystem.playGameOver();
+    requestRecallSubscribe(); // 申请订阅召回（次日留存）
 }
 
 // 胜利
@@ -6060,6 +6393,8 @@ function victory() {
     savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
     AudioSystem.playVictory();
+    addDailyTaskProgress('clear');
+    requestRecallSubscribe(); // 申请订阅召回（次日留存）
 }
 
 // 开始游戏
@@ -6511,6 +6846,14 @@ const CHAPTERS = [
     { id: 9, name: '冰河世纪', icon: '🧊', levels: [49,50,51,52,53,54], unlocked: false },
     { id: 10, name: '终结之战', icon: '🔥', levels: [55,56,57,58,59,60], unlocked: false }
 ];
+
+// 章节动态解锁：第1章恒开；其余章节在其首关的「上一关」已通关时解锁
+// （与关卡卡片的 isUnlocked = stageIdx===0 || stageProgress[stageIdx-1] 逻辑一致）
+function isChapterUnlocked(chapter) {
+    if (chapter.id === 1) return true;
+    const firstLevel = chapter.levels[0];
+    return !!stageProgress[firstLevel - 2]; // 首关前一关（即上一章末关）已通过
+}
 
 let mainMenuExpandedChapter = 1; // 默认展开第1章
 
@@ -6996,6 +7339,22 @@ function drawMainMenu() {
         drawSettingsModal();
     }
 
+    // 每日签到弹窗（最上层，强制领取）
+    if (signModal.show) {
+        drawSignInModal();
+    }
+
+    // 每日任务弹窗
+    if (dailyTaskModal.show) {
+        drawDailyTaskModal();
+    }
+
+    // 每日任务浮动入口按钮（右下角，导航栏上方）
+    if (!signModal.show && !dailyTaskModal.show && !energyModal.show &&
+        !settingsModal.show && !shopModal.show && !talentModal.show) {
+        drawDailyTaskEntryButton();
+    }
+
     // 底部导航栏
     drawMainMenuNav();
 
@@ -7225,7 +7584,7 @@ function drawMainMenuLevel() {
     // 计算内容总高度
     let totalContentH = 0;
     CHAPTERS.forEach((chapter) => {
-        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const isExpanded = mainMenuExpandedChapter === chapter.id && isChapterUnlocked(chapter);
         const chapterH = isExpanded ? 210 : 70;
         totalContentH += chapterH + 10;
     });
@@ -7245,7 +7604,7 @@ function drawMainMenuLevel() {
     let currentY = topOffset + levelScrollY;
     
     CHAPTERS.forEach((chapter, ci) => {
-        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const isExpanded = mainMenuExpandedChapter === chapter.id && isChapterUnlocked(chapter);
         const chapterH = isExpanded ? 210 : 70;
         
         // 章节背景
@@ -7285,7 +7644,7 @@ function drawMainMenuLevel() {
         // 状态标签
         const tagX = screenWidth - 90;
         const tagY = headerY + 12;
-        if (chapter.unlocked) {
+        if (isChapterUnlocked(chapter)) {
             let cleared = 0;
             chapter.levels.forEach(lv => {
                 if (stageProgress[lv - 1]) cleared++;
@@ -13398,6 +13757,25 @@ function handleWorldClick(x, y) {
 
 function handleMainMenuTouch(x, y) {
     const navY = screenHeight - MAIN_MENU_NAV_H;
+
+    // 签到弹窗优先拦截（强制领取，避免误触穿透到主菜单）
+    if (signModal.show) {
+        handleSignInClick(x, y);
+        return;
+    }
+
+    // 每日任务弹窗拦截
+    if (dailyTaskModal.show) {
+        handleDailyTaskClick(x, y);
+        return;
+    }
+
+    // 每日任务浮动入口按钮
+    if (x >= dailyTaskEntryBtn.x && x <= dailyTaskEntryBtn.x + dailyTaskEntryBtn.w &&
+        y >= dailyTaskEntryBtn.y && y <= dailyTaskEntryBtn.y + dailyTaskEntryBtn.h) {
+        dailyTaskModal.show = true;
+        return;
+    }
     
     // 点击底部导航
     if (y >= navY) {
@@ -13424,12 +13802,12 @@ function handleMainMenuTouch(x, y) {
         let currentY = 50;
         
         for (const chapter of CHAPTERS) {
-            const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+            const isExpanded = mainMenuExpandedChapter === chapter.id && isChapterUnlocked(chapter);
             const chapterH = isExpanded ? 210 : 70;
             
             // 点击章节头部（展开/折叠）
             if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
-                if (chapter.unlocked) {
+                if (isChapterUnlocked(chapter)) {
                     mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
                 }
                 return;
@@ -13925,8 +14303,14 @@ wx.onTouchStart((e) => {
 
         if (y >= btnY && y <= btnY + btnSize) {
             if (x >= startX && x <= startX + btnSize) {
-                // 重玩
-                startGame();
+                // 金币重试：消耗金币直接重开当前关（不额外扣体力）
+                if (player.gold >= GOLD_RETRY_COST) {
+                    player.gold -= GOLD_RETRY_COST;
+                    saveProgress();
+                    startGame();
+                } else if (wx.showToast) {
+                    wx.showToast({ title: `金币不足，需${GOLD_RETRY_COST}`, icon: 'none' });
+                }
                 return;
             } else if (x >= startX + (btnSize + gap) && x <= startX + (btnSize + gap) + btnSize) {
                 // 变强：进入天赋页
@@ -14336,12 +14720,12 @@ function handleLevelClick(x, y) {
     }
     
     for (const chapter of CHAPTERS) {
-        const isExpanded = mainMenuExpandedChapter === chapter.id && chapter.unlocked;
+        const isExpanded = mainMenuExpandedChapter === chapter.id && isChapterUnlocked(chapter);
         const chapterH = isExpanded ? 210 : 70;
         
         // 点击章节头部（展开/折叠）
         if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
-            if (chapter.unlocked) {
+            if (isChapterUnlocked(chapter)) {
                 mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
             }
             return;
@@ -14439,6 +14823,12 @@ loadPlayerData();  // 加载玩家数据（统一数据存储）
 
 // 检查并重置每日广告次数
 checkAdEnergyDailyReset();
+
+// 每日签到检查（跨天未签则弹面板）
+checkDailySignIn();
+
+// 每日任务重置（跨天清零进度）
+resetDailyTasksIfNeeded();
 
 // 计算离线体力恢复
 calculateOfflineEnergy();
