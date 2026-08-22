@@ -1065,8 +1065,8 @@ const player = {
 // 使「多目标 = 覆盖面广但单发弱」的权衡成立，保持纯伤 > 覆盖 的阶梯关系。
 const MULTI_BULLET_DMG_PENALTY = 0.20;   // 子弹：每多 1 发，单发伤害 -20%（用户要求：多加一颗子弹伤害减少20%）
 const REACH_DMG_PENALTY = 0.20;          // 每多 1 穿透 / 1 弹射目标：单发伤害 -20%（用户要求：穿透+1伤害减少20%）
-const PURE_DMG_BASE = 1.25;              // 基础「火力强化」每级倍率（原 1.14）
-const PURE_DMG_BRANCH = 1.40;            // 纯伤害分支每级倍率（原 ~1.20）
+const PURE_DMG_BASE = 1.5;               // 基础「火力强化」每级倍率（v1.1.59 由 1.25 加强到 1.5；用户：纯伤仍偏弱）
+const PURE_DMG_BRANCH = 1.7;             // 纯伤害分支每级倍率（v1.1.59 由 1.40 提到 1.7，保持 分支>基础 的阶梯关系）
 
 // ==================== 技能系统 ====================
 // 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
@@ -5834,7 +5834,7 @@ function levelUp() {
     player.exp -= player.expToLevel;
     player.expToLevel = EXP_BASE * player.level;   // 升级所需 cost(L→L+1) = EXP_BASE*L（1→2需EXP_BASE、2→3需2*EXP_BASE…）
     
-    // 注：炸弹不再随等级获得；仅广告奖励与初始引导(bombCount=1)提供炸弹。
+    // 注：炸弹不再随等级获得，也不再初始赠送（v1.1.60 移除初始 1 颗）；仅看广告奖励(+=1)提供炸弹。
     
     // 播放升级音效
     AudioSystem.playLevelUp();
@@ -6186,9 +6186,7 @@ function startGame() {
         adBombExploded = false;
         adZombieCount = 0;
 
-        // 初始给1个炸弹
-        bombCount = 1;
-        bombCooldown = 0;
+        // 不再初始给炸弹（v1.1.60）：炸弹仅通过看广告获得；买量演示引导改为提示看广告补弹
 
         // 初始生成15个各类僵尸
         spawnInitialAdZombies();
