@@ -81,8 +81,10 @@ const WALL_X0 = 0;
 const WALL_X1 = screenWidth;          // 横跨全屏，完全阻拦
 // 城墙玩法平衡：① 僵尸不再每帧啃墙，而是按间隔「啄」一次（大幅降低攻击频率，旧模型有 8px 击退等效 ~每 8/sp 帧一次）
 const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
-// ② 城墙基础血量大幅提高（替代原坦克 100），以承受竖直下落的持续堆积
-const WALL_MAX_HEALTH = 5000;         // 城墙基础血量（提高以给多目标玩家清场窗口，适配升级后能力增长）
+// ② 城墙基础血量：v1.1.65 起基础值下调为 800（原 5000），让后期「堆怪啄墙」重新构成真实威胁，
+//    不再无限扛；旧 5000 的容错空间改由天赋树「城墙血量」百分比天赋恢复（见防御页 def_rampart/def_citadel）。
+//    城墙实际血量 = WALL_MAX_HEALTH × (1 + 天赋 wallHealthMul) + 天赋 healthBonus。
+const WALL_MAX_HEALTH = 800;          // 城墙基础血量（基础偏紧，逼迫玩家实际清场/投资城墙天赋）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
 // 即使被后坐力击退，敌人也停在边界处，避免被推出屏幕后无法被瞄准、却仍贴墙持续掉血。
@@ -6158,14 +6160,6 @@ function updateDamageNumbers() {
 function spawnZombies(dt) {
     const stage = getCurrentStage();
     if (nextWaveIdx < WAVE_PLAN.length && gameTime >= WAVE_PLAN[nextWaveIdx].spawnAt) {
-        // B 难度重平衡：墙血随波收紧（5000 - wave*120），后期容错更低、失误代价更大，消除后段空虚感。
-        // 只在更低时下调，绝不回调，保证生存资源单调收紧。
-        const waveNum = WAVE_PLAN[nextWaveIdx].i;
-        const tightened = Math.max(2600, WALL_MAX_HEALTH - waveNum * 120);
-        if (tightened < player.maxHealth) {
-            player.maxHealth = tightened;
-            if (player.health > player.maxHealth) player.health = player.maxHealth;
-        }
         spawnWave(WAVE_PLAN[nextWaveIdx], stage);
         wavesSpawned++;
         nextWaveIdx++;
@@ -6538,11 +6532,11 @@ function startGame() {
     // 保存进入关卡前的金币（用于胜利后累积）
     goldAtStageStart = player.gold;
     
-    // 重置玩家（城墙血量即玩家血量）
+    // 重置玩家（城墙血量即玩家血量）：基础值 ×(1+城墙百分比天赋) + 平血天赋
     player.x = screenWidth / 2;
     player.y = screenHeight - 80;
-    player.health = WALL_MAX_HEALTH;
-    player.maxHealth = WALL_MAX_HEALTH;
+    player.health = WALL_MAX_HEALTH * (1 + talentMods.wallHealthMul);
+    player.maxHealth = WALL_MAX_HEALTH * (1 + talentMods.wallHealthMul);
     player.exp = 0;
     player.level = 1;
     player.expToLevel = EXP_BASE;   // cost(1→2) = EXP_BASE*1 = EXP_BASE
@@ -7242,6 +7236,12 @@ function buildTalentTree() {
     D('def_vital',  '生机',     '💗', 10, 800,  80,  4,  '生命 +10/级',           { id: 'def_leech', level: 5 }, { healthBonus: 10 });
     D('def_bastion','堡垒',     '🏯', 10, 1500, 150, 8,  '生命 +20/级',           { id: 'def_vital', level: 10 }, { healthBonus: 20 });
     D('def_sanct',  '圣域',     '⛪', 5,  3000, 300, 10, '生命质变 + 减伤',        { id: 'def_bastion', level: 10 }, { healthBonus: 40, shieldLevel: 2 });
+    talentLayout.defense.push({ h: true, text: '🧱 防御 · 城墙系（v1.1.65 基础血量下调，需投资恢复容错）' });
+    // 城墙血量（百分比）：基础城墙血量已从 5000 下调到 800，此处提供「百分比」恢复通道。
+    // 设计：阶梯式乘算，满级合计 +270%（即基础×3.7≈2960），配合既有平血天赋可逼近旧 5000 容错；
+    // 数值经过平衡——单级 +12%/+30% 不破坏前期（基础仍偏紧、逼迫清场），把容错交还给愿意投资的玩家。
+    D('def_rampart','筑垒',     '🧱', 10, 800,  80,  4,  '城墙血量 +12%/级',      { id: 'shield',    level: 3 }, { wallHealthMul: 0.12 });
+    D('def_citadel','王城',     '🏰', 5,  3000, 300, 10, '城墙血量 +30%/级',      { id: 'def_rampart', level: 10 }, { wallHealthMul: 0.30 });
 }
 buildTalentTree();
 
@@ -7277,7 +7277,8 @@ let talentMods = {
     bulletCountBonus: 0, bombMaxBonus: 0,
     goldMult: 1, expMult: 1,
     deathrayLevel: 0, deathrayTimer: 0,
-    immortalCharges: 0, lifestealPerKill: 0
+    immortalCharges: 0, lifestealPerKill: 0,
+    wallHealthMul: 0   // 城墙血量百分比加成（v1.1.65 新增，替代被移除的「墙血随波收紧」）
 };
 
 // 根据已加点天赋，计算本场战斗的全部修正
@@ -7292,7 +7293,8 @@ function applyTalentsToBattle() {
         bulletCountBonus: 0, bombMaxBonus: 0,
         goldMult: 1, expMult: 1,
         deathrayLevel: 0, deathrayTimer: 0,
-        immortalCharges: 0, lifestealPerKill: 0
+        immortalCharges: 0, lifestealPerKill: 0,
+        wallHealthMul: 0
     };
     // 基础属性：直接加数值
     m.damageBonus += t.core.level * 1 + t.damage.level * 1;
