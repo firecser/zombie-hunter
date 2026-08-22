@@ -473,12 +473,12 @@ function buildWavePlan() {
         //   · 波15-17：×2.3（阶梯二：属性树高阶，更多目标）
         //   · 波18-20：×2.8（阶梯三：终极波，大军压境；boss 波略收避免单点过载）
         // 密度仅影响「总怪数」，出怪经验按同比例除以 density → 总经验仍=targetExp（升级节奏不变）。
+        // v1.1.71：后段加压已改由 getDmgCouple（火力耦合）单独承担，怪量阶梯回调到平滑，
+        // 避免「怪血翻倍 + 怪量翻倍」双重叠加导致中后段墙被厚血怪堆破。
+        // 前5波维持轻密度（护前期手感），6波起回到基准密度，boss 波略控。
         let waveDensity = (i <= 5) ? Math.min(MONSTER_DENSITY, 1.2)
-                        : (i <= 10) ? MONSTER_DENSITY
-                        : (i <= 14) ? 1.9
-                        : (i <= 17) ? 2.3
-                        : 2.8;
-        if (isBoss) waveDensity = Math.min(waveDensity, 2.0);   // boss 波怪量上限，避免单点瞬间过载啄墙
+                        : MONSTER_DENSITY;
+        if (isBoss) waveDensity = Math.min(waveDensity, 1.8);   // boss 波怪量上限，避免单点瞬间过载啄墙
         if (waveDensity > 1) {
             const extra = [];
             for (const t of comp) {
@@ -6214,16 +6214,19 @@ function spawnWave(w, stage) {
 //   · 闪电链/木滚木/土地刺：独立 CD 周期性释放，按 (单轮伤害 × 1000/cd) 计入持续 DPS
 // 所有因子只增不减 → 指数恒 ≥1（只能变难不变弱）。数值更贴近真实，dmgCouple 才能正确加压。
 function getPlayerDpsIndex() {
-    const _fireMul = (skills.damage && skills.damage._mods) ? skills.damage._mods.fireMul : 1;
+    const _dm = (skills.damage && skills.damage._mods) ? skills.damage._mods : { fireMul: 1, dmgMul: 1 };
+    const _fireMul = _dm.fireMul;
     const fireRate = Math.max(120, player.fireRate * _fireMul);
     const shotsPerSec = 1000 / fireRate;
     const m = attributeMods();
     const bc = m.bulletCountBoost || 0;
     const pb = m.pierceBoost || 0;
     const shots = 1 + bc;
-    const dmgPerShot = player.damage / (1 + 0.20 * bc);   // 多重弹单发衰减
+    // 火力强化的「增伤分支」(重型枪管/蓄能射击) 落在 skills.damage._mods.dmgMul，
+    // 是物理基础 DPS 的公共基底，必须纳入 idx，否则纯火力拉满后耦合完全失效(怪被秒)。
+    const dmgPerShot = player.damage * _dm.dmgMul / (1 + 0.20 * bc);   // 多重弹单发衰减
 
-    // 1) 火力持续 DPS（含多重/穿透）
+    // 1) 火力持续 DPS（含增伤分支/多重/穿透）
     let dps = shotsPerSec * shots * dmgPerShot * (1 + pb * 0.6);
 
     // 2) 火/冰：子弹命中触发 AOE，跟随火力射速（每发附加 aoeDamage = damage×(0.15+lv×0.05)）
@@ -6295,12 +6298,16 @@ function getPickProgress() {
 //   ≥17  : lv18+，终极段(跳+0.5)，上探至接近 idx(封顶22)，真正加压后段
 function getDmgCouple(idx, progress) {
     const p = progress;
-    if (p <= 4)  return 1;                                            // 前期：完全不耦合
-    if (p <= 7)  return Math.min(2.2, Math.pow(idx, 0.55));           // 轻度指数跟随
-    if (p <= 10) return Math.min(5.0, Math.pow(idx, 0.72));           // 阶梯一：多重/穿透解锁
-    if (p <= 13) return Math.min(9.0, Math.pow(idx, 0.85));           // 阶梯二：属性树高阶
-    if (p <= 16) return Math.min(14, Math.pow(idx, 0.95)) + 0.3;      // 阶梯三：闪电链/木成型，跳+0.3
-    return Math.min(20, idx) + 0.5;                                   // 终极段：上探接近真实 idx(封顶20)，跳+0.5；恒≤idx可清
+    // 设计（v1.1.71）：idx 已修正为真实 DPS 比值（含火力增伤分支 dmgMul）。纯火力拉满可达 60~320，
+    // 旧版封顶 20.5 在 idx>20 后彻底失效 → 怪血固定 20 倍 vs DPS 320 倍 → 被秒（用户"越来越简单"的真因）。
+    // 高段改用 idx^0.95 形式：所有流派的「怪血/DPS 缺口」收敛到稳定区间(0.6~0.85)，既加压又不数值爆炸；
+    // 恒 ≤idx 保证怪血不超过玩家 DPS(可清)。低段指数轻跟随；前期(0-4)完全不耦合保护手感。
+    if (p <= 4)  return 1;                                                       // 前期：完全不耦合
+    if (p <= 7)  return Math.min(4, Math.pow(idx, 0.55));                       // 轻度指数跟随，封顶防跳变
+    if (p <= 10) return Math.min(12, Math.pow(idx, 0.78));                      // 阶梯一：多重/穿透解锁
+    if (p <= 13) return Math.min(40, Math.pow(idx, 0.88));                      // 阶梯二：属性树高阶
+    if (p <= 16) return Math.min(90, Math.pow(idx, 0.93)) + 0.5;                // 阶梯三：闪电链/木成型，跳+0.5
+    return Math.min(200, Math.pow(idx, 0.95)) + 1.0;                            // 终极段：idx^0.95 收敛缺口，封顶200，跳+1；恒≤idx可清
 }
 
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
