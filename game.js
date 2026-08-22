@@ -14688,6 +14688,14 @@ wx.onTouchEnd((e) => {
         return;
     }
 
+    // 每日任务浮动入口按钮：顶层拦截（不依赖 mainMenuTab）
+    if (gameState === 'mainMenu' && !dailyTaskModal.show &&
+        endX >= dailyTaskEntryBtn.x && endX <= dailyTaskEntryBtn.x + dailyTaskEntryBtn.w &&
+        endY >= dailyTaskEntryBtn.y && endY <= dailyTaskEntryBtn.y + dailyTaskEntryBtn.h) {
+        dailyTaskModal.show = true;
+        return;
+    }
+
     // 内嵌小游戏（大力射手）：蓄力结束/按钮
     if (gameState === 'mainMenu' && activeMiniGame === 'sheqiu') {
         handleMiniGameDlsqInput(endX, endY);
