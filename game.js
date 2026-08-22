@@ -1692,9 +1692,10 @@ for (const _t in SKILL_DEFS) {
 const MAX_SKILLS = 6;          // damage + 火/水/金/木/土 五属性树，共 6 槽
 let acquiredSkills = ['damage'];
 // C 难度重平衡：本局开局技能等级总和基线（开局重置后、任何局内升级前）。
-// 用于「难度-玩家等级耦合」：怪物强度随玩家局内累计等级增长而抬升，且因等级只增不减，
-// 耦合系数恒 ≥1（前段≈1 不削弱、后段>1 加压），满足"只能变难不能变弱"。
-let runBaseSkillSum = 0;
+// 用于「难度-火力基底耦合」：火力强化 player.damage 是五行/AOE/DOT 全部伤害的公共基底，
+// 每升 1 级 ×1.25 会复利放大整条伤害链。怪物 HP 按 player.damage 相对开局基线反向抬升，
+// 精确抵消火力复利，使后段不再空虚。damage 只增不减 → 系数恒 ≥1（只能变难不变弱）。
+let runBaseDamage = 10;
 
 // 灼烧(引燃/油渍)的固定持续时长（毫秒）：引燃只增伤不延长，故为常量
 const BURN_DURATION = 1500;
@@ -6203,16 +6204,14 @@ function updatePendingSpawns() {
         // tier.hpT/dmgT 已按"玩家技能解锁等级(Lv5/8/11/14/17/18) + 火力成长"反推，使两条曲线交叉上升、偏离≤20%。
         // 原 hpWaveGrow/hpGrow 指数/时间线性增长已废弃，改由 tier 表单一主控（STAGES.healthMult 仅作关卡间基线差）。
         const tier = getWaveTier(p.wave);
-        // C 难度重平衡：难度-玩家等级耦合。怪物强度随玩家局内累计技能等级增长而抬升。
-        // 等级只增不减 → 系数恒 ≥1：前段（累计未超基线+宽限期）≈1 不削弱，后段逐步加压。
-        // EARLY_GRACE=5：前 5 波累计增量内不加压（保护前期平滑）；K 控制后段加压斜率。
-        let curSkillSum = 0;
-        for (const t of acquiredSkills) curSkillSum += (skills[t] ? skills[t].level : 0);
-        const LEVEL_COUPLE_K = 0.020;   // 每超出 1 级累计，怪物强度 +2.0%（仅后段加压，斜率保守避免后段不可清）
-        const EARLY_GRACE = 5;
-        const levelCouple = Math.max(1, 1 + Math.max(0, curSkillSum - runBaseSkillSum - EARLY_GRACE) * LEVEL_COUPLE_K);
-        const healthMult = stage.healthMult * tier.hpT * levelCouple;
-        const damageMult = stage.damageMult * tier.dmgT * levelCouple;
+        // C 难度重平衡（方向1·火力基底耦合）：火力强化 player.damage 是五行/AOE/DOT 全部伤害的公共基底，
+        // 每升 1 级 ×1.25 会复利放大整条伤害链，旧模型只按"累计技能等级"耦合被火力复利碾过、后段仍空虚。
+        // 改为直接按 player.damage 相对开局基线反向抬升怪物 HP：火力涨多少，怪血就跟涨多少（幂次 POW<1 温和跟随，
+        // 既抵消单发复利、又保留 AOE 群伤优势，使后5波净变难）。damage 只增不减 → 系数恒 ≥1（只能变难不变弱）。
+        const DMG_COUPLE_POW = 0.45;   // 火力基底耦合幂次：1.25^0.45≈1.106/级，温和跟随，避免后段不可清
+        const dmgCouple = Math.pow(player.damage / runBaseDamage, DMG_COUPLE_POW);
+        const healthMult = stage.healthMult * tier.hpT * dmgCouple;
+        const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
             id: _zombieIdSeq++,
             x: p._adTemp ? p._adTemp.x : (Math.random() * screenWidth),
@@ -6543,6 +6542,7 @@ function startGame() {
     player.gold = 0;  // 重置为0用于计算本次关卡获得金币
     player.kills = 0;
     player.damage = 10;
+    runBaseDamage = player.damage;   // 记录开局火力基线，供火力基底耦合（dmgCouple）使用
     player.fireRate = 500;
     player.bulletSpeed = 10;
     player.bulletPiercing = 1;
@@ -6582,9 +6582,6 @@ function startGame() {
     recomputeEarthMods();
     // 五行相生协同：开局按初始已拥有技能计算
     recomputeWuxingSynergy();
-    // C 难度重平衡：记录开局技能等级总和基线（开局重置/天赋折入后、任何局内升级前）
-    runBaseSkillSum = 0;
-    for (const t of acquiredSkills) runBaseSkillSum += (skills[t] ? skills[t].level : 0);
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
