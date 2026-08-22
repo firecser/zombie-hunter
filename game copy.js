@@ -82,7 +82,7 @@ const WALL_X1 = screenWidth;          // 横跨全屏，完全阻拦
 // 城墙玩法平衡：① 僵尸不再每帧啃墙，而是按间隔「啄」一次（大幅降低攻击频率，旧模型有 8px 击退等效 ~每 8/sp 帧一次）
 const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
 // ② 城墙基础血量大幅提高（替代原坦克 100），以承受竖直下落的持续堆积
-const WALL_MAX_HEALTH = 600;          // 城墙基础血量（原坦克 100 的 6 倍）
+const WALL_MAX_HEALTH = 3000;         // 城墙基础血量（原坦克 100 → 600 → 3000，承受竖直下落的持续堆积）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
 // 即使被后坐力击退，敌人也停在边界处，避免被推出屏幕后无法被瞄准、却仍贴墙持续掉血。
@@ -457,6 +457,7 @@ let adDemoTimer = 0;
 let adBombExploded = false;     // 炸弹是否已爆炸
 let adZombieCount = 0;          // 统计击杀僵尸数
 let adGoldEarned = 0;           // 实际获得金币数
+let stageGoldEarned = 0;        // 本次关卡结算获得的金币（用于结算弹窗突出显示）
 let goldAtStageStart = 0;        // 进入关卡前的金币（用于胜利后累积）
 // 第一关买量演示（首个炸弹+初始金币怪）是否已展示过：整个玩家生命周期只出现一次，持久化
 let l1IntroDone = false;
@@ -4001,6 +4002,29 @@ function drawStageSelect() {
 }
 
 // 游戏结束界面
+// 结算弹窗中突出显示「本次获得金币」的金色横幅（绘制与点击无关，仅展示）
+function drawGoldBanner(x, y, w, h, amount) {
+    const g = ctx.createLinearGradient(x, y, x, y + h);
+    g.addColorStop(0, '#fff4c2');
+    g.addColorStop(0.5, '#ffd24d');
+    g.addColorStop(1, '#efa515');
+    ctx.fillStyle = g;
+    roundRect(ctx, x, y, w, h, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#b9790a';
+    ctx.lineWidth = 2;
+    roundRect(ctx, x, y, w, h, 10);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#7a4a00';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillText('🪙 本次获得金币', x + w / 2, y + 16);
+    ctx.fillStyle = '#5a3300';
+    ctx.font = 'bold 26px Arial';
+    ctx.fillText(String(amount), x + w / 2, y + 38);
+}
+
 function drawGameOver() {
     // 半透明遮罩
     ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
@@ -4008,7 +4032,7 @@ function drawGameOver() {
     
     // 弹窗
     const modalW = Math.min(300, screenWidth * 0.85);
-    const modalH = 220;
+    const modalH = 248;
     const modalX = (screenWidth - modalW) / 2;
     const modalY = screenHeight - 130 - modalH;
 
@@ -4024,26 +4048,28 @@ function drawGameOver() {
     ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('👾 游戏结束', screenWidth / 2, modalY + 35);
+    ctx.fillText('👾 游戏结束', screenWidth / 2, modalY + 34);
     
     // 统计信息
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#cfd8e3';
     ctx.font = '13px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 75);
-    ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 100);
-    
+    ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 62);
+    ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 84);
     const minutes = Math.floor(gameTime / 60000);
     const seconds = Math.floor((gameTime % 60000) / 1000);
-    ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 125);
+    ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 106);
+    
+    // 突出显示：本次获得金币
+    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32, 50, stageGoldEarned);
     
     // 按钮（皇室战争风立体按钮）：重玩 / 变强 / 返回
-    const btnSize = 44;
+    const btnSize = 42;
     const gap = 12;
     const totalW = btnSize * 3 + gap * 2;
     const startX = screenWidth / 2 - totalW / 2;
-    const btnY = modalY + 150;
+    const btnY = modalY + 184;
 
     drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'red');
     drawRoyaleBevelButton({ x: startX + (btnSize + gap), y: btnY, w: btnSize, h: btnSize, r: 10 }, '💪', 'gold');
@@ -4067,7 +4093,7 @@ function drawVictory() {
     
     // 弹窗
     const modalW = Math.min(300, screenWidth * 0.85);
-    const modalH = 250;
+    const modalH = 268;
     const modalX = (screenWidth - modalW) / 2;
     const modalY = screenHeight - 130 - modalH;
     
@@ -4082,59 +4108,41 @@ function drawVictory() {
     ctx.font = 'bold 22px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🎉 通关成功！', screenWidth / 2, modalY + 38);
+    ctx.fillText('🎉 通关成功！', screenWidth / 2, modalY + 34);
     
     // 统计信息
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#cfd8e3';
     ctx.font = '13px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`🏆 第${currentStage}关 完成！`, screenWidth / 2, modalY + 78);
-    ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 106);
-    ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 130);
-    ctx.fillText(`获得金币: ${player.gold}`, screenWidth / 2, modalY + 154);
+    ctx.fillText(`🏆 第${currentStage}关 完成！`, screenWidth / 2, modalY + 62);
+    ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 84);
+    ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 106);
     
-    // 按钮（正方形，与技能图标样式一致）
+    // 突出显示：本次获得金币
+    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32, 50, stageGoldEarned);
+    
+    // 按钮（正方形，与技能图标样式一致）—— 下一关 / 重玩 / 关卡（全通关时无「下一关」）
     const btnSize = 48;
     const gap = 15;
-    const btnY = modalY + 185;
-
-    if (currentStage < STAGES.length) {
-        const btnSize = 48;
-        const gap = 15;
-        const totalW = btnSize * 3 + gap * 2;
-        const startX = screenWidth / 2 - totalW / 2;
-        const btnY = modalY + 185;
-
-        drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '▶️', 'green');
-        drawRoyaleBevelButton({ x: startX + btnSize + gap, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'gold');
-        drawRoyaleBevelButton({ x: startX + (btnSize + gap) * 2, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
-
+    const btnY = modalY + 186;
+    const buttons = (currentStage < STAGES.length)
+        ? [ { icon: '▶️', color: 'green', label: '下一关' },
+            { icon: '🔄', color: 'gold',  label: '重玩' },
+            { icon: '📋', color: 'blue',  label: '关卡' } ]
+        : [ { icon: '🔄', color: 'gold',  label: '重玩' },
+            { icon: '📋', color: 'blue',  label: '关卡' } ];
+    const totalW = btnSize * buttons.length + gap * (buttons.length - 1);
+    const startX = screenWidth / 2 - totalW / 2;
+    buttons.forEach((b, i) => {
+        const bx = startX + i * (btnSize + gap);
+        drawRoyaleBevelButton({ x: bx, y: btnY, w: btnSize, h: btnSize, r: 10 }, b.icon, b.color);
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 10px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText('下一关', startX + btnSize / 2, btnY + btnSize + 14);
-        ctx.fillText('重玩', startX + btnSize + gap + btnSize / 2, btnY + btnSize + 14);
-        ctx.fillText('关卡', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize + 14);
-    } else {
-        // 全通关 - 只显示两个按钮
-        const btnSize = 48;
-        const gap = 15;
-        const totalW = btnSize * 2 + gap;
-        const startX = screenWidth / 2 - totalW / 2;
-        const btnY = modalY + 185;
-
-        drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'gold');
-        drawRoyaleBevelButton({ x: startX + btnSize + gap, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
-
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 10px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText('重玩', startX + btnSize / 2, btnY + btnSize + 14);
-        ctx.fillText('关卡', startX + btnSize + gap + btnSize / 2, btnY + btnSize + 14);
-    }
+        ctx.fillText(b.label, bx + btnSize / 2, btnY + btnSize + 14);
+    });
 }
 
 // 升级面板（带外框的精美弹窗）
@@ -5812,19 +5820,7 @@ function levelUp() {
     player.exp -= player.expToLevel;
     player.expToLevel = EXP_BASE * player.level;   // 升级所需 cost(L→L+1) = EXP_BASE*L（1→2需EXP_BASE、2→3需2*EXP_BASE…）
     
-    // 每5级获得炸弹（5级、10级、15级、20级）
-    justGotBomb = false;
-    bombFull = false;
-    if (player.level % 5 === 0) {
-        if (bombCount < bombMaxCount) {
-            bombCount++;
-            justGotBomb = true;
-        } else {
-            // 炸弹已满，仍然显示提示但告知已满
-            bombFull = true;
-            justGotBomb = true;
-        }
-    }
+    // 注：炸弹不再随等级获得；仅广告奖励与初始引导(bombCount=1)提供炸弹。
     
     // 播放升级音效
     AudioSystem.playLevelUp();
@@ -6013,6 +6009,7 @@ function gameOver() {
     
     // 将本次关卡获得的金币累加到总金币（即使失败也不丢失之前的金币）
     player.gold = goldAtStageStart + player.gold;
+    stageGoldEarned = player.gold - goldAtStageStart;   // 本次获得（仅击杀金币，失败无通关奖励）
     
     savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
@@ -6026,6 +6023,7 @@ function victory() {
     
     // 将本次关卡获得的金币累加到总金币（击杀金币 + 直线型通关奖励）
     player.gold = goldAtStageStart + player.gold + getStageGoldReward(currentStage);
+    stageGoldEarned = player.gold - goldAtStageStart;   // 本次获得（击杀金币 + 通关奖励）
     
     saveProgress();
     savePlayerData();  // 保存玩家数据
@@ -13927,17 +13925,17 @@ wx.onTouchStart((e) => {
         }
         }
     } else if (gameState === 'gameOver') {
-        // 与drawGameOver一致的弹窗位置（重玩 / 变强 / 返回）
+        // 与drawGameOver一致的弹窗位置（正方形按钮：重玩 / 变强 / 返回）
         const modalW = Math.min(300, screenWidth * 0.85);
-        const modalH = 220;
+        const modalH = 248;
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
 
-        const btnSize = 44;
+        const btnSize = 42;
         const gap = 12;
         const totalW = btnSize * 3 + gap * 2;
         const startX = screenWidth / 2 - totalW / 2;
-        const btnY = modalY + 150;
+        const btnY = modalY + 184;
 
         if (y >= btnY && y <= btnY + btnSize) {
             if (x >= startX && x <= startX + btnSize) {
@@ -13963,54 +13961,52 @@ wx.onTouchStart((e) => {
             }
         }
     } else if (gameState === 'victory') {
-        // 与drawVictory一致的弹窗位置
+        // 与drawVictory一致的弹窗位置（正方形按钮：下一关 / 重玩 / 关卡）
         const modalW = Math.min(300, screenWidth * 0.85);
-        const modalH = 250;
+        const modalH = 268;
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
-        
-        const btnW = 68;
-        const btnH = 30;
-        const gap = 6;
-        const btnY = modalY + 185;
-        
-        if (currentStage < STAGES.length) {
-            const btnCount = 3;
-            const totalW = btnW * btnCount + gap * (btnCount - 1);
-            const startX = screenWidth / 2 - totalW / 2;
-            
-            if (y >= btnY && y <= btnY + btnH) {
-                if (x >= startX && x <= startX + btnW) {
-                    // 下一关
-                    if (currentStage < STAGES.length) {
-                        currentStage++;
-                    }
+
+        const btnSize = 48;
+        const gap = 15;
+        const btnY = modalY + 186;
+        const btnCount = (currentStage < STAGES.length) ? 3 : 2;
+        const totalW = btnSize * btnCount + gap * (btnCount - 1);
+        const startX = screenWidth / 2 - totalW / 2;
+
+        if (y >= btnY && y <= btnY + btnSize) {
+            let idx = -1;
+            for (let i = 0; i < btnCount; i++) {
+                const bx = startX + i * (btnSize + gap);
+                if (x >= bx && x <= bx + btnSize) { idx = i; break; }
+            }
+            if (idx < 0) return;
+            if (currentStage < STAGES.length) {
+                // 3 按钮：0=下一关, 1=重玩, 2=关卡
+                if (idx === 0) {
+                    currentStage++;
                     startGame();
                     return;
-                } else if (x >= startX + btnW + gap && x <= startX + btnW * 2 + gap) {
+                } else if (idx === 1) {
                     startGame();
                     return;
-                } else if (x >= startX + (btnW + gap) * 2 && x <= startX + totalW) {
-                    levelReturnHandled = true;  // 标记已处理
+                } else {
+                    levelReturnHandled = true;
                     gameState = 'mainMenu';
-                    mainMenuTab = 'level';  // 确保回到关卡Tab
-                isSkillLab = false;
+                    mainMenuTab = 'level';
+                    isSkillLab = false;
                     return;
                 }
-            }
-        } else {
-            const totalW = btnW * 2 + gap;
-            const startX = screenWidth / 2 - totalW / 2;
-
-            if (y >= btnY && y <= btnY + btnH) {
-                if (x >= startX && x <= startX + btnW) {
+            } else {
+                // 全通关 2 按钮：0=重玩, 1=关卡
+                if (idx === 0) {
                     startGame();
                     return;
-                } else if (x >= startX + btnW + gap && x <= startX + totalW) {
-                    levelReturnHandled = true;  // 标记已处理
+                } else {
+                    levelReturnHandled = true;
                     gameState = 'mainMenu';
-                    mainMenuTab = 'level';  // 确保回到关卡Tab
-                isSkillLab = false;
+                    mainMenuTab = 'level';
+                    isSkillLab = false;
                     return;
                 }
             }
