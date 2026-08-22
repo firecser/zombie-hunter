@@ -117,16 +117,19 @@ const SAFE_TOP_OFFSET = statusBarHeight + 10;
 // 每段相对前段 HP ×1.10–1.16（小步快走）。段间不强制按严格 2/3 波等宽，按 player.level 落点分配。
 // 段 1-2 = 新手缓坡；段 3-7 = 平滑升压；段 8 = 极限；段 9 = 终极（仅 wave 20 一波 + Boss）。
 // 各段独立叠加 stage.healthMult/damageMult，因此 STAGES 字段整体下调以让 tier 主控曲线。
+// A+B 难度重平衡（v1.1.65）：前期降档(平滑)，后期抬陡(加压)。
+//   - 波1-2 hpT 1.00→0.85、波3-4 hpT 1.10→0.95（前期更易清，给技能成长窗口）
+//   - 波16-17 / 18-19 / 20 阶梯抬陡（2.0/2.4 → 2.4/3.0 → 3.4），后段不再空虚
 const WAVE_TIER_TABLE = [
-    { tier:1, from:1,  to:2,  hpT:1.00, dmgT:1.00, note:'新手' },
-    { tier:2, from:3,  to:4,  hpT:1.10, dmgT:1.02, note:'热身' },
+    { tier:1, from:1,  to:2,  hpT:0.85, dmgT:1.00, note:'新手' },
+    { tier:2, from:3,  to:4,  hpT:0.95, dmgT:1.02, note:'热身' },
     { tier:3, from:5,  to:7,  hpT:1.24, dmgT:1.06, note:'升压' },
     { tier:4, from:8,  to:10, hpT:1.42, dmgT:1.11, note:'考验' },
     { tier:5, from:11, to:12, hpT:1.50, dmgT:1.18, note:'压力' },
     { tier:6, from:13, to:15, hpT:1.62, dmgT:1.22, note:'高压' },
-    { tier:7, from:16, to:17, hpT:1.76, dmgT:1.30, note:'极限' },
-    { tier:8, from:18, to:19, hpT:1.92, dmgT:1.38, note:'突破' },
-    { tier:9, from:20, to:20, hpT:2.10, dmgT:1.48, note:'终极' }
+    { tier:7, from:16, to:17, hpT:2.00, dmgT:1.34, note:'极限' },
+    { tier:8, from:18, to:19, hpT:2.40, dmgT:1.46, note:'突破' },
+    { tier:9, from:20, to:20, hpT:3.40, dmgT:1.70, note:'终极' }
 ];
 function getWaveTier(wave) {
     for (const t of WAVE_TIER_TABLE) {
@@ -460,12 +463,13 @@ function buildWavePlan() {
         }
         // 剩余用普通怪(1经验)填满，保证经验总和精确等于 targetExp
         while (remaining > 0) { comp.push('normal'); remaining -= 1; }
-        // 密度提升：每只怪有 (MONSTER_DENSITY-1) 概率再复制一只 → 总数量约 ×DENSITY，
-        // 配合出怪时 exp 除以 DENSITY（见 updatePendingSpawns），总经验仍为 targetExp（升级节奏不变）。
-        if (MONSTER_DENSITY > 1) {
+        // A 难度重平衡：前 5 波降密度（平滑前期压力），后期维持 ×1.5。
+        // 密度仅影响「总怪数」，出怪经验按同比例除以 density → 总经验仍=targetExp（升级节奏不变）。
+        const waveDensity = (i <= 5) ? Math.min(MONSTER_DENSITY, 1.2) : MONSTER_DENSITY;
+        if (waveDensity > 1) {
             const extra = [];
             for (const t of comp) {
-                if (Math.random() < (MONSTER_DENSITY - 1)) extra.push(t);
+                if (Math.random() < (waveDensity - 1)) extra.push(t);
             }
             comp.push(...extra);
         }
@@ -5246,7 +5250,8 @@ function updateBullets() {
                         if (z !== zombie) {
                             const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
                             if (d < explosionRadius) {
-                                let aoeDamage = damage * (0.22 + skills.explosive.level * 0.075) * _em.explDmgMul;
+                                // B 难度重平衡：AOE 系数削（0.22+Lv*0.075 → 0.15+Lv*0.05），避免拿到爆炸弹后等效 DPS 暴涨导致后段空虚
+                                let aoeDamage = damage * (0.15 + skills.explosive.level * 0.05) * _em.explDmgMul;
                                 damageZombie(z, aoeDamage, false, '火');
                                 if (_em.explIgnite) applyBurn(z, player.damage * _em.burnDmgMul, BURN_DURATION);
                                 if (_em.explArmorBreak) {                   // 破甲：爆炸使范围内敌人受伤增加（持续一段时间，纯数值不干扰走位）
@@ -6149,6 +6154,14 @@ function updateDamageNumbers() {
 function spawnZombies(dt) {
     const stage = getCurrentStage();
     if (nextWaveIdx < WAVE_PLAN.length && gameTime >= WAVE_PLAN[nextWaveIdx].spawnAt) {
+        // B 难度重平衡：墙血随波收紧（5000 - wave*120），后期容错更低、失误代价更大，消除后段空虚感。
+        // 只在更低时下调，绝不回调，保证生存资源单调收紧。
+        const waveNum = WAVE_PLAN[nextWaveIdx].i;
+        const tightened = Math.max(2600, WALL_MAX_HEALTH - waveNum * 120);
+        if (tightened < player.maxHealth) {
+            player.maxHealth = tightened;
+            if (player.health > player.maxHealth) player.health = player.maxHealth;
+        }
         spawnWave(WAVE_PLAN[nextWaveIdx], stage);
         wavesSpawned++;
         nextWaveIdx++;
@@ -6297,9 +6310,23 @@ function showUpgradePanel() {
         // 技能实验室：列出全部候选卡（含火力强化的所有可用分支），不随机抽 3
         upgradeOptions = cards;
     } else {
-        // 加权抽取 3 张：基础大类卡（尤其火力强化基础）加权，避免被多条分支卡挤掉。
-        // 基础与分支不互斥，都应能稳定刷出（"一定概率"）。
-        upgradeOptions = weightedPick3(cards);
+        // A 难度重平衡：前 4 波（共 4 次三选一）强制含「火力强化」基础卡，
+        // 保证玩家前期稳定拿到伤害成长，避免随机池(火力卡仅 1/6)导致前期火力卡死。
+        const forceDamage = (wavesSpawned >= 1 && wavesSpawned <= 4);
+        if (forceDamage) {
+            const dmgCard = cards.find(c => c.type === 'damage' && !c.branch);
+            if (dmgCard) {
+                const rest = cards.filter(c => c !== dmgCard);
+                const others = weightedPick3(rest).filter(c => c !== dmgCard);
+                upgradeOptions = [dmgCard, ...others].slice(0, 3);
+            } else {
+                upgradeOptions = weightedPick3(cards);
+            }
+        } else {
+            // 加权抽取 3 张：基础大类卡（尤其火力强化基础）加权，避免被多条分支卡挤掉。
+            // 基础与分支不互斥，都应能稳定刷出（"一定概率"）。
+            upgradeOptions = weightedPick3(cards);
+        }
     }
     selectedUpgrade = -1;
 }
