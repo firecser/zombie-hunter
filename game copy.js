@@ -14616,6 +14616,16 @@ wx.onTouchEnd((e) => {
         return;
     }
 
+    // 签到/每日任务弹窗：顶层拦截（不依赖 mainMenuTab，避免 level/talent/rank Tab 时穿透）
+    if (gameState === 'mainMenu' && signModal.show) {
+        handleSignInClick(endX, endY);
+        return;
+    }
+    if (gameState === 'mainMenu' && dailyTaskModal.show) {
+        handleDailyTaskClick(endX, endY);
+        return;
+    }
+
     // 内嵌小游戏（大力射手）：蓄力结束/按钮
     if (gameState === 'mainMenu' && activeMiniGame === 'sheqiu') {
         handleMiniGameDlsqInput(endX, endY);
