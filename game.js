@@ -1309,10 +1309,11 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 // → 击杀所需伤害 ∝ 经验（1:2:4）。fast 为高速脆皮（同 1 经验，血略低），不在比例关系约束内
 // v1.1.4 难度重平衡：基础血量 ×1.5（总血量负载约为原版 2.25 倍；EXP_BASE 在 v1.1.6 由3降为2以缓解 lv5 前怪量过密）
 const zombieTypes = {
-    normal: { health: 60, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 5 },
-    fast:   { health: 38, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 8 },
-    tank:   { health: 120, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 15 },
-    boss:   { health: 240, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 4, gold: 50 }
+    // 击杀金币仅作战斗手感，量级已压低，使「直线型通关奖励」成为金币获取的主导直线
+    normal: { health: 60, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 2 },
+    fast:   { health: 38, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 3 },
+    tank:   { health: 120, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 5 },
+    boss:   { health: 240, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 4, gold: 15 }
 };
 
 // ==================== 升级选项 ====================
@@ -6023,8 +6024,8 @@ function victory() {
     gameState = 'victory';
     gameRunning = false;
     
-    // 将本次关卡获得的金币累加到总金币
-    player.gold = goldAtStageStart + player.gold;
+    // 将本次关卡获得的金币累加到总金币（击杀金币 + 直线型通关奖励）
+    player.gold = goldAtStageStart + player.gold + getStageGoldReward(currentStage);
     
     saveProgress();
     savePlayerData();  // 保存玩家数据
@@ -6933,13 +6934,29 @@ function getPlayerRank() {
 }
 
 // 升级天赋
+// ========== 金币经济模型（v1.1.58 重算） ==========
+// 获取曲线 = 直线：每关通关固定奖励 = GOLD_BASE + GOLD_SLOPE·(关序号-1)，斜率恒定、无波动。
+// 消耗曲线 = 二次幂：升级到 L+1 级花费 = round(BASE·(L+1)² / COST_QUAD_SCALE)，
+//   早期廉价、后期陡峭，与线性收入交替形成自然门槛（早期收入盖过消耗，高阶被二次幂卡住）。
+const GOLD_BASE = 200;       // 第1关通关基础金币
+const GOLD_SLOPE = 30;       // 直线斜率：每往后一关 +30 金币（第60关≈1970）
+const COST_QUAD_SCALE = 4;   // 调谐系数：让既有 BASE 落到合理量级，不改变幂次
+function getStageGoldReward(stageId) {
+    return GOLD_BASE + GOLD_SLOPE * Math.max(0, (stageId | 0) - 1);
+}
+function getTalentCost(talent) {
+    const next = talent.level + 1;                 // 目标等级（1 起）
+    return Math.round((talent.cost * next * next) / COST_QUAD_SCALE);
+}
+
 function upgradeTalent(talentId) {
     const talent = talentData[talentId];
     if (talent.level >= talent.max) return false; // 已满级
     if (!isTalentUnlocked(talentId)) return false; // 未解锁
-    if (player.gold < talent.cost) return false; // 金币不足
+    const cost = getTalentCost(talent);
+    if (player.gold < cost) return false; // 金币不足
     
-    player.gold -= talent.cost;
+    player.gold -= cost;
     talent.level++;
     savePlayerData();
     return true;
@@ -7736,8 +7753,9 @@ function drawTalentModal() {
     
     // 升级按钮
     if (canUpgrade) {
-        // 检查金币是否足够
-        const hasEnoughGold = player.gold >= talent.cost;
+        // 检查金币是否足够（二次幂消耗）
+        const cost = getTalentCost(talent);
+        const hasEnoughGold = player.gold >= cost;
         
         if (hasEnoughGold) {
             drawRoyaleBevelButton({ x: upgradeBtnX, y: btnY, w: btnW, h: btnH, r: 10 }, '升级', 'gold');
@@ -7745,7 +7763,7 @@ function drawTalentModal() {
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'alphabetic';
-            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + btnH - 8);
+            ctx.fillText('🪙 ' + cost, screenWidth / 2 + btnW / 2 + 10, btnY + btnH - 8);
         } else {
             // 金币不足
             drawRoyaleBevelButton({ x: upgradeBtnX, y: btnY, w: btnW, h: btnH, r: 10 }, '升级', 'red');
@@ -7753,7 +7771,7 @@ function drawTalentModal() {
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'alphabetic';
-            ctx.fillText('🪙 ' + talent.cost, screenWidth / 2 + btnW / 2 + 10, btnY + btnH - 8);
+            ctx.fillText('🪙 ' + cost, screenWidth / 2 + btnW / 2 + 10, btnY + btnH - 8);
         }
     } else if (!isUnlocked) {
         ctx.fillStyle = '#444';
@@ -7815,8 +7833,8 @@ function handleTalentModalClick(x, y) {
     talentUpgradeBtn = { x: screenWidth / 2 + 10, y: btnY, w: btnW, h: btnH };
     if (canUpgrade && x >= talentUpgradeBtn.x && x <= talentUpgradeBtn.x + talentUpgradeBtn.w &&
         y >= talentUpgradeBtn.y && y <= talentUpgradeBtn.y + talentUpgradeBtn.h) {
-        // 检查金币是否足够
-        if (player.gold < talent.cost) {
+        // 检查金币是否足够（二次幂消耗）
+        if (player.gold < getTalentCost(talent)) {
             // 金币不足，提示
             wx.showToast({ title: '金币不足！', icon: 'none' });
             return;
