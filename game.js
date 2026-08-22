@@ -1059,11 +1059,20 @@ const player = {
     hurtTime: 0
 };
 
+// ==================== 技能升级平衡常量（v1.1.59） ====================
+// 集中定义，供 SKILL_DEFS 描述与 shoot* 伤害落地统一引用（必须定义在使用前，避免 TDZ）
+// 覆盖类升级（多子弹 / 穿透 / 弹射目标 / 扩大范围）每多 1 个「目标单位」单发伤害 -20%，
+// 使「多目标 = 覆盖面广但单发弱」的权衡成立，保持纯伤 > 覆盖 的阶梯关系。
+const MULTI_BULLET_DMG_PENALTY = 0.20;   // 子弹：每多 1 发，单发伤害 -20%（用户要求：多加一颗子弹伤害减少20%）
+const REACH_DMG_PENALTY = 0.20;          // 每多 1 穿透 / 1 弹射目标：单发伤害 -20%（用户要求：穿透+1伤害减少20%）
+const PURE_DMG_BASE = 1.25;              // 基础「火力强化」每级倍率（原 1.14）
+const PURE_DMG_BRANCH = 1.40;            // 纯伤害分支每级倍率（原 ~1.20）
+
 // ==================== 技能系统 ====================
 // 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
 // 运行时仅保留 skills[type].level；category: bullet=弹道, buff=增益, field=战场部署, cc=控场
 const SKILL_DEFS = {
-    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +14%',     apply(lv){ player.damage *= 1.14; },
+    damage:     { type:'damage',     name:'火力强化', icon:'🔫', element:'物理', category:'bullet', maxLevel:99, desc:'伤害 +' + Math.round((PURE_DMG_BASE - 1) * 100) + '%',     apply(lv){ player.damage *= PURE_DMG_BASE; },
                   // 大类分支树：选分支 = 火力强化继续升级（不占新槽）；reqLevel 解锁，prereq 前置，mutex 互斥不进池
                   // 分支可反复升级（branches[bid] 存整数等级，至 maxLevel 止）；图标沿用大类 icon（🔫），不另设
                   // 数值平衡（以 L20 极限为基准，逐级穷举）：三条进攻分支每级 DPS 倍率(dmgMul/fireMul) 收敛到同一曲线 ≈1+0.25*bl，
@@ -1071,12 +1080,12 @@ const SKILL_DEFS = {
                   // 基础增幅 +14%/级（原 +12%）：爆炸弹主键不随自身等级增长、且半径随等级涨到 ~440px，
                   // 在「稍有聚集」时就反超火力强化；提至 14% 把 crossover 推到「密集群才反超」，还原火力强化=单体/Boss、爆炸弹=群伤的定位。
                   branches: {
-                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+20%/级、射速-3%/级', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
-                                   effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(1.20, bl); m.fireMul *= Math.pow(1.03, bl); } },
+                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级、射速-3%/级', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(PURE_DMG_BRANCH, bl); m.fireMul *= Math.pow(1.03, bl); } },
                     rapidFire:   { name:'狂暴连射', desc:'射速+22%/级，每发伤害-4%/级',             reqLevel:8, prereq:[], mutex:['charge'], maxLevel:5,
                                    effect(bl,m){ m.fireMul *= Math.pow(0.82, bl); m.dmgMul *= Math.pow(0.96, bl); } },
-                    charge:      { name:'蓄能射击', desc:'射速-13%/级，命中伤害+35%/级',            reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
-                                   effect(bl,m){ m.fireMul *= Math.pow(1.147, bl); m.dmgMul *= Math.pow(1.35, bl); } },
+                    charge:      { name:'蓄能射击', desc:'射速-13%/级，命中伤害+55%/级',            reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
+                                   effect(bl,m){ m.fireMul *= Math.pow(1.147, bl); m.dmgMul *= Math.pow(1.55, bl); } },
                     armorPierce: { name:'穿甲弹头', desc:'对坦克/Boss额外+30%/级伤害',               reqLevel:11, prereq:['heavyBarrel'], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.armorBonus += 0.30*bl; } },
                     knockback:   { name:'后坐力',   desc:'命中击退敌人（力度随等级）',               reqLevel:14, prereq:[], mutex:[], maxLevel:5,
@@ -1109,8 +1118,8 @@ const SKILL_DEFS = {
                     // 注：爆炸弹基础等级已随等级扩大爆炸范围（explosionRadius = (40+level*20)），故不另设纯范围分支，避免与原始效果重复
                     // 富燃料填充 / 热能爆炸 二者互斥、同档(reqLevel 2)二选一：群伤增伤 vs 单体高伤+范围缩小
                     // 破甲 / 引燃 二者互斥、同档(reqLevel 4)二选一：爆发增幅路线 vs 灼伤链路线（引燃可继续点焚身 Lv5）
-                    fuelFill:   { name:'富燃料填充', desc:'爆炸伤害+20%/级',                 reqLevel:5, prereq:[], mutex:['thermalExplode'], maxLevel:5,
-                                  effect(bl,m){ m.explDmgMul *= Math.pow(1.20, bl); } },
+                    fuelFill:   { name:'富燃料填充', desc:'爆炸伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级',                 reqLevel:5, prereq:[], mutex:['thermalExplode'], maxLevel:5,
+                                  effect(bl,m){ m.explDmgMul *= Math.pow(PURE_DMG_BRANCH, bl); } },
                     thermalExplode:{ name:'热能爆炸', desc:'爆炸伤害+38%/级，范围明显缩小',    reqLevel:5, prereq:[], mutex:['fuelFill'], maxLevel:5,
                                   effect(bl,m){ m.explDmgMul *= Math.pow(1.38, bl); m.explRadiusCut += 40 * bl; } },
                     // 破甲 / 引燃 同档(Lv4)互斥二选一：爆发增幅路线 vs 灼伤链路线（引燃可继续点焚身 Lv5 走完灼烧链；破甲走爆发增幅）
@@ -1138,8 +1147,8 @@ const SKILL_DEFS = {
                     // 链式传导 / 高压电弧 同档(Lv2)互斥：多目标路线 vs 高伤远程路线
                     chainConduct:{ name:'链式传导', desc:'弹射目标 +1/级',                   reqLevel:5, prereq:[], mutex:['highVoltage'], maxLevel:5,
                                   effect(bl,m){ m.chainCountBoost += bl; } },
-                    highVoltage:{ name:'高压电弧', desc:'弹射伤害 +20%/级，弹射距离 +8/级', reqLevel:5, prereq:[], mutex:['chainConduct'], maxLevel:5,
-                                  effect(bl,m){ m.chainDmgMul *= Math.pow(1.20, bl); m.chainRangeBoost += 8 * bl; } },
+                    highVoltage:{ name:'高压电弧', desc:'弹射伤害 +' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级，弹射距离 +8/级', reqLevel:5, prereq:[], mutex:['chainConduct'], maxLevel:5,
+                                  effect(bl,m){ m.chainDmgMul *= Math.pow(PURE_DMG_BRANCH, bl); m.chainRangeBoost += 8 * bl; } },
                     // 电磁脉冲 / 静电场 同档(Lv4)互斥：单体硬控路线 vs 群体领域路线
                     emp:        { name:'电磁脉冲', desc:'命中麻痹概率 +6%/级，麻痹时长 +0.1s/级', reqLevel:11, prereq:[], mutex:['staticField'], maxLevel:5,
                                   effect(bl,m){ m.empStunChance += 0.06 * bl; m.empStunDuration += 100 * bl; } },
@@ -1170,15 +1179,15 @@ const SKILL_DEFS = {
                                   effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.iceSpike = true; } },
                     // —— 水专属分支（水的特点：控制锁 · 冰封处决 · 冰域铺场 · 冰霜新星）——
                     // 冰川 / 霜寒 同档(Lv2)互斥：强化范围冰爆（群体铺场） vs 强化单体减速（控制更深）
-                    glacier:    { name:'冰川',       desc:'冰霜爆炸范围 +12%/级，范围冻结概率 +8%/级', reqLevel:5, prereq:[], mutex:['frostBite'], maxLevel:5,
-                                  effect(bl,m){ m.freezeRadiusBoost += 0.12 * bl; m.freezeChanceBoost += 0.08 * bl; } },
+                    glacier:    { name:'冰川',       desc:'冰霜爆炸范围 +12%/级，范围冻结概率 +8%/级；扩大范围使单发伤害 -20%/级', reqLevel:5, prereq:[], mutex:['frostBite'], maxLevel:5,
+                                  effect(bl,m){ m.freezeRadiusBoost += 0.12 * bl; m.freezeChanceBoost += 0.08 * bl; m.dmgMul *= Math.pow(1 - REACH_DMG_PENALTY, bl); } },
                     frostBite:  { name:'霜寒',       desc:'减速幅度 +5%/级（移动更慢）',       reqLevel:5, prereq:[], mutex:['glacier'], maxLevel:5,
                                   effect(bl,m){ m.slowFactorBoost += 0.05 * bl; } },
                     deepFreeze: { name:'深寒',       desc:'冻结持续时间 +20%/级',               reqLevel:8, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.freezeDurationBoost += 0.20 * bl; } },
                     // 冰霜新星 / 极寒领域 同档(Lv4)互斥：爆发向（范围必冻+爆炸增伤） vs 场域向（持续冰域）
-                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+5%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）', reqLevel:11, prereq:[], mutex:['polarField'], maxLevel:5,
-                                  effect(bl,m){ m.frostNovaDmgMul *= Math.pow(1.05, bl); m.freezeRadiusBoost += 0.20 * bl; m.frostNovaFreezeChance += 0.15 * bl; } },
+                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+5%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）；扩大范围使单发伤害 -20%/级', reqLevel:11, prereq:[], mutex:['polarField'], maxLevel:5,
+                                  effect(bl,m){ m.frostNovaDmgMul *= Math.pow(1.05, bl); m.freezeRadiusBoost += 0.20 * bl; m.frostNovaFreezeChance += 0.15 * bl; m.dmgMul *= Math.pow(1 - REACH_DMG_PENALTY, bl); } },
                     polarField: { name:'极寒领域',   desc:'冰弹击中敌人时，25%/级概率生成持续减速/冰冻领域', reqLevel:11, prereq:[], mutex:['frostNova'], maxLevel:5,
                                   effect(bl,m){ m.polarFieldChance += 0.25 * bl; } },
                     // Lv5 质变：冰封处决（对标火·焚身 / 金·超导）—— 对被冻结目标追加最大生命%伤害，随关卡血量膨胀放大，是单树后期核心
@@ -1233,8 +1242,8 @@ const SKILL_DEFS = {
                                   effect(bl,m){ m.earthHitRadiusMul *= Math.pow(1.08, bl); if (bl >= 5) m.rockShard = true; } },
                     // —— 土专属分支 ——
                     // 裂地穿刺：强化地刺每跳伤害与视觉高度（土系输出核心）
-                    fissure:    { name:'裂地穿刺', desc:'地刺伤害+20%/级，地刺高度+10%/级',       reqLevel:5, prereq:[], mutex:[], maxLevel:5,
-                                  effect(bl,m){ m.fissureDmgMul *= Math.pow(1.20, bl); m.earthLineLengthMul *= Math.pow(1.10, bl); } },
+                    fissure:    { name:'裂地穿刺', desc:'地刺伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级，地刺高度+10%/级',       reqLevel:5, prereq:[], mutex:[], maxLevel:5,
+                                  effect(bl,m){ m.fissureDmgMul *= Math.pow(PURE_DMG_BRANCH, bl); m.earthLineLengthMul *= Math.pow(1.10, bl); } },
                     // 岩盾：命中概率留下临时屏障，阻挡并承受敌人攻击（土系防御核心）
                     rockShield: { name:'岩盾',       desc:'命中 20%/级 概率留下岩盾（持续 3s，可阻挡并承受敌人攻击）', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.shieldChance += 0.20 * bl; m.shieldHpMul *= Math.pow(1.25, bl); m.shieldDuration += 800 * bl; m.shieldWidthMul *= Math.pow(1.08, bl); } },
@@ -1356,7 +1365,7 @@ function explosiveMods() {
 }
 function freezeMods() {
     return (skills.freeze && skills.freeze._mods) ? skills.freeze._mods
-        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false,
+        : { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false, dmgMul: 1,
             freezeChanceBoost: 0, freezeRadiusBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, polarFieldChance: 0, frostNovaDmgMul: 1, frostNovaFreezeChance: 0, glacialDoomBonus: 0 };
 }
 function lightningMods() {
@@ -1405,8 +1414,7 @@ const ATTRIBUTE_BULLET_TYPES = ['explosive', 'freeze', 'lightning', 'wood', 'ear
 const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
 const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（属性技能不再提速子弹，释放 cd 缩短由「急速冷却」分支负责）
 // 多重弹每多发 1 颗子弹，单发伤害按此系数衰减（分母随额外子弹数线性增长）
-// 例：多发 5 颗(共 6 发) → 单发伤害 ×(1/1.75≈0.57)，总伤 ≈ 单发×3.43（旧每2级+1上限+2、总伤≈×3.0）
-const MULTI_BULLET_DMG_PENALTY = 0.15;
+// 例：多发 5 颗(共 6 发) → 单发伤害 ×(1/2.0≈0.50)，总伤 ≈ 单发×3.0（旧每2级+1上限+2、总伤≈×3.0）
 // 五行弹道标配基础伤害倍率：五行技能（非物理火力强化）基础直伤 +35%，作为五行压制的一部分；
 // 原仅干冰弹独有，v1.1.16 起成为所有五行弹道的标配（火/金/水/木/土 一致）。
 const ATTR_BASE_DMG_MUL = 1.35;
@@ -1575,7 +1583,7 @@ function recomputeFreezeMods() {
     const def = SKILL_DEFS.freeze;
     const m = {
         // 共享模板
-        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false, cdReduce: 0, canSplit: false,
+        bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, iceBurst: false, pierceBoost: 0, iceSpike: false, cdReduce: 0, canSplit: false, dmgMul: 1,
         // 水专属
         freezeChanceBoost: 0, freezeRadiusBoost: 0, slowFactorBoost: 0, freezeDurationBoost: 0, polarFieldChance: 0, frostNovaDmgMul: 1, frostNovaFreezeChance: 0, glacialDoomBonus: 0
     };
@@ -4653,6 +4661,10 @@ function shootAttribute(type) {
     // 五行弹道（非物理火力强化）统一 ×ATTR_BASE_DMG_MUL：自 v1.1.16 起 +35% 基础增伤成为五行标配（火/金/水/木/土 一致）
     const _baseMul = (type === 'damage') ? 1 : ATTR_BASE_DMG_MUL;   // 五行弹道（非物理）统一 +35% 基础增伤（标配）
     let dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
+    // 覆盖类减伤（用户要求）：穿透 +1 → 单发 -20%；弹射目标 +1 → 单发 -20%（仅闪电链）；冻结扩大范围 → 单发 -20%/级
+    if (m.pierceBoost) dmg /= (1 + REACH_DMG_PENALTY * m.pierceBoost);
+    if (type === 'lightning' && m.chainCountBoost) dmg *= Math.pow(1 - REACH_DMG_PENALTY, m.chainCountBoost);
+    if (type === 'freeze' && m.dmgMul) dmg *= m.dmgMul;
     let piercing = player.bulletPiercing + (m.pierceBoost || 0);
     const canSplit = !!m.canSplit;                          // 多重 Lv5 质变：命中分裂（由分支等级判定，与子弹数公式解耦）
 
@@ -4688,9 +4700,11 @@ function shootWood() {
     const speed = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * WOOD_LOG_SPEED_MUL * (m.speedMul || 1);  // 厚重慢速
     const lvl = Math.max(1, skills.wood.level || 1);
     // 单根每击伤害：五行标配 +35% × 木专属(logDmgMul) × 基础技能等级成长；多根按多重系数衰减避免无脑碾压
+    // 覆盖类减伤（用户要求）：木刺穿透 +1 → 单根 -20%
     const perHit = player.damage * ATTR_BASE_DMG_MUL * m.logDmgMul
                  * (1 + 0.08 * (lvl - 1)) * WOOD_LOG_DMG_FACTOR
-                 / (1 + MULTI_BULLET_DMG_PENALTY * (count - 1));
+                 / (1 + MULTI_BULLET_DMG_PENALTY * (count - 1))
+                 / (1 + REACH_DMG_PENALTY * (m.pierceBoost || 0));
 
     // 与金火水一致：按技能槽位瞄准。第 m 根滚木（m=1..count）瞄「第 n+m-1 个离墙最近」的敌人，n=wood 的槽位
     const baseSlot = skillSlotOf('wood');
