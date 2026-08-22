@@ -6192,6 +6192,53 @@ function spawnWave(w, stage) {
     }
 }
 
+// 等效 DPS 指数（开局=1）：用于「难度-等效火力耦合」。火力强化 player.damage 是五行/AOE/DOT
+// 全部伤害的公共基底（每级×1.25 复利），叠加多重弹(线性增目标)、穿透(沿线多目标)、以及各属性树
+// 的差异清场效率——火/冰/土为范围 AOE(半径随级放大、命中半径内全部怪)、闪电链为弹射多怪(每只0.4×主伤)、
+// 木为全屏碾压(持续多目标)。仅按 player.damage 耦合会漏算多重/穿透/各属性树的复利，导致后段空虚。
+// 此指数实时汇总所有乘法 DPS 因子相对开局的倍率，使 dmgCouple 能精确抵消玩家真实火力成长。
+// 所有因子只增不减 → 指数恒 ≥1（只能变难不变弱）。
+function getPlayerDpsIndex() {
+    const m = attributeMods();
+    let idx = player.damage / runBaseDamage;                       // 火力基底(公共, 相对开局)
+    const bc = m.bulletCountBoost || 0;
+    const pb = m.pierceBoost || 0;
+    idx *= (1 + bc) / (1 + 0.20 * bc);                            // 多重弹：总 DPS 近似(单发衰减后)
+    idx *= (1 + pb * 0.6) / (1 + 0.20 * pb);                      // 穿透：沿线多目标(单发衰减后)
+
+    // 火/冰/土：范围 AOE（取已拥有树中最大等效目标覆盖，避免多树叠加虚高）
+    let aoeFactor = 1;
+    for (const key of ['explosive', 'freeze', 'earth']) {
+        const lvl = (skills[key] && skills[key].level) || 0;
+        if (lvl > 0) {
+            const radius = 40 + lvl * 20;
+            const nIn = Math.min(10, Math.round(radius / 40 * 4));
+            const f = 1 + nIn * (0.15 + lvl * 0.05);
+            if (f > aoeFactor) aoeFactor = f;
+        }
+    }
+    idx *= aoeFactor;
+
+    // 闪电链（金）：弹射多怪，每弹射目标单发已 ×(1-0.2)^chainCountBoost 衰减
+    const lm = lightningMods();
+    const lv = (skills.lightning && skills.lightning.level) || 0;
+    if (lv > 0) {
+        const chain = lv + 1 + (lm.chainCountBoost || 0);
+        const per = 0.4 * (lm.chainDmgMul || 1) / Math.pow(1.2, lm.chainCountBoost || 0);
+        idx *= 1 + chain * per;
+    }
+
+    // 木：全屏碾压（持续多目标；用木专属 logCountBoost，避免与多重弹 double-count）
+    const wm = woodMods();
+    const wl = (skills.wood && skills.wood.level) || 0;
+    if (wl > 0) {
+        const count = Math.min(6, 1 + (wm.logCountBoost || 0));
+        const perRow = Math.min(9, 5 + Math.floor(count));
+        idx *= 1 + perRow * count * 0.5;
+    }
+    return idx;
+}
+
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
 function updatePendingSpawns() {
     if (pendingSpawns.length === 0) return;
@@ -6204,12 +6251,13 @@ function updatePendingSpawns() {
         // tier.hpT/dmgT 已按"玩家技能解锁等级(Lv5/8/11/14/17/18) + 火力成长"反推，使两条曲线交叉上升、偏离≤20%。
         // 原 hpWaveGrow/hpGrow 指数/时间线性增长已废弃，改由 tier 表单一主控（STAGES.healthMult 仅作关卡间基线差）。
         const tier = getWaveTier(p.wave);
-        // C 难度重平衡（方向1·火力基底耦合）：火力强化 player.damage 是五行/AOE/DOT 全部伤害的公共基底，
-        // 每升 1 级 ×1.25 会复利放大整条伤害链，旧模型只按"累计技能等级"耦合被火力复利碾过、后段仍空虚。
-        // 改为直接按 player.damage 相对开局基线反向抬升怪物 HP：火力涨多少，怪血就跟涨多少（幂次 POW<1 温和跟随，
-        // 既抵消单发复利、又保留 AOE 群伤优势，使后5波净变难）。damage 只增不减 → 系数恒 ≥1（只能变难不变弱）。
-        const DMG_COUPLE_POW = 0.45;   // 火力基底耦合幂次：1.25^0.45≈1.106/级，温和跟随，避免后段不可清
-        const dmgCouple = Math.pow(player.damage / runBaseDamage, DMG_COUPLE_POW);
+        // C 难度重平衡（方向1·等效火力耦合）：火力基底 player.damage 是五行/AOE/DOT 公共基底，叠加多重弹/
+        // 穿透/各属性树(火冰土范围AOE·闪电链弹射·木全屏碾压)后，真实 DPS 复利远超旧"累计等级"或"仅火力基底"
+        // 模型，导致后段空虚。改为按 getPlayerDpsIndex()(实时等效 DPS 指数, 开局=1) 抬怪物 HP：玩家火力涨多少
+        // 怪血就跟涨多少。POW≈1.08 使后段"净变难"——因模型可能仍低估滚木碾压/静电场等持续伤害，略>1 留余量。
+        // 指数所有因子只增不减 → 恒 ≥1（只能变难不变弱）。
+        const DMG_COUPLE_POW = 1.04;   // 等效火力耦合幂次(≈1 抵消 DPS 成长, 略>1 使后段净加压)
+        const dmgCouple = Math.max(1, Math.pow(getPlayerDpsIndex(), DMG_COUPLE_POW));
         const healthMult = stage.healthMult * tier.hpT * dmgCouple;
         const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
