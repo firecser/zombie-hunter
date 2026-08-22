@@ -6204,51 +6204,71 @@ function spawnWave(w, stage) {
     }
 }
 
-// 等效 DPS 指数（开局=1）：用于「难度-等效火力耦合」。火力强化 player.damage 是五行/AOE/DOT
-// 全部伤害的公共基底（每级×1.25 复利），叠加多重弹(线性增目标)、穿透(沿线多目标)、以及各属性树
-// 的差异清场效率——火/冰/土为范围 AOE(半径随级放大、命中半径内全部怪)、闪电链为弹射多怪(每只0.4×主伤)、
-// 木为全屏碾压(持续多目标)。仅按 player.damage 耦合会漏算多重/穿透/各属性树的复利，导致后段空虚。
-// 此指数实时汇总所有乘法 DPS 因子相对开局的倍率，使 dmgCouple 能精确抵消玩家真实火力成长。
-// 所有因子只增不减 → 指数恒 ≥1（只能变难不变弱）。
+// 等效 DPS 指数（开局=1）：用于「难度-等效火力耦合」。
+// 关键修正：旧版把周期性技能(闪电链/木滚木/地刺)的「单轮倍率」直接乘进指数，导致其被严重高估
+// （火力+闪电 lv10 实测 idx≈40~59，但真实 DPS 倍率仅约 9~12）。周期性技能应按「每秒伤害贡献」归一化，
+// 而非单轮倍率相乘。本版改用真实 DPS 比值模型：
+//   总 DPS = Σ(各伤害源每秒输出) / 开局 DPS(=10/0.5=20/s)
+//   · 火力(物理)：射速 × 单发(含多重分摊) × 穿透沿线多目标
+//   · 火/冰：子弹命中触发 AOE，跟随火力射速（每发附加 aoeDamage）
+//   · 闪电链/木滚木/土地刺：独立 CD 周期性释放，按 (单轮伤害 × 1000/cd) 计入持续 DPS
+// 所有因子只增不减 → 指数恒 ≥1（只能变难不变弱）。数值更贴近真实，dmgCouple 才能正确加压。
 function getPlayerDpsIndex() {
+    const _fireMul = (skills.damage && skills.damage._mods) ? skills.damage._mods.fireMul : 1;
+    const fireRate = Math.max(120, player.fireRate * _fireMul);
+    const shotsPerSec = 1000 / fireRate;
     const m = attributeMods();
-    let idx = player.damage / runBaseDamage;                       // 火力基底(公共, 相对开局)
     const bc = m.bulletCountBoost || 0;
     const pb = m.pierceBoost || 0;
-    idx *= (1 + bc) / (1 + 0.20 * bc);                            // 多重弹：总 DPS 近似(单发衰减后)
-    idx *= (1 + pb * 0.6) / (1 + 0.20 * pb);                      // 穿透：沿线多目标(单发衰减后)
+    const shots = 1 + bc;
+    const dmgPerShot = player.damage / (1 + 0.20 * bc);   // 多重弹单发衰减
 
-    // 火/冰/土：范围 AOE（取已拥有树中最大等效目标覆盖，避免多树叠加虚高）
-    let aoeFactor = 1;
-    for (const key of ['explosive', 'freeze', 'earth']) {
+    // 1) 火力持续 DPS（含多重/穿透）
+    let dps = shotsPerSec * shots * dmgPerShot * (1 + pb * 0.6);
+
+    // 2) 火/冰：子弹命中触发 AOE，跟随火力射速（每发附加 aoeDamage = damage×(0.15+lv×0.05)）
+    let aoeAdd = 0;
+    for (const key of ['explosive', 'freeze']) {
         const lvl = (skills[key] && skills[key].level) || 0;
         if (lvl > 0) {
             const radius = 40 + lvl * 20;
             const nIn = Math.min(10, Math.round(radius / 40 * 4));
-            const f = 1 + nIn * (0.15 + lvl * 0.05);
-            if (f > aoeFactor) aoeFactor = f;
+            aoeAdd = Math.max(aoeAdd, nIn * (0.15 + lvl * 0.05));
         }
     }
-    idx *= aoeFactor;
+    dps *= (1 + aoeAdd);
 
-    // 闪电链（金）：弹射多怪，每弹射目标单发已 ×(1-0.2)^chainCountBoost 衰减
+    // 3) 闪电链（金）：独立 CD 周期性弹射，按每秒贡献计入
     const lm = lightningMods();
     const lv = (skills.lightning && skills.lightning.level) || 0;
     if (lv > 0) {
         const chain = lv + 1 + (lm.chainCountBoost || 0);
         const per = 0.4 * (lm.chainDmgMul || 1) / Math.pow(1.2, lm.chainCountBoost || 0);
-        idx *= 1 + chain * per;
+        const cd = getAttrReleaseCd('lightning');
+        dps += chain * per * player.damage * (1000 / cd);
     }
 
-    // 木：全屏碾压（持续多目标；用木专属 logCountBoost，避免与多重弹 double-count）
+    // 4) 木（滚木）：独立 CD 周期性全屏碾压，按每秒贡献计入
     const wm = woodMods();
     const wl = (skills.wood && skills.wood.level) || 0;
     if (wl > 0) {
         const count = Math.min(6, 1 + (wm.logCountBoost || 0));
         const perRow = Math.min(9, 5 + Math.floor(count));
-        idx *= 1 + perRow * count * 0.5;
+        const cd = getAttrReleaseCd('wood');
+        dps += player.damage * perRow * count * 0.5 * (1000 / cd);
     }
-    return idx;
+
+    // 5) 土（地刺）：独立 CD 周期性范围伤，按每秒贡献计入
+    const em = earthMods();
+    const el = (skills.earth && skills.earth.level) || 0;
+    if (el > 0) {
+        const cd = getAttrReleaseCd('earth');
+        const nSpikes = Math.min(6, 1 + (em.pierceBoost ? 0 : 0) + el);  // 地刺簇数随级成长(上限6)
+        dps += player.damage * 1.45 * nSpikes * (1000 / cd) * 0.5;       // 每刺约2跳，半额计入持续
+    }
+
+    const baseDps = 10 / 0.5;   // 开局 DPS = 20/s
+    return dps / baseDps;
 }
 
 // 战斗内「三选一卡池进度」：累计已做出的强化选择次数 = 当前等级 - 1（开局 Lv1=0 次）。
@@ -6259,27 +6279,28 @@ function getPickProgress() {
     return Math.max(0, player.level - 1);
 }
 
-// 多段火力耦合系数：把"等效 DPS 指数"按【卡池进度】分段映射为怪物 HP 倍率。
+// 多段火力耦合系数：把"等效 DPS 指数(真实 DPS 比值)"按【卡池进度】分段映射为怪物 HP 倍率。
 // 设计原则：
-//   · 不拍脑袋按波次，而按三选一卡池进度（getPickProgress）分段——进度越高=玩家强化越多=越该加压。
-//   · 混合函数类型：低段用指数函数(平滑跟随 idx)，高段叠加阶梯跳跃(step)制造"质变里程碑"式陡增。
-//   · 前期(进度0-4)完全不耦合，保护已调好的平滑手感；lv5 前仍轻松可升。
-//   · idx 恒 ≥1 → 各段返回恒 ≥1，满足"只能变难不能变弱"。
-// 分段锚点(进度=选择次数)与关键强化里程碑对齐：
-//   0-4  : 前 5 次选择（开局火力卡 + 前 4 波强制火力卡 + 早期分支），手感平滑
-//   5-7  : lv6-8，火力开始复利，轻度跟随
-//   8-10 : lv9-11，多重弹/穿透陆续解锁，阶梯抬一档
-//   11-13: lv12-14，属性树高阶，再抬一档
-//   14-16: lv15-17，闪电链/木全屏成型，阶梯跳跃 +0.3
-//   ≥17  : lv18+，终极波，最强耦合 + 阶梯跳跃 +0.5
+//   · 按三选一卡池进度（getPickProgress=累计选择次数=level-1）分段，进度越高=玩家强化越多=越该加压。
+//   · 混合函数：低段指数平滑跟随 idx；高段叠加阶梯跳跃(step)，且高段 couple 上探至接近真实 idx
+//     （但恒 ≤ idx，保证怪血不超过玩家 DPS，仍"可清"——只变难不变弱，不卡死）。
+//   · 前期(进度0-4)完全不耦合，保护已调好的平滑手感；lv5 前轻松可升。
+//   · idx 恒 ≥1 → 各段恒 ≥1（只能变难不变弱）。
+// 分段锚点(进度=选择次数)对齐关键强化里程碑：
+//   0-4  : 前5次选择，手感平滑，不耦合
+//   5-7  : lv6-8，火力复利起步，轻度指数跟随，封顶2.0
+//   8-10 : lv9-11，多重/穿透解锁，阶梯一，封顶4.0
+//   11-13: lv12-14，属性树高阶，阶梯二，封顶7.0
+//   14-16: lv15-17，闪电链/木成型，阶梯三(跳+0.5)，封顶12
+//   ≥17  : lv18+，终极段(跳+0.5)，上探至接近 idx(封顶22)，真正加压后段
 function getDmgCouple(idx, progress) {
     const p = progress;
-    if (p <= 4)  return 1;                                       // 前期：完全不耦合
-    if (p <= 7)  return Math.min(1.8, Math.pow(idx, 0.25));      // 轻度指数跟随，封顶防跳变
-    if (p <= 10) return Math.min(2.6, Math.pow(idx, 0.40));      // 阶梯一：多重/穿透解锁
-    if (p <= 13) return Math.min(3.2, Math.pow(idx, 0.48));      // 阶梯二：属性树高阶
-    if (p <= 16) return Math.min(4.0, Math.pow(idx, 0.55)) + 0.3;// 阶梯三：闪电链/木成型，跳 +0.3
-    return Math.min(5.0, Math.pow(idx, 0.60)) + 0.5;             // 终极段：最强耦合 + 跳 +0.5
+    if (p <= 4)  return 1;                                            // 前期：完全不耦合
+    if (p <= 7)  return Math.min(2.2, Math.pow(idx, 0.55));           // 轻度指数跟随
+    if (p <= 10) return Math.min(5.0, Math.pow(idx, 0.72));           // 阶梯一：多重/穿透解锁
+    if (p <= 13) return Math.min(9.0, Math.pow(idx, 0.85));           // 阶梯二：属性树高阶
+    if (p <= 16) return Math.min(14, Math.pow(idx, 0.95)) + 0.3;      // 阶梯三：闪电链/木成型，跳+0.3
+    return Math.min(20, idx) + 0.5;                                   // 终极段：上探接近真实 idx(封顶20)，跳+0.5；恒≤idx可清
 }
 
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
