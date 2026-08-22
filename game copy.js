@@ -82,7 +82,7 @@ const WALL_X1 = screenWidth;          // 横跨全屏，完全阻拦
 // 城墙玩法平衡：① 僵尸不再每帧啃墙，而是按间隔「啄」一次（大幅降低攻击频率，旧模型有 8px 击退等效 ~每 8/sp 帧一次）
 const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
 // ② 城墙基础血量大幅提高（替代原坦克 100），以承受竖直下落的持续堆积
-const WALL_MAX_HEALTH = 3000;         // 城墙基础血量（原坦克 100 → 600 → 3000，承受竖直下落的持续堆积）
+const WALL_MAX_HEALTH = 5000;         // 城墙基础血量（提高以给多目标玩家清场窗口，适配升级后能力增长）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
 // 即使被后坐力击退，敌人也停在边界处，避免被推出屏幕后无法被瞄准、却仍贴墙持续掉血。
@@ -119,14 +119,14 @@ const SAFE_TOP_OFFSET = statusBarHeight + 10;
 // 各段独立叠加 stage.healthMult/damageMult，因此 STAGES 字段整体下调以让 tier 主控曲线。
 const WAVE_TIER_TABLE = [
     { tier:1, from:1,  to:2,  hpT:1.00, dmgT:1.00, note:'新手' },
-    { tier:2, from:3,  to:4,  hpT:1.12, dmgT:1.04, note:'热身' },
-    { tier:3, from:5,  to:7,  hpT:1.32, dmgT:1.10, note:'升压' },
-    { tier:4, from:8,  to:10, hpT:1.58, dmgT:1.18, note:'考验' },
-    { tier:5, from:11, to:12, hpT:1.90, dmgT:1.30, note:'压力' },
-    { tier:6, from:13, to:15, hpT:2.32, dmgT:1.48, note:'高压' },
-    { tier:7, from:16, to:17, hpT:2.80, dmgT:1.72, note:'极限' },
-    { tier:8, from:18, to:19, hpT:3.40, dmgT:2.00, note:'突破' },
-    { tier:9, from:20, to:20, hpT:4.20, dmgT:2.40, note:'终极' }
+    { tier:2, from:3,  to:4,  hpT:1.10, dmgT:1.02, note:'热身' },
+    { tier:3, from:5,  to:7,  hpT:1.24, dmgT:1.06, note:'升压' },
+    { tier:4, from:8,  to:10, hpT:1.42, dmgT:1.11, note:'考验' },
+    { tier:5, from:11, to:12, hpT:1.50, dmgT:1.18, note:'压力' },
+    { tier:6, from:13, to:15, hpT:1.62, dmgT:1.22, note:'高压' },
+    { tier:7, from:16, to:17, hpT:1.76, dmgT:1.30, note:'极限' },
+    { tier:8, from:18, to:19, hpT:1.92, dmgT:1.38, note:'突破' },
+    { tier:9, from:20, to:20, hpT:2.10, dmgT:1.48, note:'终极' }
 ];
 function getWaveTier(wave) {
     for (const t of WAVE_TIER_TABLE) {
@@ -193,10 +193,10 @@ function buildStages() {
         const lvInCh = ((lv - 1) % 6) + 1;          // 1..6
         const theme = CHAPTER_THEMES[ch - 1];
 
-        const base = Math.pow(1.12, ch - 1);
-        const within = 1 + 0.03 * (lvInCh - 1);
+        const base = Math.pow(1.03, ch - 1);
+        const within = 1 + 0.025 * (lvInCh - 1);
         const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
-        const climax = (lvInCh === 6) ? 1.12 : 1;
+        const climax = (lvInCh === 6) ? 1.05 : 1;
         const D = base * within * breather * climax;
 
         const healthMult = _round2(D);
@@ -412,6 +412,8 @@ const EXP_BASE = 2;           // 经验/升级基准：wave i 经验 = EXP_BASE*
 const WAVE_INITIAL_DELAY = 1500;   // 第一波出现前的初始延迟(ms)
 const WAVE_JITTER = 120;           // 出怪抖动(ms)，避免机械等距
 let WAVE_INTERVAL = 800;           // 每怪平均出怪间隔(ms)，由 buildWavePlan 按总数精确计算（≈5分钟出完20波）
+const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（更密集尸潮，给多目标玩家更多可击目标）；
+                                // 出怪经验按同比例除以密度，总经验不变 → 升级节奏（每波升1级）不变。
 function buildWavePlan() {
     const plan = [];
     // 第一遍：构造每波组成（经验耦合：每波经验总和 = 2i，保证清完升 1 级）
@@ -433,6 +435,15 @@ function buildWavePlan() {
         }
         // 剩余用普通怪(1经验)填满，保证经验总和精确等于 targetExp
         while (remaining > 0) { comp.push('normal'); remaining -= 1; }
+        // 密度提升：每只怪有 (MONSTER_DENSITY-1) 概率再复制一只 → 总数量约 ×DENSITY，
+        // 配合出怪时 exp 除以 DENSITY（见 updatePendingSpawns），总经验仍为 targetExp（升级节奏不变）。
+        if (MONSTER_DENSITY > 1) {
+            const extra = [];
+            for (const t of comp) {
+                if (Math.random() < (MONSTER_DENSITY - 1)) extra.push(t);
+            }
+            comp.push(...extra);
+        }
         plan.push({ i, comp, boss: isBoss });
     }
     // 第二遍：排「连绵不绝」时间轴——每波内部均匀铺开，波与波首尾相接(无空当)，
@@ -1065,8 +1076,8 @@ const player = {
 // 使「多目标 = 覆盖面广但单发弱」的权衡成立，保持纯伤 > 覆盖 的阶梯关系。
 const MULTI_BULLET_DMG_PENALTY = 0.20;   // 子弹：每多 1 发，单发伤害 -20%（用户要求：多加一颗子弹伤害减少20%）
 const REACH_DMG_PENALTY = 0.20;          // 每多 1 穿透 / 1 弹射目标：单发伤害 -20%（用户要求：穿透+1伤害减少20%）
-const PURE_DMG_BASE = 1.5;               // 基础「火力强化」每级倍率（v1.1.59 由 1.25 加强到 1.5；用户：纯伤仍偏弱）
-const PURE_DMG_BRANCH = 1.7;             // 纯伤害分支每级倍率（v1.1.59 由 1.40 提到 1.7，保持 分支>基础 的阶梯关系）
+const PURE_DMG_BASE = 1.25;              // 基础「火力强化」每级倍率（v1.1.59 由 1.14 提到 1.25；用户回退自 1.5）
+const PURE_DMG_BRANCH = 1.40;            // 纯伤害分支每级倍率（保持 分支>基础 的阶梯关系；随 BASE 回退自 1.7）
 
 // ==================== 技能系统 ====================
 // 技能主注册表（单一数据源）：每个技能声明 系别(element)/类别(category)/软上限(maxLevel)/描述/升级效果(apply)
@@ -5483,7 +5494,7 @@ function updateZombies(dt) {
             // 护盾减伤（技能 −10%/级 + 天赋 −2%/级，封顶 80%）
             damage *= (1 - getShieldReduce());
 
-            player.health -= damage * 0.03;
+            player.health -= damage * 0.015;
             player.hurtTime = now;
 
             // 护盾反弹（shield Lv5 质变）：受击反弹 10% 伤害（循环外统一结算，避免遍历中 splice）
@@ -5792,7 +5803,7 @@ function updatePendingSpawns() {
             maxHealth: template.health * healthMult,
             damage: template.damage * damageMult,
             color: template.color,
-            exp: template.exp,
+            exp: template.exp / MONSTER_DENSITY,   // 密度提升后每只经验降，总经验仍=targetExp（升级节奏不变）
             gold: template.gold || 5,
             type: p.type,
             wave: p.wave,
