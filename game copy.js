@@ -1692,9 +1692,10 @@ for (const _t in SKILL_DEFS) {
 const MAX_SKILLS = 6;          // damage + 火/水/金/木/土 五属性树，共 6 槽
 let acquiredSkills = ['damage'];
 // C 难度重平衡：本局开局技能等级总和基线（开局重置后、任何局内升级前）。
-// 用于「难度-火力基底耦合」：火力强化 player.damage 是五行/AOE/DOT 全部伤害的公共基底，
-// 每升 1 级 ×1.25 会复利放大整条伤害链。怪物 HP 按 player.damage 相对开局基线反向抬升，
-// 精确抵消火力复利，使后段不再空虚。damage 只增不减 → 系数恒 ≥1（只能变难不变弱）。
+// 用于「难度-等效火力耦合」：火力强化 player.damage 是五行/AOE/DOT 全部伤害的公共基底，
+// 每升 1 级 ×1.25 会复利放大整条伤害链（叠加多重弹/穿透/各属性树后真实 DPS 复利更高）。
+// getPlayerDpsIndex() 汇总所有乘法因子相对开局的倍率(开局=1)，再经 getDmgCouple() 多段映射为
+// 怪物 HP 倍率：前期不耦合、后段强耦合，使后段不再空虚。damage 只增不减 → 系数恒 ≥1（只能变难不变弱）。
 let runBaseDamage = 10;
 
 // 灼烧(引燃/油渍)的固定持续时长（毫秒）：引燃只增伤不延长，故为常量
@@ -6239,6 +6240,16 @@ function getPlayerDpsIndex() {
     return idx;
 }
 
+// 多段火力耦合系数：把"等效 DPS 指数"按波次分段映射为怪物 HP 倍率。
+// 设计原则：前期不耦合（保护已调好的平滑手感）、后段强耦合（抵消 DPS 复利、填平空虚），
+// 且 idx 恒 ≥1 → 各段返回恒 ≥1，满足"只能变难不能变弱"。
+function getDmgCouple(idx, wave) {
+    if (wave <= 8) return 1;                                    // 前期：完全不耦合
+    if (wave <= 14) return Math.min(2.2, Math.pow(idx, 0.32));  // 中段：轻度跟随，封顶防跳变
+    if (wave <= 17) return Math.pow(idx, 0.45);                 // 后段一
+    return Math.pow(idx, 0.50);                                 // 后段二（波18-20 最压）
+}
+
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
 function updatePendingSpawns() {
     if (pendingSpawns.length === 0) return;
@@ -6251,13 +6262,15 @@ function updatePendingSpawns() {
         // tier.hpT/dmgT 已按"玩家技能解锁等级(Lv5/8/11/14/17/18) + 火力成长"反推，使两条曲线交叉上升、偏离≤20%。
         // 原 hpWaveGrow/hpGrow 指数/时间线性增长已废弃，改由 tier 表单一主控（STAGES.healthMult 仅作关卡间基线差）。
         const tier = getWaveTier(p.wave);
-        // C 难度重平衡（方向1·等效火力耦合）：火力基底 player.damage 是五行/AOE/DOT 公共基底，叠加多重弹/
-        // 穿透/各属性树(火冰土范围AOE·闪电链弹射·木全屏碾压)后，真实 DPS 复利远超旧"累计等级"或"仅火力基底"
-        // 模型，导致后段空虚。改为按 getPlayerDpsIndex()(实时等效 DPS 指数, 开局=1) 抬怪物 HP：玩家火力涨多少
-        // 怪血就跟涨多少。POW≈1.08 使后段"净变难"——因模型可能仍低估滚木碾压/静电场等持续伤害，略>1 留余量。
-        // 指数所有因子只增不减 → 恒 ≥1（只能变难不变弱）。
-        const DMG_COUPLE_POW = 1.04;   // 等效火力耦合幂次(≈1 抵消 DPS 成长, 略>1 使后段净加压)
-        const dmgCouple = Math.max(1, Math.pow(getPlayerDpsIndex(), DMG_COUPLE_POW));
+        // C 难度重平衡（方向1·等效火力耦合·多段函数）：火力基底 player.damage 是五行/AOE/DOT 公共基底，
+        // 叠加多重弹/穿透/各属性树后，真实 DPS 复利远超单一曲线能描述的成长，若全程用一条幂次耦合，
+        // 前期(idx 已因强制火力卡+AOE 不小)会被一并压难(旧版 lv5 升不上去正是此因)。故改为「多段函数」：
+        //   波 1-8  ：couple = 1      （前期完全不耦合，沿用 A+B 已调好的平滑手感）
+        //   波 9-14 ：couple = min(2.2, idx^0.32)（中段轻度跟随，封顶防跳变）
+        //   波15-17 ：couple = idx^0.45（后段一：明显加压）
+        //   波18-20 ：couple = idx^0.50（后段二：终极波最压，仍保证可清）
+        // getPlayerDpsIndex() 所有因子只增不减 → idx 恒 ≥1 → 各段 couple 恒 ≥1（只能变难不变弱）。
+        const dmgCouple = getDmgCouple(getPlayerDpsIndex(), p.wave);
         const healthMult = stage.healthMult * tier.hpT * dmgCouple;
         const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
