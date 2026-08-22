@@ -793,6 +793,7 @@ function claimDailyTask() {
 }
 // 任务弹窗按钮命中区
 let dailyTaskClaimBtn = { x: 0, y: 0, w: 0, h: 0 };
+let dailyTaskCloseBtn = { x: 0, y: 0, w: 0, h: 0 };
 
 function drawDailyTaskModal() {
     if (!dailyTaskModal.show) return;
@@ -808,6 +809,23 @@ function drawDailyTaskModal() {
     ctx.strokeStyle = ROYALE.gold;
     ctx.lineWidth = 2;
     roundRect(ctx, modalX, modalY, modalW, modalH, 16);
+    ctx.stroke();
+
+    // 关闭按钮（右上角 ×）
+    const closeS = 30;
+    const closeX = modalX + modalW - closeS - 8;
+    const closeY = modalY + 8;
+    dailyTaskCloseBtn = { x: closeX, y: closeY, w: closeS, h: closeS };
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    roundRect(ctx, closeX, closeY, closeS, closeS, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#cfd8e3';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(closeX + 9, closeY + 9);
+    ctx.lineTo(closeX + closeS - 9, closeY + closeS - 9);
+    ctx.moveTo(closeX + closeS - 9, closeY + 9);
+    ctx.lineTo(closeX + 9, closeY + closeS - 9);
     ctx.stroke();
 
     ctx.fillStyle = ROYALE.gold;
@@ -827,8 +845,12 @@ function drawDailyTaskModal() {
         ctx.font = '13px Arial';
         ctx.textAlign = 'left';
         ctx.fillText(t.desc(p), modalX + 32, rowY + 22);
-        ctx.fillStyle = '#ffd24a';
-        ctx.fillText(done ? '✓ 已完成' : `奖励 ${t.reward.gold}💰 ${t.reward.energy}⚡`, modalX + 32, rowY + 42);
+        ctx.fillStyle = done ? '#9fe0a0' : '#ffd24a';
+        ctx.textAlign = 'right';
+        ctx.fillText(done ? '✓' : `${p}/${t.target}`, modalX + modalW - 32, rowY + 22);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = done ? '#9fe0a0' : '#9fb0c3';
+        ctx.fillText(done ? '已完成' : `奖励 ${t.reward.gold}💰 ${t.reward.energy}⚡`, modalX + 32, rowY + 42);
         rowY += 66;
     }
 
@@ -839,18 +861,58 @@ function drawDailyTaskModal() {
     const btnY = modalY + modalH - 62;
     dailyTaskClaimBtn = { x: btnX, y: btnY, w: btnW, h: btnH };
     const canClaim = dailyTaskAllDone() && !dailyTaskClaimed;
-    drawRoyaleBevelButton({ x: btnX, y: btnY, w: btnW, h: btnH, r: 12 },
-        dailyTaskClaimed ? '今日已领取' : (canClaim ? '🎁 领取奖励' : '未完成'),
-        canClaim ? 'gold' : 'blue');
+    if (dailyTaskClaimed) {
+        // 已领取：静态完成提示（非按钮）
+        ctx.fillStyle = 'rgba(15,52,96,0.5)';
+        roundRect(ctx, btnX, btnY, btnW, btnH, 12);
+        ctx.fill();
+        ctx.fillStyle = '#9fe0a0';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('✓ 今日已领取', btnX + btnW / 2, btnY + btnH / 2);
+    } else if (canClaim) {
+        drawRoyaleBevelButton({ x: btnX, y: btnY, w: btnW, h: btnH, r: 12 }, '🎁 领取奖励', 'gold');
+    } else {
+        // 未完成：禁用灰块（不可点，仅提示进度）
+        ctx.fillStyle = 'rgba(80,90,105,0.5)';
+        roundRect(ctx, btnX, btnY, btnW, btnH, 12);
+        ctx.fill();
+        ctx.fillStyle = '#9fb0c3';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('完成任务后领取', btnX + btnW / 2, btnY + btnH / 2);
+    }
 }
 
 function handleDailyTaskClick(x, y) {
     if (!dailyTaskModal.show) return false;
-    if (dailyTaskClaimed) { dailyTaskModal.show = false; return true; }
-    if (x >= dailyTaskClaimBtn.x && x <= dailyTaskClaimBtn.x + dailyTaskClaimBtn.w &&
-        y >= dailyTaskClaimBtn.y && y <= dailyTaskClaimBtn.y + dailyTaskClaimBtn.h) {
-        claimDailyTask();
+    // 关闭按钮（右上角 ×）
+    if (x >= dailyTaskCloseBtn.x && x <= dailyTaskCloseBtn.x + dailyTaskCloseBtn.w &&
+        y >= dailyTaskCloseBtn.y && y <= dailyTaskCloseBtn.y + dailyTaskCloseBtn.h) {
+        dailyTaskModal.show = false;
         return true;
+    }
+    // 已领取：点任意处关闭
+    if (dailyTaskClaimed) { dailyTaskModal.show = false; return true; }
+    // 点击遮罩外部（弹窗之外）关闭
+    const modalW = Math.min(320, screenWidth * 0.9);
+    const modalH = 320;
+    const modalX = (screenWidth - modalW) / 2;
+    const modalY = (screenHeight - modalH) / 2;
+    if (!(x >= modalX && x <= modalX + modalW && y >= modalY && y <= modalY + modalH)) {
+        dailyTaskModal.show = false;
+        return true;
+    }
+    // 领取按钮
+    if (dailyTaskAllDone()) {
+        if (x >= dailyTaskClaimBtn.x && x <= dailyTaskClaimBtn.x + dailyTaskClaimBtn.w &&
+            y >= dailyTaskClaimBtn.y && y <= dailyTaskClaimBtn.y + dailyTaskClaimBtn.h) {
+            claimDailyTask();
+            dailyTaskModal.show = false; // 领取后自动关闭
+            return true;
+        }
     }
     return false;
 }
