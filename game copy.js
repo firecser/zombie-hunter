@@ -6204,41 +6204,7 @@ function startGame() {
         adZombieCount = 0;
 
         // 不再初始给炸弹（v1.1.60）：炸弹仅通过看广告获得；买量演示引导改为提示看广告补弹
-
-        // 初始生成15个各类僵尸
-        spawnInitialAdZombies();
-    }
-}
-
-// 素材演示模式：生成初始僵尸群
-function spawnInitialAdZombies() {
-    const stage = getCurrentStage();
-    const count = 15 + Math.floor(Math.random() * 6); // 15-20个
-
-    // 错峰入场：用 pendingSpawns 在开局数秒内陆续放出，而非瞬间同屏 20 只，
-    // 避免「大量怪同时段压墙」——玩家需逐批清。
-    for (let i = 0; i < count; i++) {
-        const x = Math.random() * (screenWidth - 100) + 50;
-        const y = Math.random() * (screenHeight * 0.5) + 50; // 分布在上半屏
-
-        let type = 'normal';
-        const roll = Math.random();
-        if (roll < 0.25) type = 'tank';
-        else if (roll < 0.5) type = 'fast';
-
-        const template = zombieTypes[type];
-        const healthMult = stage.healthMult;
-
-        pendingSpawns.push({
-            at: WAVE_INITIAL_DELAY + i * WAVE_SPAWN_GAP,
-            type: type,
-            zElement: stage.element || 'normal',
-            zElements: stage.elements || null,
-            creature: type === 'boss' ? stage.bossCreature : stage.creature,
-            stage: stage,
-            wave: 0,
-            _adTemp: { x, y, speed: template.speed * stage.speedMult * 0.5 }
-        });
+        // 不再生成初始僵尸（v1.1.63）：去掉买量演示开局初始怪批次，玩家正常从首波起手
     }
 }
 
