@@ -411,9 +411,12 @@ const WAVE_COUNT = 20;
 const EXP_BASE = 2;           // 经验/升级基准：wave i 经验 = EXP_BASE*i，cost(L→L+1) = EXP_BASE*L（保持「每波刚好升1级」耦合）；v1.1.6 由3降为2：缓解 lv5 前怪量过密、打不过
 const WAVE_INITIAL_DELAY = 1500;   // 第一波出现前的初始延迟(ms)
 const WAVE_JITTER = 120;           // 出怪抖动(ms)，避免机械等距
-let WAVE_INTERVAL = 800;           // 每怪平均出怪间隔(ms)，由 buildWavePlan 按总数精确计算（≈5分钟出完20波）
-const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（更密集尸潮，给多目标玩家更多可击目标）；
+const WAVE_SPAWN_GAP = 900;    // 每只怪最小出怪间隔(ms)：控制同屏在场峰值，避免大量怪同时段压墙
+const WAVE_GAP = 1200;         // 波与波之间的缓冲空当(ms)：让玩家逐波清，而非连绵不绝堆墙
+let WAVE_INTERVAL = 800;           // 每怪平均出怪间隔(ms)，由 buildWavePlan 取 max(WAVE_SPAWN_GAP, 原估算)
+const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（更多可击目标、更多升级素材）；
                                 // 出怪经验按同比例除以密度，总经验不变 → 升级节奏（每波升1级）不变。
+                                // 因 WAVE_SPAWN_GAP 放大了间隔，密度增加的是「总量」而非「同时段压力」。
 function buildWavePlan() {
     const plan = [];
     // 第一遍：构造每波组成（经验耦合：每波经验总和 = 2i，保证清完升 1 级）
@@ -446,15 +449,17 @@ function buildWavePlan() {
         }
         plan.push({ i, comp, boss: isBoss });
     }
-    // 第二遍：排「连绵不绝」时间轴——每波内部均匀铺开，波与波首尾相接(无空当)，
-    // 整局约 GAME_TIME_LIMIT 出完。每怪平均间隔 = 余下时间 / 总怪数；后段波次怪多，
-    // 其独占时间段更长，自然形成「越往后怪越多」的观感，但全程不断流、无波间空当。
+    // 第二遍：排时间轴。关键平衡点：一杆枪清场速度有上限，怪不能「同时段大量压到墙前」，
+    // 否则墙被啄爆。故每只怪之间留出固定下限间隔（WAVE_SPAWN_GAP），波与波之间再叠一段
+    // 波间缓冲（WAVE_GAP），让玩家逐波/逐批清，而不是被数量淹没。
+    // density×1.5 增加了「总怪数」（更多可击目标、升级节奏不变），但间隔被放大，
+    // 同屏峰值反而更低——这正是「多目标」维度应有的体现，而非「更密的压力」。
     const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
-    WAVE_INTERVAL = (GAME_TIME_LIMIT - WAVE_INITIAL_DELAY) / totalCount;
+    WAVE_INTERVAL = Math.max(WAVE_SPAWN_GAP, (GAME_TIME_LIMIT - WAVE_INITIAL_DELAY) / totalCount);
     let t = WAVE_INITIAL_DELAY;
     for (const w of plan) {
         w.spawnAt = t;
-        t += w.comp.length * WAVE_INTERVAL;   // 下一波紧接本波最后一只之后，消除波间空当
+        t += w.comp.length * WAVE_INTERVAL + WAVE_GAP;   // 波与波之间留缓冲空当
     }
     return plan;
 }
@@ -5792,13 +5797,13 @@ function updatePendingSpawns() {
         const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
             id: _zombieIdSeq++,
-            x: Math.random() * screenWidth,
-            y: -50,
+            x: p._adTemp ? p._adTemp.x : (Math.random() * screenWidth),
+            y: p._adTemp ? p._adTemp.y : -50,
             element: p.zElement || 'normal',
             elements: p.zElements || null,
             creature: p.creature || 'seal',
             radius: template.radius,
-            speed: template.speed * stage.speedMult,
+            speed: p._adTemp ? p._adTemp.speed : (template.speed * stage.speedMult),
             health: template.health * healthMult,
             maxHealth: template.health * healthMult,
             damage: template.damage * damageMult,
@@ -5812,7 +5817,8 @@ function updatePendingSpawns() {
             stunUntil: 0,
             _residualSlowUntil: 0,
             _inTornado: false,
-            slowFactor: 0.5
+            slowFactor: 0.5,
+            isAdZombie: !!p._adTemp
         });
         pendingSpawns.splice(i, 1);
     }
@@ -6209,6 +6215,8 @@ function spawnInitialAdZombies() {
     const stage = getCurrentStage();
     const count = 15 + Math.floor(Math.random() * 6); // 15-20个
 
+    // 错峰入场：用 pendingSpawns 在开局数秒内陆续放出，而非瞬间同屏 20 只，
+    // 避免「大量怪同时段压墙」——玩家需逐批清。
     for (let i = 0; i < count; i++) {
         const x = Math.random() * (screenWidth - 100) + 50;
         const y = Math.random() * (screenHeight * 0.5) + 50; // 分布在上半屏
@@ -6221,26 +6229,15 @@ function spawnInitialAdZombies() {
         const template = zombieTypes[type];
         const healthMult = stage.healthMult;
 
-        zombies.push({
-            id: _zombieIdSeq++,
-            x: x,
-            y: y,
-            radius: template.radius,
-            speed: template.speed * stage.speedMult * 0.5, // 慢速移动
-            health: template.health * healthMult,
-            maxHealth: template.health * healthMult,
-            damage: template.damage * stage.damageMult,
-            color: template.color,
-            exp: template.exp,
-            gold: template.gold || 5,
+        pendingSpawns.push({
+            at: WAVE_INITIAL_DELAY + i * WAVE_SPAWN_GAP,
             type: type,
-            frozenUntil: 0,
-            slowUntil: 0,
-            stunUntil: 0,
-            _residualSlowUntil: 0,
-            _inTornado: false,
-            slowFactor: 0.5,
-            isAdZombie: true  // 标记为素材演示僵尸（不掉经验）
+            zElement: stage.element || 'normal',
+            zElements: stage.elements || null,
+            creature: type === 'boss' ? stage.bossCreature : stage.creature,
+            stage: stage,
+            wave: 0,
+            _adTemp: { x, y, speed: template.speed * stage.speedMult * 0.5 }
         });
     }
 }
