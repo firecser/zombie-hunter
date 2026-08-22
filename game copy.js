@@ -920,6 +920,11 @@ function handleDailyTaskClick(x, y) {
 // 每日任务浮动入口按钮（右下角，导航栏上方）
 let dailyTaskEntryBtn = { x: 0, y: 0, w: 0, h: 0 };
 function drawDailyTaskEntryButton() {
+    // 仅「主角」Tab 显示入口按钮，其它 Tab 不显示并清零命中区
+    if (mainMenuTab !== 'hero') {
+        dailyTaskEntryBtn = { x: 0, y: 0, w: 0, h: 0 };
+        return;
+    }
     const w = 52, h = 52;
     const x = screenWidth - w - 12;
     const y = screenHeight - MAIN_MENU_NAV_H - h - 12;
