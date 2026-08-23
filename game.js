@@ -84,7 +84,7 @@ const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
 // ② 城墙基础血量：v1.1.65 起基础值下调为 800（原 5000），让后期「堆怪啄墙」重新构成真实威胁，
 //    不再无限扛；旧 5000 的容错空间改由天赋树「城墙血量」百分比天赋恢复（见防御页 def_rampart/def_citadel）。
 //    城墙实际血量 = WALL_MAX_HEALTH × (1 + 天赋 wallHealthMul) + 天赋 healthBonus。
-const WALL_MAX_HEALTH = 800;          // 城墙基础血量（基础偏紧，逼迫玩家实际清场/投资城墙天赋）
+const WALL_MAX_HEALTH = 2000;         // v1.1.74(M5)：城墙基础血量由 800 提到 2000，匹配开局 DPS≈52/s、单小怪约10伤的清场节奏（容错更合理，仍靠城墙天赋拉开上限）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
 // 即使被后坐力击退，敌人也停在边界处，避免被推出屏幕后无法被瞄准、却仍贴墙持续掉血。
@@ -1457,7 +1457,14 @@ const player = {
     bulletPiercing: 1,
     bulletCount: 1,
     gunAngle: -Math.PI / 2,
-    hurtTime: 0
+    hurtTime: 0,
+    // v1.1.74(A2/A3)：五行基础伤害独立字段（与 player.damage 解耦）；初值=五行基础值130(同 FIVE_ELEM_BASE)，
+    // 运行时由 recomputeElemDamage() 按各自技能等级×ELEM_BASE_MUL 重算（elemBaseDmg 改读这些字段）。
+    fireDamage: 130,        // 火(爆炸弹)
+    waterDamage: 130,       // 水(干冰弹)
+    lightningDamage: 130,   // 金(闪电链)
+    woodDamage: 130,        // 木(滚木)
+    earthDamage: 130        // 土(地刺)
 };
 
 // ==================== 技能升级平衡常量（v1.1.59） ====================
@@ -1466,7 +1473,7 @@ const player = {
 // 使「多目标 = 覆盖面广但单发弱」的权衡成立，保持纯伤 > 覆盖 的阶梯关系。
 const MULTI_BULLET_DMG_PENALTY = 0.20;   // 子弹：每多 1 发，单发伤害 -20%（用户要求：多加一颗子弹伤害减少20%）
 const REACH_DMG_PENALTY = 0.20;          // 每多 1 穿透 / 1 弹射目标：单发伤害 -20%（用户要求：穿透+1伤害减少20%）
-const PURE_DMG_BASE = 1.25;              // 基础「火力强化」每级倍率（v1.1.59 由 1.14 提到 1.25；用户回退自 1.5）
+const PURE_DMG_BASE = 1.6;               // v1.1.74(A1)：基础「火力强化」每级倍率 1.25→1.6（与波次血量 1.6/波 同源，满足 M4 同斜率对齐；玩家初始单发伤害=26、射速2发/秒由重置段给定）
 const PURE_DMG_BRANCH = 1.40;            // 纯伤害分支每级倍率（保持 分支>基础 的阶梯关系；随 BASE 回退自 1.7）
 
 // ==================== 技能系统 ====================
@@ -1483,16 +1490,16 @@ const SKILL_DEFS = {
                   branches: {
                     heavyBarrel: { name:'重型枪管', desc:'命中产生范围爆炸(满级半径' + (80*5) + 'px)、伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.aoeRadius += 80 * bl; m.dmgMul *= Math.pow(PURE_DMG_BRANCH, bl); } },
-                    rapidFire:   { name:'狂暴连射', desc:'射速+22%/级，每发伤害-4%/级',             reqLevel:8, prereq:[], mutex:['charge'], maxLevel:5,
-                                   effect(bl,m){ m.fireMul *= Math.pow(0.82, bl); m.dmgMul *= Math.pow(0.96, bl); } },
-                    charge:      { name:'蓄能射击', desc:'射速-13%/级，命中伤害+55%/级',            reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
-                                   effect(bl,m){ m.fireMul *= Math.pow(1.147, bl); m.dmgMul *= Math.pow(1.55, bl); } },
-                    armorPierce: { name:'穿甲弹头', desc:'对坦克/Boss额外+30%/级伤害',               reqLevel:11, prereq:['heavyBarrel'], mutex:[], maxLevel:5,
-                                   effect(bl,m){ m.armorBonus += 0.30*bl; } },
+                    rapidFire:   { name:'狂暴连射', desc:'射速+60%/级（纯射速，净DPS×1.6/级）',      reqLevel:8, prereq:[], mutex:['charge'], maxLevel:5,
+                                   effect(bl,m){ m.fireMul *= Math.pow(0.625, bl); } },   // 0.625=1/1.6：射速×1.6/级 = 净DPS×1.6/级（与波次血量同源斜率）
+                    charge:      { name:'蓄能连射', desc:'连发+1/级（每发-20%，净DPS×1.6/级）',       reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
+                                   effect(bl,m){ m.bulletCountBoost += bl; } },   // 连发+1/级；单发-20% 由通用 MULTI_BULLET_DMG_PENALTY 处理（与五行多重弹同口径）
+                    armorPierce: { name:'穿甲弹头', desc:'对坦克/Boss额外+50%/级伤害',               reqLevel:11, prereq:['heavyBarrel'], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.armorBonus += 0.50*bl; } },   // 情境向增伤给足：+50%/级
                     knockback:   { name:'后坐力',   desc:'命中击退敌人（力度随等级）',               reqLevel:14, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.knock = true; m.knockF = 15*bl; } },
-                    calibration: { name:'弹道校准', desc:'命中判定半径+18%/级',                      reqLevel:17, prereq:[], mutex:[], maxLevel:5,
-                                   effect(bl,m){ m.hitboxMul *= Math.pow(1.18, bl); } }
+                    calibration: { name:'弹道校准', desc:'命中判定半径+20%/级',                      reqLevel:17, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.hitboxMul *= Math.pow(1.2, bl); } }   // 命中半径+20%/级
                   } },
     health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); },
                   qualNodes:{ 3:{ desc:'每级额外生命 +10', apply(){ player.maxHealth += 10; player.health += 10; } } } },
@@ -1830,7 +1837,22 @@ const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70
 // 物理子弹仍用 player.damage（火力强化直接作用）；五行技能统一用 elemBaseDmg(系别)。
 const FIVE_ELEM_BASE = 130;
 const ELEM_BASE_MUL = { '物理': 1.6, '金': 1.8, '火': 1.8, '水': 1.6, '土': 1.6, '木': 1.3 };
-function elemBaseDmg(elem) { return FIVE_ELEM_BASE * (ELEM_BASE_MUL[elem] || 1); }
+// v1.1.74(A2/A3)：五行基础伤害「彻底解耦」为 player 独立字段（随各自技能等级×ELEM_BASE_MUL 成长），
+// 不再用常量 130。elemBaseDmg() 改读 player.{元素}Damage；recomputeElemDamage() 统一按技能等级重算这些字段。
+const ELEM_FIELD = { '火': 'fireDamage', '水': 'waterDamage', '金': 'lightningDamage', '木': 'woodDamage', '土': 'earthDamage' };
+function elemBaseDmg(elem) {
+    const f = ELEM_FIELD[elem];
+    return f ? player[f] : FIVE_ELEM_BASE;
+}
+// 由五行技能当前等级重算各自基础伤害字段：field = FIVE_ELEM_BASE × ELEM_BASE_MUL[系]^level
+// （等级含天赋预置等级，故在重置段统一重算一次即可覆盖天赋起手；每次升级对应技能后再重算）
+function recomputeElemDamage() {
+    player.fireDamage      = FIVE_ELEM_BASE * Math.pow(ELEM_BASE_MUL['火'], skills.explosive.level);
+    player.waterDamage     = FIVE_ELEM_BASE * Math.pow(ELEM_BASE_MUL['水'], skills.freeze.level);
+    player.lightningDamage = FIVE_ELEM_BASE * Math.pow(ELEM_BASE_MUL['金'], skills.lightning.level);
+    player.woodDamage      = FIVE_ELEM_BASE * Math.pow(ELEM_BASE_MUL['木'], skills.wood.level);
+    player.earthDamage     = FIVE_ELEM_BASE * Math.pow(ELEM_BASE_MUL['土'], skills.earth.level);
+}
 // 滚木（木属性树）参数：基础宽度占城墙宽 1/4，由「巨木」分支向 1/2 成长；厚重慢速、碾压间隔控制 DPS
 const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;   // 滚木基础宽度占城墙宽度比例
 const WOOD_LOG_SPEED_MUL = 0.30;          // 滚木速度为属性子弹的 30%（厚重缓滚，明显比原 0.55 慢）
@@ -1963,7 +1985,7 @@ function getAvailableBranches(type) {
 function recomputeDamageMods() {
     const b = (skills.damage && skills.damage.branches) || {};
     const def = SKILL_DEFS.damage;
-    const m = { dmgMul: 1, fireMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0, aoeRadius: 0 };
+    const m = { dmgMul: 1, fireMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0, aoeRadius: 0, bulletCountBoost: 0 };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
@@ -2175,6 +2197,8 @@ function getBulletElement() {
 function attributeMods() {
     const all = [skills.explosive && skills.explosive._mods, skills.freeze && skills.freeze._mods, skills.lightning && skills.lightning._mods, skills.wood && skills.wood._mods, skills.earth && skills.earth._mods];
     const out = { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0 };
+    // v1.1.74(A5-A11)：火力分支 charge 的 bulletCountBoost 落在 skills.damage._mods，需一并聚合进 DPS 指数
+    if (skills.damage && skills.damage._mods) out.bulletCountBoost += (skills.damage._mods.bulletCountBoost || 0);
     for (const m of all) {
         if (!m) continue;
         out.bulletCountBoost += (m.bulletCountBoost || 0);
@@ -5028,21 +5052,29 @@ function shootBase() {
     const baseAngle = player.gunAngle;
     const gunLength = 40;
 
-    // 火力强化分支派生修正（dmgMul 伤害、radiusMul 子弹体型）；基础武器单发，不继承属性树
-    const _dm = (skills.damage && skills.damage._mods) || { dmgMul: 1, radiusMul: 1 };
-
-    bullets.push({
-        x: player.x + Math.cos(baseAngle) * gunLength,
-        y: player.y + Math.sin(baseAngle) * gunLength,
-        vx: Math.cos(baseAngle) * player.bulletSpeed,
-        vy: Math.sin(baseAngle) * player.bulletSpeed,
-        radius: 6 * _dm.radiusMul,
-        damage: player.damage * _dm.dmgMul,
-        piercing: player.bulletPiercing,
-        element: '物理',
-        skillType: 'damage',
+    // 火力强化分支派生修正（dmgMul 伤害、radiusMul 子弹体型、bulletCountBoost 连发）；不继承属性树
+    const _dm = (skills.damage && skills.damage._mods) || { dmgMul: 1, radiusMul: 1, bulletCountBoost: 0 };
+    // v1.1.74(A5-A11)：charge 分支连发+1/级 → 发射 (1+bulletCountBoost) 颗，单发按通用多弹衰减
+    const _bc = _dm.bulletCountBoost || 0;
+    const _n = 1 + _bc;
+    const _baseDmg = player.damage * _dm.dmgMul / (1 + MULTI_BULLET_DMG_PENALTY * _bc);
+    const _spread = 0.15;
+    for (let _i = 0; _i < _n; _i++) {
+        let bulletAngle = baseAngle;
+        if (_n > 1) bulletAngle += (_i - (_n - 1) / 2) * _spread;
+        bullets.push({
+            x: player.x + Math.cos(baseAngle) * gunLength,
+            y: player.y + Math.sin(baseAngle) * gunLength,
+            vx: Math.cos(bulletAngle) * player.bulletSpeed,
+            vy: Math.sin(bulletAngle) * player.bulletSpeed,
+            radius: 6 * _dm.radiusMul,
+            damage: _baseDmg,
+            piercing: player.bulletPiercing,
+            element: '物理',
+            skillType: 'damage',
         hitZombies: []
-    });
+        });
+    }
 }
 
 // 属性技能（爆炸/干冰/闪电链/滚木）：按自身 cd 独立释放；吃本树分支、完全不吃火力强化射速
@@ -6416,6 +6448,8 @@ function showUpgradePanel() {
     for (const t of acquiredSkills) {
         const def = SKILL_DEFS[t];
         if (!def) continue;   // 旧存档可能含已删除技能（多重/高速/穿透/暴击/缓速/油渍），跳过避免崩溃
+        // B1(v1.1.74)：基础卡达到 maxLevel 即出池（不再出现在三选一，避免满级后空占卡位）
+        if (skills[t].level >= def.maxLevel) continue;
         // 基础升级卡（火力强化等大类始终可继续升级；其余技能按原逻辑升级）
         cards.push({ type: t, name: def.name, icon: def.icon, desc: def.desc });
         // 衍生分支卡（仅带 branches 的大类有）；图标沿用大类 icon，不另设
@@ -6446,23 +6480,9 @@ function showUpgradePanel() {
         // 技能实验室：列出全部候选卡（含火力强化的所有可用分支），不随机抽 3
         upgradeOptions = cards;
     } else {
-        // A 难度重平衡：前 4 波（共 4 次三选一）强制含「火力强化」基础卡，
-        // 保证玩家前期稳定拿到伤害成长，避免随机池(火力卡仅 1/6)导致前期火力卡死。
-        const forceDamage = (wavesSpawned >= 1 && wavesSpawned <= 4);
-        if (forceDamage) {
-            const dmgCard = cards.find(c => c.type === 'damage' && !c.branch);
-            if (dmgCard) {
-                const rest = cards.filter(c => c !== dmgCard);
-                const others = weightedPick3(rest).filter(c => c !== dmgCard);
-                upgradeOptions = [dmgCard, ...others].slice(0, 3);
-            } else {
-                upgradeOptions = weightedPick3(cards);
-            }
-        } else {
-            // 加权抽取 3 张：基础大类卡（尤其火力强化基础）加权，避免被多条分支卡挤掉。
-            // 基础与分支不互斥，都应能稳定刷出（"一定概率"）。
-            upgradeOptions = weightedPick3(cards);
-        }
+        // v1.1.74(B2)：去掉「前 4 波强制火力强化卡」限制——卡池完全按权重随机；
+        // 火力强化基础卡已在 upgradeCardWeight 加权(2.0)，前期稳定可刷出，无需强制。
+        upgradeOptions = weightedPick3(cards);
     }
     selectedUpgrade = -1;
 }
@@ -6519,6 +6539,10 @@ function applyUpgrade(upgrade) {
     // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
     const _def = SKILL_DEFS[upgrade.type];
     if (_def && _def.apply) _def.apply(skills[upgrade.type].level);
+    // v1.1.74(A2/A3)：五行技能升级后按新等级重算其基础伤害字段（与火力强化 player.damage 彻底解耦）
+    if (upgrade.type === 'explosive' || upgrade.type === 'freeze' || upgrade.type === 'lightning' || upgrade.type === 'wood' || upgrade.type === 'earth') {
+        recomputeElemDamage();
+    }
     // 质变节点（qualNodes）：升级到指定等级触发一次性强化
     fireQualNodes(upgrade.type);
 
@@ -6713,6 +6737,8 @@ function startGame() {
     recomputeEarthMods();
     // 五行相生协同：开局按初始已拥有技能计算
     recomputeWuxingSynergy();
+    // v1.1.74(A2/A3)：按五行技能等级(含天赋预置)重算各自基础伤害字段
+    recomputeElemDamage();
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
 
