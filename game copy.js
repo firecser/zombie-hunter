@@ -117,21 +117,18 @@ const SAFE_TOP_OFFSET = statusBarHeight + 10;
 // 由"3 段粗阶 + 单点指数"改为 9 段 wave-tier 表：每 2-3 波一档 HP/伤害倍率，
 // 数值按"玩家最优火力成长 ×1.14/级 + 多重/属性树叠加"反推，使两条曲线交叉上升、偏离≤20%。
 // 每段相对前段 HP ×1.10–1.16（小步快走）。段间不强制按严格 2/3 波等宽，按 player.level 落点分配。
-// 段 1-2 = 新手缓坡；段 3-7 = 平滑升压；段 8 = 极限；段 9 = 终极（仅 wave 20 一波 + Boss）。
-// 各段独立叠加 stage.healthMult/damageMult，因此 STAGES 字段整体下调以让 tier 主控曲线。
-// A+B 难度重平衡（v1.1.65）：前期降档(平滑)，后期抬陡(加压)。
-//   - 波1-2 hpT 1.00→0.85、波3-4 hpT 1.10→0.95（前期更易清，给技能成长窗口）
-//   - 波16-17 / 18-19 / 20 阶梯抬陡（2.0/2.4 → 2.4/3.0 → 3.4），后段不再空虚
+// v1.1.73：每波总血量曲线改由 buildWavePlan 的「624×1.6^(w-1)」单一主控（表规则：每波总血=上波×1.6）。
+// 故此处 hpT 统一置 1.0（不再二次缩放血量），仅保留 dmgT 控制怪物攻击城墙的伤害强度（手感维度，与血量解耦）。
 const WAVE_TIER_TABLE = [
-    { tier:1, from:1,  to:2,  hpT:0.85, dmgT:1.00, note:'新手' },
-    { tier:2, from:3,  to:4,  hpT:0.95, dmgT:1.02, note:'热身' },
-    { tier:3, from:5,  to:7,  hpT:1.24, dmgT:1.06, note:'升压' },
-    { tier:4, from:8,  to:10, hpT:1.42, dmgT:1.11, note:'考验' },
-    { tier:5, from:11, to:12, hpT:1.50, dmgT:1.18, note:'压力' },
-    { tier:6, from:13, to:15, hpT:1.62, dmgT:1.22, note:'高压' },
-    { tier:7, from:16, to:17, hpT:2.00, dmgT:1.34, note:'极限' },
-    { tier:8, from:18, to:19, hpT:2.40, dmgT:1.46, note:'突破' },
-    { tier:9, from:20, to:20, hpT:3.40, dmgT:1.70, note:'终极' }
+    { tier:1, from:1,  to:2,  hpT:1.0, dmgT:1.00, note:'新手' },
+    { tier:2, from:3,  to:4,  hpT:1.0, dmgT:1.02, note:'热身' },
+    { tier:3, from:5,  to:7,  hpT:1.0, dmgT:1.06, note:'升压' },
+    { tier:4, from:8,  to:10, hpT:1.0, dmgT:1.11, note:'考验' },
+    { tier:5, from:11, to:12, hpT:1.0, dmgT:1.18, note:'压力' },
+    { tier:6, from:13, to:15, hpT:1.0, dmgT:1.22, note:'高压' },
+    { tier:7, from:16, to:17, hpT:1.0, dmgT:1.34, note:'极限' },
+    { tier:8, from:18, to:19, hpT:1.0, dmgT:1.46, note:'突破' },
+    { tier:9, from:20, to:20, hpT:1.0, dmgT:1.70, note:'终极' }
 ];
 function getWaveTier(wave) {
     for (const t of WAVE_TIER_TABLE) {
@@ -446,53 +443,28 @@ const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（�
                                 // 因 WAVE_SPAWN_GAP 放大了间隔，密度增加的是「总量」而非「同时段压力」。
 function buildWavePlan() {
     const plan = [];
-    // 第一遍：构造每波组成（经验耦合：每波经验总和 = 2i，保证清完升 1 级）
+    // v1.1.73（表规则）：每波「全部怪物总血量」= 上一波总血量 ×1.6，而非每只怪 ×1.6。
+    // 第1波 = 2 只小怪(312×2 = 624) → 第 w 波总血 = 624 × 1.6^(w-1)。
+    // 体型档（zombieTypes）：小=312、中(tank)=1560、大(giant)=7800、BOSS=39000（比例 1:5:25:125）。
+    // 由 AI 贪心凑：目标总血取整到 312 的倍数（最小体型粒度），再从最大可用体型往下填，
+    // 使组成总血量尽量逼近 624×1.6^(w-1)（误差 ≤ 半只小怪，符合「去凑」的近似）。
+    // BOSS 仅出现在总血量 ≥39000 的波（w≥10）：w10/w15/w20 各 1 只，其余波用 tank/giant/normal 凑。
     for (let i = 1; i <= WAVE_COUNT; i++) {
-        const targetExp = EXP_BASE * i;                 // 该波升级所需经验 = 怪物经验总和
-        const isBoss = (i % 5 === 0);
-        const comp = [];                               // 怪物类型组成（普通1/精英2/BOSS4 经验）
-        let remaining = targetExp;
-        if (isBoss) { comp.push('boss'); remaining -= 4; }
-        // 中后期加入精英(坦克, 2经验)增加厚度
-        if (i >= 3) {
-            const tanks = Math.min(Math.floor(i / 3), Math.floor(remaining / 2));
-            for (let k = 0; k < tanks; k++) { comp.push('tank'); remaining -= 2; }
+        const targetHP = 624 * Math.pow(1.6, i - 1);
+        const isBoss = (i === 10 || i === 15 || i === 20);   // BOSS=39000 只在预算足够容纳时出现
+        let hp = Math.round(targetHP / 312) * 312;            // 取整到最小体型粒度，误差最小
+        const comp = [];
+        if (isBoss) { comp.push('boss'); hp -= 39000; }
+        // 贪心：giant(7800) → tank(1560) → normal(312)，使怪量尽量少（大怪少、压力集中于少量厚血）
+        const tiers = [['giant', 7800], ['tank', 1560], ['normal', 312]];
+        for (const [t, h] of tiers) {
+            while (hp >= h) { comp.push(t); hp -= h; }
         }
-        // 速度感：偶数非Boss波加几个快速怪(1经验)
-        if (i >= 2 && !isBoss && i % 2 === 0) {
-            const fast = Math.min(3, remaining);
-            for (let k = 0; k < fast; k++) { comp.push('fast'); remaining -= 1; }
-        }
-        // 剩余用普通怪(1经验)填满，保证经验总和精确等于 targetExp
-        while (remaining > 0) { comp.push('normal'); remaining -= 1; }
-        // A 难度重平衡 + 中后段怪量阶梯：前 5 波降密度（平滑前期压力）；
-        // 中后段按「波次(≈卡池进度)」阶梯抬升怪量——玩家强化越多，战场压迫感越强。
-        //   · 波 1-5 ：×1.2（降密度，平滑）
-        //   · 波 6-10：×1.5（基准密度）
-        //   · 波11-14：×1.9（阶梯一：多重/穿透成型，怪量明显加压）
-        //   · 波15-17：×2.3（阶梯二：属性树高阶，更多目标）
-        //   · 波18-20：×2.8（阶梯三：终极波，大军压境；boss 波略收避免单点过载）
-        // 密度仅影响「总怪数」，出怪经验按同比例除以 density → 总经验仍=targetExp（升级节奏不变）。
-        // v1.1.71：后段加压已改由 getDmgCouple（火力耦合）单独承担，怪量阶梯回调到平滑，
-        // 避免「怪血翻倍 + 怪量翻倍」双重叠加导致中后段墙被厚血怪堆破。
-        // 前5波维持轻密度（护前期手感），6波起回到基准密度，boss 波略控。
-        let waveDensity = (i <= 5) ? Math.min(MONSTER_DENSITY, 1.2)
-                        : MONSTER_DENSITY;
-        if (isBoss) waveDensity = Math.min(waveDensity, 1.8);   // boss 波怪量上限，避免单点瞬间过载啄墙
-        if (waveDensity > 1) {
-            const extra = [];
-            for (const t of comp) {
-                if (Math.random() < (waveDensity - 1)) extra.push(t);
-            }
-            comp.push(...extra);
-        }
+        while (hp > 0) { comp.push('normal'); hp -= 312; }    // 余数补小怪（极少）
         plan.push({ i, comp, boss: isBoss });
     }
-    // 第二遍：排时间轴。关键平衡点：一杆枪清场速度有上限，怪不能「同时段大量压到墙前」，
-    // 否则墙被啄爆。故每只怪之间留出固定下限间隔（WAVE_SPAWN_GAP），波与波之间再叠一段
-    // 波间缓冲（WAVE_GAP），让玩家逐波/逐批清，而不是被数量淹没。
-    // density×1.5 增加了「总怪数」（更多可击目标、升级节奏不变），但间隔被放大，
-    // 同屏峰值反而更低——这正是「多目标」维度应有的体现，而非「更密的压力」。
+    // 排时间轴：每只怪之间留固定下限间隔（WAVE_SPAWN_GAP），波间叠缓冲（WAVE_GAP），逐波清。
+    // 后段波总怪量随 1.6 曲线激增（用户已接受出怪排队拉长），间隔受 GAME_TIME_LIMIT 约束自动放大。
     const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
     WAVE_INTERVAL = Math.max(WAVE_SPAWN_GAP, (GAME_TIME_LIMIT - WAVE_INITIAL_DELAY) / totalCount);
     let t = WAVE_INITIAL_DELAY;
@@ -1509,8 +1481,8 @@ const SKILL_DEFS = {
                   // 基础增幅 +14%/级（原 +12%）：爆炸弹主键不随自身等级增长、且半径随等级涨到 ~440px，
                   // 在「稍有聚集」时就反超火力强化；提至 14% 把 crossover 推到「密集群才反超」，还原火力强化=单体/Boss、爆炸弹=群伤的定位。
                   branches: {
-                    heavyBarrel: { name:'重型枪管', desc:'子弹体型+20%/级、伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级、射速-3%/级', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
-                                   effect(bl,m){ m.radiusMul *= Math.pow(1.20, bl); m.dmgMul *= Math.pow(PURE_DMG_BRANCH, bl); m.fireMul *= Math.pow(1.03, bl); } },
+                    heavyBarrel: { name:'重型枪管', desc:'命中产生范围爆炸(满级半径' + (80*5) + 'px)、伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.aoeRadius += 80 * bl; m.dmgMul *= Math.pow(PURE_DMG_BRANCH, bl); } },
                     rapidFire:   { name:'狂暴连射', desc:'射速+22%/级，每发伤害-4%/级',             reqLevel:8, prereq:[], mutex:['charge'], maxLevel:5,
                                    effect(bl,m){ m.fireMul *= Math.pow(0.82, bl); m.dmgMul *= Math.pow(0.96, bl); } },
                     charge:      { name:'蓄能射击', desc:'射速-13%/级，命中伤害+55%/级',            reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
@@ -1703,11 +1675,11 @@ for (const _t in SKILL_DEFS) {
 const MAX_SKILLS = 6;          // damage + 火/水/金/木/土 五属性树，共 6 槽
 let acquiredSkills = ['damage'];
 // C 难度重平衡：本局开局技能等级总和基线（开局重置后、任何局内升级前）。
-// 用于「难度-等效火力耦合」：火力强化 player.damage 是五行/AOE/DOT 全部伤害的公共基底，
-// 每升 1 级 ×1.25 会复利放大整条伤害链（叠加多重弹/穿透/各属性树后真实 DPS 复利更高）。
+// v1.1.73：火力强化 player.damage 仅作用于物理子弹；五行/AOE/DOT 已用 elemBaseDmg(系别) 解耦（不读 player.damage）。
+// 物理火力每升 1 级 ×1.25 会复利放大物理伤害链（叠加多重弹/穿透/各分支后真实 DPS 复利更高）。
 // getPlayerDpsIndex() 汇总所有乘法因子相对开局的倍率(开局=1)，再经 getDmgCouple() 多段映射为
 // 怪物 HP 倍率：前期不耦合、后段强耦合，使后段不再空虚。damage 只增不减 → 系数恒 ≥1（只能变难不变弱）。
-let runBaseDamage = 10;
+let runBaseDamage = 26;   // 开局火力基线（v1.1.73：初始单发伤害=26），供火力基底耦合使用，开局会被 player.damage 覆盖
 
 // 灼烧(引燃/油渍)的固定持续时长（毫秒）：引燃只增伤不延长，故为常量
 const BURN_DURATION = 1500;
@@ -1753,12 +1725,15 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 // 经验值与血量严格成正比（用户设计）：普通=1经验/60血，精英(tank)=2经验/120血，BOSS=4经验/240血
 // → 击杀所需伤害 ∝ 经验（1:2:4）。fast 为高速脆皮（同 1 经验，血略低），不在比例关系约束内
 // v1.1.4 难度重平衡：基础血量 ×1.5（总血量负载约为原版 2.25 倍；EXP_BASE 在 v1.1.6 由3降为2以缓解 lv5 前怪量过密）
+// 体型档（v1.1.73，表规则）：小=312、中(tank)=1560、大(giant)=7800、BOSS=39000（比例 1:5:25:125）。
+// 怪量由 buildWavePlan 按「每波总血量 = 624×1.6^(w-1)」贪心凑出，每只怪血量取自此处体型档。
 const zombieTypes = {
     // 击杀金币仅作战斗手感，量级已压低，使「直线型通关奖励」成为金币获取的主导直线
-    normal: { health: 60, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 2 },
-    fast:   { health: 38, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 3 },
-    tank:   { health: 120, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 5 },
-    boss:   { health: 240, speed: 0.3, damage: 30, radius: 42, color: '#8b4a5a', exp: 4, gold: 15 }
+    normal: { health: 312, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 2 },
+    fast:   { health: 312, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 3 },
+    tank:   { health: 1560, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 5 },
+    giant:  { health: 7800, speed: 0.28, damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 10 },
+    boss:   { health: 39000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 30 }
 };
 
 // ==================== 升级选项 ====================
@@ -1850,9 +1825,12 @@ const ATTR_BULLET_BASE_RADIUS = 11;   // 明显大于普通子弹(6)
 const ATTR_BULLET_SPEED_MUL   = 0.7;  // 默认飞行速度 = 普通子弹的 70%（属性技能不再提速子弹，释放 cd 缩短由「急速冷却」分支负责）
 // 多重弹每多发 1 颗子弹，单发伤害按此系数衰减（分母随额外子弹数线性增长）
 // 例：多发 5 颗(共 6 发) → 单发伤害 ×(1/2.0≈0.50)，总伤 ≈ 单发×3.0（旧每2级+1上限+2、总伤≈×3.0）
-// 五行弹道标配基础伤害倍率：五行技能（非物理火力强化）基础直伤 +35%，作为五行压制的一部分；
-// 原仅干冰弹独有，v1.1.16 起成为所有五行弹道的标配（火/金/水/木/土 一致）。
-const ATTR_BASE_DMG_MUL = 1.35;
+// 五行基础伤害（表规则 v1.1.73）：与火力强化「彻底解耦」，五行伤害公式不读 player.damage。
+// 五行基础伤害 = 火力强化基础伤害(26) ×5 = 130；五行分系基础倍率（照搬表注释）：金/火+80%、水/土+60%、木+30%、物理+60%。
+// 物理子弹仍用 player.damage（火力强化直接作用）；五行技能统一用 elemBaseDmg(系别)。
+const FIVE_ELEM_BASE = 130;
+const ELEM_BASE_MUL = { '物理': 1.6, '金': 1.8, '火': 1.8, '水': 1.6, '土': 1.6, '木': 1.3 };
+function elemBaseDmg(elem) { return FIVE_ELEM_BASE * (ELEM_BASE_MUL[elem] || 1); }
 // 滚木（木属性树）参数：基础宽度占城墙宽 1/4，由「巨木」分支向 1/2 成长；厚重慢速、碾压间隔控制 DPS
 const WOOD_LOG_BASE_WIDTH_RATIO = 0.25;   // 滚木基础宽度占城墙宽度比例
 const WOOD_LOG_SPEED_MUL = 0.30;          // 滚木速度为属性子弹的 30%（厚重缓滚，明显比原 0.55 慢）
@@ -1863,7 +1841,7 @@ const WOOD_LOG_DMG_FACTOR = 0.47;     // 碾压每击伤害系数（连续碾压
 // 碎木飞溅（互斥于回弹）：滚动途中按间隔概率炸裂，滚木不消失，一路碾压一路爆炸
 const WOOD_SPLINTER_INTERVAL = 600;   // 碎木飞溅炸裂间隔(ms)
 const WOOD_SPLINTER_RADIUS = 70;      // 碎木飞溅爆炸半径(px)
-const WOOD_SPLINTER_DMG = 0.25;       // 碎木飞溅每发伤害系数（占 player.damage 比例）
+const WOOD_SPLINTER_DMG = 0.25;       // 碎木飞溅每发伤害系数（占'木'基础伤害 elemBaseDmg('木') 比例，已与火力解耦）
 // 土系（地刺）参数：战场生成静止石钟乳簇 + 岩盾阻挡
 const EARTH_SPIKE_BASE_DURATION = 1200; // 地刺基础持续时间(ms)
 const EARTH_SPIKE_HIT_INTERVAL  = 600;  // 同一敌人被同一地刺伤害的间隔(ms)：出生 1 跳 + 中途 1 跳，共 2 跳
@@ -1985,7 +1963,7 @@ function getAvailableBranches(type) {
 function recomputeDamageMods() {
     const b = (skills.damage && skills.damage.branches) || {};
     const def = SKILL_DEFS.damage;
-    const m = { dmgMul: 1, fireMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0 };
+    const m = { dmgMul: 1, fireMul: 1, radiusMul: 1, hitboxMul: 1, armorBonus: 0, knock: false, knockF: 0, aoeRadius: 0 };
     for (const bid in b) {
         const bl = b[bid];
         if (!bl) continue;
@@ -2233,9 +2211,9 @@ const COMBO_DEFS = [
     { id:'melt', test:(z,el)=> z.frozenUntil > Date.now() && el === '火',
       fx(z){ damageZombie(z, z.maxHealth * 0.08, false, '物理'); z.frozenUntil = 0; pushHit(z,'melt'); } },
     { id:'superconduct', test:(z,el)=> el === '金' && (z.frozenUntil > Date.now() || z.slowUntil > Date.now() || z.stunUntil > Date.now()),
-      fx(z){ superConduct(z, 2, player.damage * 0.3); pushHit(z,'superconduct'); } },
+      fx(z){ superConduct(z, 2, elemBaseDmg('金') * 0.3); pushHit(z,'superconduct'); } },
     { id:'conduct', test:(z,el)=> z.slowUntil > Date.now() && el === '金',
-      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, player.damage*0.3, false, '金'); pushHit(z,'conduct'); } },
+      fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+800); damageZombie(z, elemBaseDmg('金')*0.3, false, '金'); pushHit(z,'conduct'); } },
     { id:'mire', test:(z,el)=> z.burningUntil > Date.now() && el === '水',
       fx(z){ const now=Date.now(); z.stunUntil = Math.max(z.stunUntil||0, now+600); pushHit(z,'mire'); } }
 ];
@@ -3096,7 +3074,7 @@ function spawnEarthSpikes() {
     const baseSlot = skillSlotOf('earth');
     const now = Date.now();
 
-    const baseDmg = player.damage * ATTR_BASE_DMG_MUL * EARTH_SPIKE_DMG_FACTOR * (m.fissureDmgMul || 1)
+    const baseDmg = elemBaseDmg('土') * EARTH_SPIKE_DMG_FACTOR * (m.fissureDmgMul || 1)
                   * (1 + 0.05 * (lvl - 1))
                   / (1 + MULTI_BULLET_DMG_PENALTY * Math.max(0, count - 1));
     const critChance = getCritChance(m);
@@ -3256,7 +3234,7 @@ function applyEarthSpikeHit(spike, isFirstTick) {
                 const o = zombies[j];
                 if (o === z || o.health <= 1) continue;
                 if (Math.hypot(z.x - o.x, z.y - o.y) < 35) {
-                    damageZombie(o, player.damage * 0.08, false, '土');
+                    damageZombie(o, elemBaseDmg('土') * 0.08, false, '土');
                     checkCombos(o, '土');
                 }
             }
@@ -3269,7 +3247,7 @@ function applyEarthSpikeHit(spike, isFirstTick) {
                 const o = zombies[j];
                 if (o === z || o.health <= 1) continue;
                 if (Math.hypot(z.x - o.x, z.y - o.y) < 55) {
-                    damageZombie(o, player.damage * 0.18, false, '土');
+                    damageZombie(o, elemBaseDmg('土') * 0.18, false, '土');
                     checkCombos(o, '土');
                 }
             }
@@ -5095,9 +5073,11 @@ function shootAttribute(type) {
     const n = 1 + (m.bulletCountBoost || 0);                 // 多重爆裂/多重干冰
     const _spd = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * (m.speedMul || 1);  // 默认比普通子弹慢；疾速弹道（自身分支）可提速，仍独立于火力强化
     // 多发子弹：额外子弹数越多，单发伤害越低（整体总伤随子弹数亚线性增长，避免多重无脑碾压）
-    // 五行弹道（非物理火力强化）统一 ×ATTR_BASE_DMG_MUL：自 v1.1.16 起 +35% 基础增伤成为五行标配（火/金/水/木/土 一致）
-    const _baseMul = (type === 'damage') ? 1 : ATTR_BASE_DMG_MUL;   // 五行弹道（非物理）统一 +35% 基础增伤（标配）
-    let dmg = player.damage / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0)) * _baseMul;
+    // v1.1.73：物理子弹(type==='damage')用 player.damage（火力强化直接作用）；
+    // 五行弹道用 elemBaseDmg(系别) = FIVE_ELEM_BASE×分系倍率，与火力强化彻底解耦（表规则：五行不读 player.damage）。
+    const _elem = SKILL_DEFS[type].element;
+    const _base = (type === 'damage') ? player.damage : elemBaseDmg(_elem);
+    let dmg = _base / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0));
     // 覆盖类减伤（用户要求）：穿透 +1 → 单发 -20%；弹射目标 +1 → 单发 -20%（仅闪电链）；冻结扩大范围 → 单发 -20%/级
     if (m.pierceBoost) dmg /= (1 + REACH_DMG_PENALTY * m.pierceBoost);
     if (type === 'lightning' && m.chainCountBoost) dmg *= Math.pow(1 - REACH_DMG_PENALTY, m.chainCountBoost);
@@ -5138,7 +5118,7 @@ function shootWood() {
     const lvl = Math.max(1, skills.wood.level || 1);
     // 单根每击伤害：五行标配 +35% × 木专属(logDmgMul) × 基础技能等级成长；多根按多重系数衰减避免无脑碾压
     // 覆盖类减伤（用户要求）：木刺穿透 +1 → 单根 -20%
-    const perHit = player.damage * ATTR_BASE_DMG_MUL * m.logDmgMul
+    const perHit = elemBaseDmg('木') * m.logDmgMul
                  * (1 + 0.08 * (lvl - 1)) * WOOD_LOG_DMG_FACTOR
                  / (1 + MULTI_BULLET_DMG_PENALTY * (count - 1))
                  / (1 + REACH_DMG_PENALTY * (m.pierceBoost || 0));
@@ -5247,8 +5227,8 @@ function updateBullets() {
                 }
 
                 // 火力强化·穿甲弹头：仅基础武器子弹对坦克/Boss 额外增伤（与属性树解耦）
-                if (bullet.skillType === 'damage' && skills.damage && skills.damage._mods && skills.damage._mods.armorBonus > 0 &&
-                    (zombie.type === 'tank' || zombie.type === 'boss')) {
+                    if (bullet.skillType === 'damage' && skills.damage && skills.damage._mods && skills.damage._mods.armorBonus > 0 &&
+                    (zombie.type === 'tank' || zombie.type === 'giant' || zombie.type === 'boss')) {
                     damage *= 1 + skills.damage._mods.armorBonus;
                 }
 
@@ -5259,7 +5239,7 @@ function updateBullets() {
                     createExplosion(bullet.x, bullet.y, explosionRadius);
 
                     if (_em.explIgnite && zombie) {                        // 引燃：仅引燃被击中和被波及的怪物，不生成地面火池（避免与油渍冲突）
-                        applyBurn(zombie, player.damage * _em.burnDmgMul, BURN_DURATION);
+                        applyBurn(zombie, elemBaseDmg('火') * _em.burnDmgMul, BURN_DURATION);
                     }
 
                     // 倒序索引遍历：循环内 damageZombie 可能把 z 从 zombies 立即 splice，
@@ -5272,7 +5252,7 @@ function updateBullets() {
                                 // B 难度重平衡：AOE 系数削（0.22+Lv*0.075 → 0.15+Lv*0.05），避免拿到爆炸弹后等效 DPS 暴涨导致后段空虚
                                 let aoeDamage = damage * (0.15 + skills.explosive.level * 0.05) * _em.explDmgMul;
                                 damageZombie(z, aoeDamage, false, '火');
-                                if (_em.explIgnite) applyBurn(z, player.damage * _em.burnDmgMul, BURN_DURATION);
+                                if (_em.explIgnite) applyBurn(z, elemBaseDmg('火') * _em.burnDmgMul, BURN_DURATION);
                                 if (_em.explArmorBreak) {                   // 破甲：爆炸使范围内敌人受伤增加（持续一段时间，纯数值不干扰走位）
                                     z.vulnUntil = Math.max(z.vulnUntil || 0, Date.now() + BURN_DURATION);
                                     z.vulnMul = 1 + _em.armorBreakF;
@@ -5285,7 +5265,25 @@ function updateBullets() {
                         }
                     }
                 }
-                
+
+                // 重型枪管（v1.1.73）：物理子弹命中产生小型爆炸范围伤（区别于火属性爆炸弹）。
+                // 爆炸半径由 heavyBarrel 分支等级累积（m.aoeRadius），伤害为命中伤害的固定比例，元素记'物理'。
+                if (bullet.skillType === 'damage' && skills.damage && skills.damage._mods && skills.damage._mods.aoeRadius > 0) {
+                    const _ar = skills.damage._mods.aoeRadius;
+                    const _frac = 0.5;   // 爆炸伤害占命中伤害比例
+                    createExplosion(bullet.x, bullet.y, _ar);
+                    for (let k = zombies.length - 1; k >= 0; k--) {
+                        const z = zombies[k];
+                        if (z !== zombie) {
+                            const d = Math.hypot(bullet.x - z.x, bullet.y - z.y);
+                            if (d < _ar) {
+                                damageZombie(z, damage * _frac, false, '物理');
+                                checkCombos(z, '物理');
+                            }
+                        }
+                    }
+                }
+
                 // 命中时间戳（闪电链/冰冻/减速/领域/麻痹 共用）
                 const nowHit = Date.now();
 
@@ -5376,19 +5374,19 @@ function updateBullets() {
                 if (bullet.skillType === 'explosive' && skills.explosive._mods && skills.explosive._mods.pierceSplash) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, player.damage * 0.2, false, '火');
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) damageZombie(z, elemBaseDmg('火') * 0.2, false, '火');
                     }
                 }
                 if (_fm && _fm.iceSpike) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '水'); checkCombos(z, '水'); }
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, elemBaseDmg('水') * 0.2, false, '水'); checkCombos(z, '水'); }
                     }
                 }
                 if (_lm && _lm.pierceSpark) {
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, player.damage * 0.2, false, '金'); checkCombos(z, '金'); }
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 30) { damageZombie(z, elemBaseDmg('金') * 0.2, false, '金'); checkCombos(z, '金'); }
                     }
                 }
                 // 岩片溅射 / 碎岩迸发（土属性树「地刺贯穿」Lv5 / 「岩心暴击」Lv5 质变）已迁移至地刺场地逻辑 applyEarthSpikeHit，此处不再由子弹触发
@@ -5397,14 +5395,14 @@ function updateBullets() {
                     createExplosion(zombie.x, zombie.y, 50);
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, player.damage * 0.3, false, '火'); checkCombos(z, '火'); }
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 50) { damageZombie(z, elemBaseDmg('火') * 0.3, false, '火'); checkCombos(z, '火'); }
                     }
                 }
                 if (isCrit && _fm && _fm.iceBurst) {
                     createFreezeEffect(zombie.x, zombie.y);
                     for (let k = zombies.length - 1; k >= 0; k--) {
                         const z = zombies[k];
-                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 45) { damageZombie(z, player.damage * 0.25, false, '水'); checkCombos(z, '水'); }
+                        if (z !== zombie && Math.hypot(zombie.x - z.x, zombie.y - z.y) < 45) { damageZombie(z, elemBaseDmg('水') * 0.25, false, '水'); checkCombos(z, '水'); }
                     }
                 }
                 // 碎岩迸发（土「岩心暴击」Lv5）已迁移至地刺场地逻辑 applyEarthSpikeHit，此处不再由子弹触发
@@ -5889,7 +5887,7 @@ function updateZombies(dt) {
             if (now >= (blockingShield._lastHitAt || 0) + EARTH_SHIELD_ATTACK_INTERVAL) {
                 blockingShield._lastHitAt = now;
                 // 敌人对盾造成伤害（受盾减伤系数；boss 对盾伤害 +50%）
-                const _shieldDmgMul = 1 + (zombie.type === 'boss' ? 0.5 : 0);
+                const _shieldDmgMul = 1 + (zombie.type === 'boss' || zombie.type === 'giant' ? 0.5 : 0);
                 blockingShield.hp -= Math.max(1, zombie.damage * 0.25 * _shieldDmgMul);
                 if (blockingShield.hp <= 0) {
                     const idx = earthShields.indexOf(blockingShield);
@@ -6007,7 +6005,7 @@ function updateFields(dt) {
             f._dpsTimer = 0;
             for (const z of zombies) {
                 if (Math.hypot(f.x - z.x, f.y - z.y) < f.radius + z.radius) {
-                    damageZombie(z, player.damage * 0.15, false, '金');
+                    damageZombie(z, elemBaseDmg('金') * 0.15, false, '金');
                     checkCombos(z, '金');
                 }
             }
@@ -6049,13 +6047,13 @@ function updateLogs(dt) {
             if (isCrit && log.thornBurst) {
                 createCritEffect(z.x, z.y);
                 for (const o of zombies) {
-                    if (o !== z && Math.hypot(z.x - o.x, z.y - o.y) < 45) damageZombie(o, player.damage * 0.25, false, '木');
+                    if (o !== z && Math.hypot(z.x - o.x, z.y - o.y) < 45) damageZombie(o, elemBaseDmg('木') * 0.25, false, '木');
                 }
             }
             // 木刺穿透 Lv5：命中溅射木刺
             if (log.woodSpike) {
                 for (const o of zombies) {
-                    if (o !== z && Math.hypot(z.x - o.x, z.y - o.y) < 30) damageZombie(o, player.damage * 0.2, false, '木');
+                    if (o !== z && Math.hypot(z.x - o.x, z.y - o.y) < 30) damageZombie(o, elemBaseDmg('木') * 0.2, false, '木');
                 }
             }
         }
@@ -6068,7 +6066,7 @@ function updateLogs(dt) {
                     createWoodSplinterEffect(log.x, log.y);
                     for (const z of zombies) {
                         if (Math.hypot(log.x - z.x, log.y - z.y) < WOOD_SPLINTER_RADIUS + z.radius) {
-                            damageZombie(z, player.damage * WOOD_SPLINTER_DMG * log.splinterDmgMul, false, '木');
+                            damageZombie(z, elemBaseDmg('木') * WOOD_SPLINTER_DMG * log.splinterDmgMul, false, '木');
                         }
                     }
                 }
@@ -6190,6 +6188,9 @@ function spawnWave(w, stage) {
     //   · creature 决定极地皮肤；Boss 使用 bossCreature。
     const zElement = stage.element || 'normal';
     const zElements = stage.elements || null;
+    // v1.1.73：每波总经验 = EXP_BASE × 波次（清完刚好升 1 级），按本波怪数均分 → 每只 exp = 总经验/怪数。
+    // 经验与「怪量/体型」彻底解耦：厚血大怪不再单只给海量经验，保证升级节奏恒定（每波 1 级）。
+    const expVal = (EXP_BASE * w.i) / w.comp.length;
     for (let s = 0; s < w.comp.length; s++) {
         const type = w.comp[s];
         pendingSpawns.push({
@@ -6199,7 +6200,8 @@ function spawnWave(w, stage) {
             zElements: zElements,
             creature: type === 'boss' ? stage.bossCreature : stage.creature,
             stage: stage,
-            wave: w.i
+            wave: w.i,
+            expVal: expVal
         });
     }
 }
@@ -6239,6 +6241,12 @@ function getPlayerDpsIndex() {
             aoeAdd = Math.max(aoeAdd, nIn * (0.15 + lvl * 0.05));
         }
     }
+    // 重型枪管爆炸 AoE（物理）：命中产生半径 aoeRadius 的范围伤，占命中 50%（与火/冰 AoE 同口径计入 idx）
+    const _dmAoe = (skills.damage && skills.damage._mods && skills.damage._mods.aoeRadius) || 0;
+    if (_dmAoe > 0) {
+        const nIn = Math.min(12, Math.round(_dmAoe / 40 * 3));
+        aoeAdd = Math.max(aoeAdd, nIn * 0.5);
+    }
     dps *= (1 + aoeAdd);
 
     // 3) 闪电链（金）：独立 CD 周期性弹射，按每秒贡献计入
@@ -6248,7 +6256,7 @@ function getPlayerDpsIndex() {
         const chain = lv + 1 + (lm.chainCountBoost || 0);
         const per = 0.4 * (lm.chainDmgMul || 1) / Math.pow(1.2, lm.chainCountBoost || 0);
         const cd = getAttrReleaseCd('lightning');
-        dps += chain * per * player.damage * (1000 / cd);
+        dps += chain * per * elemBaseDmg('金') * (1000 / cd);
     }
 
     // 4) 木（滚木）：独立 CD 周期性全屏碾压，按每秒贡献计入
@@ -6258,7 +6266,7 @@ function getPlayerDpsIndex() {
         const count = Math.min(6, 1 + (wm.logCountBoost || 0));
         const perRow = Math.min(9, 5 + Math.floor(count));
         const cd = getAttrReleaseCd('wood');
-        dps += player.damage * perRow * count * 0.5 * (1000 / cd);
+        dps += elemBaseDmg('木') * perRow * count * 0.5 * (1000 / cd);
     }
 
     // 5) 土（地刺）：独立 CD 周期性范围伤，按每秒贡献计入
@@ -6267,10 +6275,10 @@ function getPlayerDpsIndex() {
     if (el > 0) {
         const cd = getAttrReleaseCd('earth');
         const nSpikes = Math.min(6, 1 + (em.pierceBoost ? 0 : 0) + el);  // 地刺簇数随级成长(上限6)
-        dps += player.damage * 1.45 * nSpikes * (1000 / cd) * 0.5;       // 每刺约2跳，半额计入持续
+        dps += elemBaseDmg('土') * 1.45 * nSpikes * (1000 / cd) * 0.5;       // 每刺约2跳，半额计入持续
     }
 
-    const baseDps = 10 / 0.5;   // 开局 DPS = 20/s
+    const baseDps = 26 / 0.5;   // 开局 DPS = 52/s（伤害26 × 射速2/s），idx 基准
     return dps / baseDps;
 }
 
@@ -6298,21 +6306,15 @@ function getPickProgress() {
 //   ≥17  : lv18+，终极段(跳+0.5)，上探至接近 idx(封顶22)，真正加压后段
 function getDmgCouple(idx, progress) {
     const p = progress;
-    // 设计（v1.1.72）：idx 已修正为真实 DPS 比值（含火力增伤分支 dmgMul，且分支等级严格≤总等级：重型/穿甲/狂暴各 maxLevel=5）。
-    // 真实路径 L20 的 idx 分布：纯火力无分支≈87、仅重型≈402、重型+穿甲+狂暴≈885、重型+穿甲+蓄能≈1813（蓄能极端）。
-    // 旧 v1.1.71 封顶 200（且 p<=16 段 cap 死 90 造成 L15-17 断档）→ idx>200 后怪血固定、被秒（用户"后期太弱"真因）。
-    // 现终段 idx^0.95 cap=1300 覆盖蓄能极端；全程「怪血/DPS 缺口」收敛 0.68~0.81，既加压又恒 ≤idx(可清)。
-    // 低段指数轻跟随；前期(0-4)完全不耦合保护手感。
-    if (p <= 4)  return 1;                                                       // 前期：完全不耦合
-    if (p <= 7)  return Math.min(4, Math.pow(idx, 0.55));                       // 轻度指数跟随，封顶防跳变
-    if (p <= 10) return Math.min(12, Math.pow(idx, 0.78));                      // 阶梯一：多重/穿透解锁
-    if (p <= 13) return Math.min(40, Math.pow(idx, 0.88));                      // 阶梯二：属性树高阶
-    // 阶梯三 + 终极段（v1.1.72）：真实路径 L14-20 的 idx=106→885（重型→穿甲→狂暴/蓄能叠加）。
-    // 旧 v1.1.71 把 p<=16 段 cap 死在 90，导致 L15-17 怪血卡 91 倍 vs idx 132~282 → 缺口骤降到 32~47%（断档、后期偏松）。
-    // 此处抬 cap 到 280、幂次 0.90，使 L14-16 平滑收敛；p>=17 终段 idx^0.95 cap=1300，覆盖蓄能极端(1813)。
-    // 全程「怪血/DPS 缺口」收敛 0.68~0.80，既加压又恒 ≤idx(可清)。
-    if (p <= 16) return Math.min(280, Math.pow(idx, 0.90)) + 0.5;               // 阶梯三：闪电链/木成型，平滑收敛，封顶280，跳+0.5
-    return Math.min(1300, Math.pow(idx, 0.95)) + 1.0;                           // 终极段：idx^0.95 收敛缺口，封顶1300，跳+1；恒≤idx可清
+    // v1.1.73（不封顶·偏离追踪）：每场战斗仅 20 波，去掉所有 min() 上限封顶。
+    // 设计：以「期望 DPS 基准 expectedIdx = 1.6^progress」为锚（与波次血量基线 1.6/波 同源），
+    // 取 ratio = idx / expectedIdx（玩家实际 DPS 相对期望的偏离）：
+    //   · ratio ≥1（玩家超出期望）→ couple = ratio^0.95 >1，加压但恒 ≤idx（可清，只变难不变弱）。
+    //   · ratio <1（玩家弱于期望）→ 下限 1，维持波次基线血量，不降难度。
+    // 因期望基准与 buildWavePlan 的 1.6 血量基线同源，couple 仅做「偏离修正」、不会与波次基线双重复利爆墙。
+    if (p <= 4) return 1;                                  // 前期：完全不耦合，保护已调好的平滑手感
+    const expectedIdx = Math.pow(1.6, p);
+    return Math.max(1, Math.pow(idx / expectedIdx, 0.95)); // 偏离追踪·不封顶
 }
 
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
@@ -6339,7 +6341,7 @@ function updatePendingSpawns() {
         //   进度 ≥17  ：min(5.0, idx^0.60) + 0.5  （终极段最强耦合 + 跳 +0.5）
         // getPlayerDpsIndex() 所有因子只增不减 → idx 恒 ≥1 → 各段 couple 恒 ≥1（只能变难不变弱）。
         const dmgCouple = getDmgCouple(getPlayerDpsIndex(), getPickProgress());
-        const healthMult = stage.healthMult * tier.hpT * dmgCouple;
+        const healthMult = stage.healthMult * dmgCouple;   // v1.1.73：血量曲线由 buildWavePlan 主控，tier.hpT 已置1.0 不参与缩放
         const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
             id: _zombieIdSeq++,
@@ -6354,7 +6356,7 @@ function updatePendingSpawns() {
             maxHealth: template.health * healthMult,
             damage: template.damage * damageMult,
             color: template.color,
-            exp: template.exp / MONSTER_DENSITY,   // 密度提升后每只经验降，总经验仍=targetExp（升级节奏不变）
+            exp: p.expVal,   // v1.1.73：每波总经验=EXP_BASE×波次、按怪数均分（见 spawnWave），与怪量/密度解耦
             gold: template.gold || 5,
             type: p.type,
             wave: p.wave,
@@ -6670,7 +6672,7 @@ function startGame() {
     player.expToLevel = EXP_BASE;   // cost(1→2) = EXP_BASE*1 = EXP_BASE
     player.gold = 0;  // 重置为0用于计算本次关卡获得金币
     player.kills = 0;
-    player.damage = 10;
+    player.damage = 26;   // v1.1.73：玩家初始单发伤害=26（按表给），火力强化直接作用此值
     runBaseDamage = player.damage;   // 记录开局火力基线，供火力基底耦合（dmgCouple）使用
     player.fireRate = 500;
     player.bulletSpeed = 10;
