@@ -1499,7 +1499,9 @@ const SKILL_DEFS = {
                     knockback:   { name:'后坐力',   desc:'命中击退敌人（力度随等级）',               reqLevel:14, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.knock = true; m.knockF = 15*bl; } },
                     calibration: { name:'弹道校准', desc:'命中判定半径+20%/级',                      reqLevel:17, prereq:[], mutex:[], maxLevel:5,
-                                   effect(bl,m){ m.hitboxMul *= Math.pow(1.2, bl); } }   // 命中半径+20%/级
+                                   effect(bl,m){ m.hitboxMul *= Math.pow(1.2, bl); } },   // 命中半径+20%/级
+                    penetration: { name:'穿透弹',   desc:'子弹穿透+1/级（单发-20%/级由穿透衰减统一处理）', reqLevel:11, prereq:[], mutex:[], maxLevel:5,
+                                   effect(bl,m){ m.pierceBoost += bl; } }   // 穿透+1/级；单发-20% 由通用 REACH_DMG_PENALTY 处理（与五行穿透分支同口径，不在此重复乘 dmgMul）
                   } },
     health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); },
                   qualNodes:{ 3:{ desc:'每级额外生命 +10', apply(){ player.maxHealth += 10; player.health += 10; } } } },
@@ -2199,6 +2201,8 @@ function attributeMods() {
     const out = { bulletCountBoost: 0, speedMul: 1, critChanceBoost: 0, critDamageBoost: 0, pierceBoost: 0 };
     // v1.1.74(A5-A11)：火力分支 charge 的 bulletCountBoost 落在 skills.damage._mods，需一并聚合进 DPS 指数
     if (skills.damage && skills.damage._mods) out.bulletCountBoost += (skills.damage._mods.bulletCountBoost || 0);
+    // v1.1.75(F1)：火力分支 penetration 的 pierceBoost 落在 skills.damage._mods，需一并聚合进真实子弹穿透与 DPS 指数
+    if (skills.damage && skills.damage._mods) out.pierceBoost += (skills.damage._mods.pierceBoost || 0);
     for (const m of all) {
         if (!m) continue;
         out.bulletCountBoost += (m.bulletCountBoost || 0);
@@ -6242,7 +6246,7 @@ function spawnWave(w, stage) {
 // 关键修正：旧版把周期性技能(闪电链/木滚木/地刺)的「单轮倍率」直接乘进指数，导致其被严重高估
 // （火力+闪电 lv10 实测 idx≈40~59，但真实 DPS 倍率仅约 9~12）。周期性技能应按「每秒伤害贡献」归一化，
 // 而非单轮倍率相乘。本版改用真实 DPS 比值模型：
-//   总 DPS = Σ(各伤害源每秒输出) / 开局 DPS(=10/0.5=20/s)
+//   总 DPS = Σ(各伤害源每秒输出) / 开局 DPS(=26/0.5=52/s)
 //   · 火力(物理)：射速 × 单发(含多重分摊) × 穿透沿线多目标
 //   · 火/冰：子弹命中触发 AOE，跟随火力射速（每发附加 aoeDamage）
 //   · 闪电链/木滚木/土地刺：独立 CD 周期性释放，按 (单轮伤害 × 1000/cd) 计入持续 DPS
@@ -6263,23 +6267,24 @@ function getPlayerDpsIndex() {
     // 1) 火力持续 DPS（含增伤分支/多重/穿透）
     let dps = shotsPerSec * shots * dmgPerShot * (1 + pb * 0.6);
 
-    // 2) 火/冰：子弹命中触发 AOE，跟随火力射速（每发附加 aoeDamage = damage×(0.15+lv×0.05)）
-    let aoeAdd = 0;
-    for (const key of ['explosive', 'freeze']) {
-        const lvl = (skills[key] && skills[key].level) || 0;
-        if (lvl > 0) {
-            const radius = 40 + lvl * 20;
-            const nIn = Math.min(10, Math.round(radius / 40 * 4));
-            aoeAdd = Math.max(aoeAdd, nIn * (0.15 + lvl * 0.05));
-        }
-    }
-    // 重型枪管爆炸 AoE（物理）：命中产生半径 aoeRadius 的范围伤，占命中 50%（与火/冰 AoE 同口径计入 idx）
+    // 2) 重型枪管爆炸 AoE（物理）：命中产生半径 aoeRadius 的范围伤，占命中 50%（物理基底，按比例乘入 idx）
     const _dmAoe = (skills.damage && skills.damage._mods && skills.damage._mods.aoeRadius) || 0;
     if (_dmAoe > 0) {
         const nIn = Math.min(12, Math.round(_dmAoe / 40 * 3));
-        aoeAdd = Math.max(aoeAdd, nIn * 0.5);
+        dps *= (1 + nIn * 0.5);
     }
-    dps *= (1 + aoeAdd);
+    // 3) 火/冰：子弹命中触发 AOE，跟随火力射速；伤害基准改用解耦后的元素字段(player.fireDamage / player.waterDamage)
+    //    （F2/C1 修复：原版用 skills.level 线性估算，未反映 A2/A3 五行解耦后的真实基础伤害，导致火/水流派 idx 被低估）
+    for (const key of ['explosive', 'freeze']) {
+        const lvl = (skills[key] && skills[key].level) || 0;
+        if (lvl > 0) {
+            const elem = key === 'explosive' ? '火' : '水';
+            const radius = 40 + lvl * 20;
+            const nIn = Math.min(10, Math.round(radius / 40 * 4));
+            const frac = 0.15 + lvl * 0.05;
+            dps += shotsPerSec * nIn * frac * elemBaseDmg(elem);   // 每发 AOE 单目标伤害 = 元素基础 × 比例
+        }
+    }
 
     // 3) 闪电链（金）：独立 CD 周期性弹射，按每秒贡献计入
     const lm = lightningMods();
@@ -6322,20 +6327,14 @@ function getPickProgress() {
     return Math.max(0, player.level - 1);
 }
 
-// 多段火力耦合系数：把"等效 DPS 指数(真实 DPS 比值)"按【卡池进度】分段映射为怪物 HP 倍率。
-// 设计原则：
-//   · 按三选一卡池进度（getPickProgress=累计选择次数=level-1）分段，进度越高=玩家强化越多=越该加压。
-//   · 混合函数：低段指数平滑跟随 idx；高段叠加阶梯跳跃(step)，且高段 couple 上探至接近真实 idx
-//     （但恒 ≤ idx，保证怪血不超过玩家 DPS，仍"可清"——只变难不变弱，不卡死）。
-//   · 前期(进度0-4)完全不耦合，保护已调好的平滑手感；lv5 前轻松可升。
-//   · idx 恒 ≥1 → 各段恒 ≥1（只能变难不变弱）。
-// 分段锚点(进度=选择次数)对齐关键强化里程碑：
-//   0-4  : 前5次选择，手感平滑，不耦合
-//   5-7  : lv6-8，火力复利起步，轻度指数跟随，封顶2.0
-//   8-10 : lv9-11，多重/穿透解锁，阶梯一，封顶4.0
-//   11-13: lv12-14，属性树高阶，阶梯二，封顶7.0
-//   14-16: lv15-17，闪电链/木成型，阶梯三(跳+0.5)，封顶12
-//   ≥17  : lv18+，终极段(跳+0.5)，上探至接近 idx(封顶22)，真正加压后段
+// 难度耦合系数：把"等效 DPS 指数(真实 DPS 比值)"按【卡池进度】映射为怪物 HP 倍率。
+// v1.1.73 起改为「不封顶·偏离追踪」：每场战斗仅 20 波，去掉所有 min() 上限封顶（F4 清理旧分段封顶注释）。
+// 设计：以期望 DPS 基准 expectedIdx = 1.6^progress 为锚（与波次血量基线 1.6/波 同源），
+//   ratio = idx / expectedIdx（玩家实际 DPS 相对期望的偏离）：
+//   · ratio ≥1（玩家超出期望）→ couple = ratio^0.95 >1，加压但恒 ≤ idx（可清，只变难不变弱）。
+//   · ratio <1（玩家弱于期望）→ 下限 1，维持波次基线血量，不降难度。
+// 因期望基准与 buildWavePlan 的 1.6 血量基线同源，couple 仅做「偏离修正」、不会与波次基线双重复利爆墙。
+// 前期(进度0-4)完全不耦合，保护已调好的平滑手感；lv5 前轻松可升。
 function getDmgCouple(idx, progress) {
     const p = progress;
     // v1.1.73（不封顶·偏离追踪）：每场战斗仅 20 波，去掉所有 min() 上限封顶。

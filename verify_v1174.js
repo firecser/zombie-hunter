@@ -1,5 +1,6 @@
-// verify_v1174.js — v1.1.74 落点复算/一致性校验
+// verify_v1174.js — v1.1.74/v1.1.75 落点复算/一致性校验
 // 校验 A1/A2/A3/A5-A11/B1/B2/M5 以及耦合不封顶(C2) 是否严格按表实现。
+// v1.1.75 追加：F1 穿透分支、F2 火/水 AoE 改读解耦字段、F4 注释清理。
 // 用法：node verify_v1174.js
 'use strict';
 const fs = require('fs');
@@ -65,6 +66,16 @@ ok(/skills\.damage && skills\.damage\._mods\) out\.bulletCountBoost \+= \(skills
    'attributeMods 聚合 skills.damage._mods.bulletCountBoost（charge 进入 DPS 指数）');
 ok(/_baseDmg = player\.damage \* _dm\.dmgMul \/ \(1 \+ MULTI_BULLET_DMG_PENALTY \* _bc\)/.test(txt),
    'shootBase 按 bulletCountBoost 发射多发并应用多弹衰减');
+
+console.log('== F1: 穿透弹分支（A8） ==');
+ok(/penetration: \{ name:'穿透弹'/.test(txt), '火力树新增 penetration(穿透弹) 分支');
+ok(/effect\(bl,m\)\{ m\.pierceBoost \+= bl; \}/.test(txt), 'penetration effect: pierceBoost+=bl（穿透+1/级；单发-20% 由 REACH_DMG_PENALTY 统一处理，不在此重复乘 dmgMul）');
+ok(/skills\.damage && skills\.damage\._mods\) out\.pierceBoost \+= \(skills\.damage\._mods\.pierceBoost \|\| 0\)/.test(txt),
+   'attributeMods 聚合 skills.damage._mods.pierceBoost（穿透进入真实子弹与 DPS 指数）');
+
+console.log('== F2: 火/水 AoE 改读解耦字段(C1 补全) ==');
+ok(/dps \+= shotsPerSec \* nIn \* frac \* elemBaseDmg\(elem\);/.test(txt), '火/水 AoE 贡献改读 elemBaseDmg(系)（解耦后的 player.fireDamage/waterDamage）');
+ok(!/aoeAdd = Math\.max\(aoeAdd, nIn \* \(0\.15 \+ lvl \* 0\.05\)\)/.test(txt), '已移除旧的「按 skills.level 线性估算」火/水 AoE（避免火/水流派 idx 被低估）');
 
 console.log('== B1/B2: 卡池规则 ==');
 // B1：基础卡达 maxLevel 出池
