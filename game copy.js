@@ -1490,9 +1490,9 @@ const SKILL_DEFS = {
                   branches: {
                     heavyBarrel: { name:'重型枪管', desc:'命中产生范围爆炸(满级半径' + (80*5) + 'px)、伤害+' + Math.round((PURE_DMG_BRANCH - 1) * 100) + '%/级', reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.aoeRadius += 80 * bl; m.dmgMul *= Math.pow(PURE_DMG_BRANCH, bl); } },
-                    rapidFire:   { name:'狂暴连射', desc:'射速+60%/级（纯射速，净DPS×1.6/级）',      reqLevel:8, prereq:[], mutex:['charge'], maxLevel:5,
+                    rapidFire:   { name:'狂暴连射', desc:'射速+60%/级',      reqLevel:8, prereq:[], mutex:['charge'], maxLevel:5,
                                    effect(bl,m){ m.fireMul *= Math.pow(0.625, bl); } },   // 0.625=1/1.6：射速×1.6/级 = 净DPS×1.6/级（与波次血量同源斜率）
-                    charge:      { name:'蓄能连射', desc:'连发+1/级（每发-20%，净DPS×1.6/级）',       reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
+                    charge:      { name:'蓄能连射', desc:'连发+1/级（多发时单发伤害递减）',       reqLevel:8, prereq:[], mutex:['rapidFire'], maxLevel:5,
                                    effect(bl,m){ m.bulletCountBoost += bl; } },   // 连发+1/级；单发-20% 由通用 MULTI_BULLET_DMG_PENALTY 处理（与五行多重弹同口径）
                     armorPierce: { name:'穿甲弹头', desc:'对坦克/Boss额外+50%/级伤害',               reqLevel:11, prereq:['heavyBarrel'], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.armorBonus += 0.50*bl; } },   // 情境向增伤给足：+50%/级
@@ -1500,7 +1500,7 @@ const SKILL_DEFS = {
                                    effect(bl,m){ m.knock = true; m.knockF = 15*bl; } },
                     calibration: { name:'弹道校准', desc:'命中判定半径+20%/级',                      reqLevel:17, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.hitboxMul *= Math.pow(1.2, bl); } },   // 命中半径+20%/级
-                    penetration: { name:'穿透弹',   desc:'子弹穿透+1/级（单发-20%/级由穿透衰减统一处理）', reqLevel:11, prereq:[], mutex:[], maxLevel:5,
+                    penetration: { name:'穿透弹',   desc:'子弹穿透+1/级（多发时单发伤害递减）', reqLevel:11, prereq:[], mutex:[], maxLevel:5,
                                    effect(bl,m){ m.pierceBoost += bl; } }   // 穿透+1/级；单发-20% 由通用 REACH_DMG_PENALTY 处理（与五行穿透分支同口径，不在此重复乘 dmgMul）
                   } },
     health:     { type:'health',     name:'生命强化', icon:'❤️', element:'物理', category:'buff',   maxLevel:99, desc:'生命 +20',       apply(lv){ player.maxHealth += 20; player.health = Math.min(player.health + 20, player.maxHealth); },
