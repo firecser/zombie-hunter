@@ -1516,7 +1516,7 @@ const SKILL_DEFS = {
                   // 实现「基础(火力强化) + 属性(五行)」架构。慢速/冻结效果暂不在此树，留待水（冰）属性树。
                   branches: {
                     // —— 通用「属性树共享模板」分支（火树先行；冰/雷/毒树后续复用同名结构）——
-                    multiShot:  { name:'多重爆裂', desc:'每级额外 +1 发子弹（满级共+3，单发伤害衰减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
+                    multiShot:  { name:'多重爆裂', desc:'每级额外 +1 发子弹（满级共+3，单发伤害递减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1545,7 +1545,7 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水树同名同结构）——
-                    multiShot:  { name:'多重电子', desc:'每级额外 +1 发子弹（满级共+3，单发伤害衰减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
+                    multiShot:  { name:'多重电子', desc:'每级额外 +1 发子弹（满级共+3，单发伤害递减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1574,12 +1574,12 @@ const SKILL_DEFS = {
                   } },
     shield:     { type:'shield',     name:'护盾',     icon:'🛡️', element:'物理', category:'buff',   maxLevel:8,  desc:'减伤能力',       apply(lv){},
                   qualNodes:{ 3:{ desc:'减伤 +5%', apply(){ skills.shield._reduceBonus = 0.05; } }, 5:{ desc:'受击反弹 10%', apply(){ skills.shield._reflect = true; } } } },
-    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中必定减速、炸出范围冰霜；五行弹道标配基础增伤+35%（冻结由分支提供）', apply(lv){},
+    freeze:     { type:'freeze',     name:'干冰弹',   icon:'❄️', element:'水',   category:'bullet', maxLevel:99, desc:'命中必定减速、炸出范围冰霜（冻结由分支提供）', apply(lv){},
                   // 水属性树（由冰属性重命名为水，对应五行中的水）：参考《向僵尸开炮》干冰弹
                   // 共享模板分支与火树同名同结构；水专属分支围绕「控制锁(冻结/减速) + 冰封处决(对冻结追最大生命%) + 冰霜新星(范围必冻爆发) + 极寒领域(冰域铺场)」
                   branches: {
                     // —— 通用「属性树共享模板」分支（与火树同名，全局叠加）——
-                    multiShot:  { name:'多重干冰', desc:'每级额外 +1 发子弹（满级共+3，单发伤害衰减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
+                    multiShot:  { name:'多重干冰', desc:'每级额外 +1 发子弹（满级共+3，单发伤害递减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1589,14 +1589,14 @@ const SKILL_DEFS = {
                                   effect(bl,m){ m.pierceBoost += bl; if (bl >= 5) m.iceSpike = true; } },
                     // —— 水专属分支（水的特点：控制锁 · 冰封处决 · 冰域铺场 · 冰霜新星）——
                     // 冰川 / 霜寒 同档(Lv2)互斥：强化范围冰爆（群体铺场） vs 强化单体减速（控制更深）
-                    glacier:    { name:'冰川',       desc:'冰霜爆炸范围 +12%/级，范围冻结概率 +8%/级；扩大范围使单发伤害 -20%/级', reqLevel:5, prereq:[], mutex:['frostBite'], maxLevel:5,
+                    glacier:    { name:'冰川',       desc:'冰霜爆炸范围 +12%/级，范围冻结概率 +8%/级；每级单发伤害 -20%', reqLevel:5, prereq:[], mutex:['frostBite'], maxLevel:5,
                                   effect(bl,m){ m.freezeRadiusBoost += 0.12 * bl; m.freezeChanceBoost += 0.08 * bl; m.dmgMul *= Math.pow(1 - REACH_DMG_PENALTY, bl); } },
                     frostBite:  { name:'霜寒',       desc:'减速幅度 +5%/级（移动更慢）',       reqLevel:5, prereq:[], mutex:['glacier'], maxLevel:5,
                                   effect(bl,m){ m.slowFactorBoost += 0.05 * bl; } },
                     deepFreeze: { name:'深寒',       desc:'冻结持续时间 +20%/级',               reqLevel:8, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.freezeDurationBoost += 0.20 * bl; } },
                     // 冰霜新星 / 极寒领域 同档(Lv4)互斥：爆发向（范围必冻+爆炸增伤） vs 场域向（持续冰域）
-                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+5%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）；扩大范围使单发伤害 -20%/级', reqLevel:11, prereq:[], mutex:['polarField'], maxLevel:5,
+                    frostNova:  { name:'冰霜新星',   desc:'冰霜爆炸伤害+5%/级、范围+20%/级，范围内敌人概率冻结（+15%/级）；每级单发伤害 -20%', reqLevel:11, prereq:[], mutex:['polarField'], maxLevel:5,
                                   effect(bl,m){ m.frostNovaDmgMul *= Math.pow(1.05, bl); m.freezeRadiusBoost += 0.20 * bl; m.frostNovaFreezeChance += 0.15 * bl; m.dmgMul *= Math.pow(1 - REACH_DMG_PENALTY, bl); } },
                     polarField: { name:'极寒领域',   desc:'冰弹击中敌人时，25%/级概率生成持续减速/冰冻领域', reqLevel:11, prereq:[], mutex:['frostNova'], maxLevel:5,
                                   effect(bl,m){ m.polarFieldChance += 0.25 * bl; } },
@@ -1610,7 +1610,7 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水/金同名同结构）——
-                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+3，单根伤害衰减）', reqLevel:5, prereq:[], mutex:['rapidLog'], maxLevel:3,
+                    multiShot:  { name:'多重滚木', desc:'每级额外 +1 根滚木（满级共+3，单根伤害递减）', reqLevel:5, prereq:[], mutex:['rapidLog'], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
@@ -1622,7 +1622,7 @@ const SKILL_DEFS = {
                     // 巨木 / 连发滚木 同档(Lv2)互斥：少而宽+重伤害 vs 多而窄+覆盖面
                     giantLog:   { name:'巨木',       desc:'滚木宽度+12%/级、伤害+12%/级（向 1/2 城墙宽度成长）', reqLevel:5, prereq:[], mutex:['rapidLog'], maxLevel:5,
                                   effect(bl,m){ m.logWidthMul *= Math.pow(1.12, bl); m.logDmgMul *= Math.pow(1.12, bl); } },
-                    rapidLog:   { name:'连发滚木',   desc:'滚木数量+1/级（与多重滚木二选一，单根伤害随数量衰减）', reqLevel:5, prereq:[], mutex:['giantLog','multiShot'], maxLevel:5,
+                    rapidLog:   { name:'连发滚木',   desc:'滚木数量+1/级（与多重滚木二选一，单根伤害递减）', reqLevel:5, prereq:[], mutex:['giantLog','multiShot'], maxLevel:5,
                                   effect(bl,m){ m.logCountBoost += bl; } },
                     // 深根：木系硬控（定身 = stun），也是 Lv5 绞杀藤蔓的状态钩子
                     deepRoot:   { name:'深根',       desc:'滚木命中 20%/级 概率使敌人定身 0.4s+0.1s/级', reqLevel:8, prereq:[], mutex:[], maxLevel:5,
@@ -1642,7 +1642,7 @@ const SKILL_DEFS = {
                   apply(lv){},
                   branches: {
                     // —— 通用「属性树共享模板」（与火/水/金/木同名同结构）——
-                    multiShot:  { name:'多重地刺', desc:'每级额外 +1 簇地刺（满级共+3，单簇伤害衰减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
+                    multiShot:  { name:'多重地刺', desc:'每级额外 +1 簇地刺（满级共+3，单簇伤害递减）', reqLevel:5, prereq:[], mutex:[], maxLevel:3,
                                   effect(bl,m){ m.bulletCountBoost += bl; } },
                     highSpeed:  { name:'急速冷却', desc:'技能释放 cd 缩短 +8%/级',               reqLevel:5, prereq:[], mutex:[], maxLevel:5,
                                   effect(bl,m){ m.cdReduce = (m.cdReduce || 0) + 0.08 * bl; } },
