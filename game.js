@@ -2682,9 +2682,14 @@ function drawZombie(zombie, now) {
     ctx.fillStyle = 'rgba(100, 150, 180, 0.3)';
     ctx.fill();
     
-    // 身体颜色（由怪物皮肤决定；无皮肤回退海豹僵尸）
-    const colors = CREATURE_VISUAL[zombie.creature] || CREATURE_VISUAL.seal;
-    const feats = (colors.feature || '').split(' ').filter(Boolean);
+    // 身体颜色（按怪物类型区分：普通绿 / 快速橙 / 坦克紫 / BOSS红；高饱和强描边，暗背景高对比）
+    const bodyColors = {
+        normal: { body: '#3fa34d', coat: '#5cc04f', outline: '#1f5e26' },
+        fast:   { body: '#e8932e', coat: '#ffb347', outline: '#9a5a10' },
+        tank:   { body: '#7a45d6', coat: '#a06bff', outline: '#4a2589' },
+        boss:   { body: '#d63b40', coat: '#ff5a5f', outline: '#8a1f24' }
+    };
+    const colors = bodyColors[zombie.type] || bodyColors.normal;
     
     // 身体主体
     ctx.beginPath();
@@ -2730,7 +2735,7 @@ function drawZombie(zombie, now) {
     ctx.arc(x + r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
     ctx.fill();
     
-    // 嘴巴（有喙的物种会被喙覆盖）
+    // 嘴巴
     ctx.fillStyle = '#2a1a1a';
     ctx.beginPath();
     ctx.ellipse(x, y - r * 0.1, r * 0.15, r * 0.1, 0, 0, Math.PI * 2);
@@ -2745,88 +2750,7 @@ function drawZombie(zombie, now) {
     ctx.ellipse(x + r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, -Math.PI / 4, 0, Math.PI * 2);
     ctx.fill();
 
-    // ============ 物种特征（耳/獠牙/喙/鳍/翼/角/尾/王冠）============
-    for (const f of feats) {
-        if (f === 'ears') {
-            ctx.fillStyle = colors.outline;
-            ctx.beginPath(); ctx.arc(x - r * 0.45, y - r * 0.62, r * 0.22, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(x + r * 0.45, y - r * 0.62, r * 0.22, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = colors.coat;
-            ctx.beginPath(); ctx.arc(x - r * 0.45, y - r * 0.62, r * 0.11, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(x + r * 0.45, y - r * 0.62, r * 0.11, 0, Math.PI * 2); ctx.fill();
-        } else if (f === 'beak') {
-            ctx.fillStyle = '#ff9a2e';
-            ctx.beginPath();
-            ctx.moveTo(x - r * 0.16, y - r * 0.12);
-            ctx.lineTo(x + r * 0.16, y - r * 0.12);
-            ctx.lineTo(x, y + r * 0.05);
-            ctx.closePath(); ctx.fill();
-        } else if (f === 'tusks') {
-            ctx.fillStyle = '#fdfdfd';
-            ctx.beginPath();
-            ctx.moveTo(x - r * 0.14, y - r * 0.02); ctx.lineTo(x - r * 0.08, y - r * 0.02); ctx.lineTo(x - r * 0.11, y + r * 0.24);
-            ctx.closePath(); ctx.fill();
-            ctx.beginPath();
-            ctx.moveTo(x + r * 0.14, y - r * 0.02); ctx.lineTo(x + r * 0.08, y - r * 0.02); ctx.lineTo(x + r * 0.11, y + r * 0.24);
-            ctx.closePath(); ctx.fill();
-        } else if (f === 'fins') {
-            ctx.fillStyle = colors.outline;
-            ctx.beginPath();   // 背鳍
-            ctx.moveTo(x - r * 0.18, y - r * 0.9); ctx.lineTo(x + r * 0.18, y - r * 0.9); ctx.lineTo(x, y - r * 1.38);
-            ctx.closePath(); ctx.fill();
-            ctx.beginPath();   // 尾鳍
-            ctx.moveTo(x + r * 0.82, y); ctx.lineTo(x + r * 1.35, y - r * 0.32); ctx.lineTo(x + r * 1.35, y + r * 0.32);
-            ctx.closePath(); ctx.fill();
-        } else if (f === 'wings') {
-            ctx.fillStyle = colors.outline;
-            ctx.beginPath();
-            ctx.moveTo(x - r * 0.8, y - r * 0.1);
-            ctx.quadraticCurveTo(x - r * 1.45, y - r * 0.6, x - r * 1.1, y + r * 0.55);
-            ctx.quadraticCurveTo(x - r * 0.9, y + r * 0.2, x - r * 0.8, y - r * 0.1);
-            ctx.closePath(); ctx.fill();
-            ctx.beginPath();
-            ctx.moveTo(x + r * 0.8, y - r * 0.1);
-            ctx.quadraticCurveTo(x + r * 1.45, y - r * 0.6, x + r * 1.1, y + r * 0.55);
-            ctx.quadraticCurveTo(x + r * 0.9, y + r * 0.2, x + r * 0.8, y - r * 0.1);
-            ctx.closePath(); ctx.fill();
-        } else if (f === 'horns') {
-            ctx.strokeStyle = colors.outline;
-            ctx.lineWidth = Math.max(2, r * 0.08);
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(x - r * 0.3, y - r * 0.55); ctx.lineTo(x - r * 0.5, y - r * 0.98);
-            ctx.moveTo(x - r * 0.4, y - r * 0.82); ctx.lineTo(x - r * 0.62, y - r * 0.98);
-            ctx.moveTo(x + r * 0.3, y - r * 0.55); ctx.lineTo(x + r * 0.5, y - r * 0.98);
-            ctx.moveTo(x + r * 0.4, y - r * 0.82); ctx.lineTo(x + r * 0.62, y - r * 0.98);
-            ctx.stroke();
-        } else if (f === 'tail') {
-            ctx.fillStyle = colors.outline;
-            ctx.beginPath();
-            ctx.moveTo(x - r * 0.55, y + r * 0.7);
-            ctx.quadraticCurveTo(x - r * 1.25, y + r * 1.1, x - r * 1.02, y + r * 1.55);
-            ctx.lineTo(x - r * 0.72, y + r * 1.32);
-            ctx.quadraticCurveTo(x - r * 0.82, y + r * 1.0, x - r * 0.4, y + r * 0.8);
-            ctx.closePath(); ctx.fill();
-        } else if (f === 'crown') {
-            ctx.save();
-            ctx.globalAlpha = 0.32;
-            ctx.fillStyle = '#ffd700';
-            ctx.beginPath(); ctx.arc(x, y, r * 1.2, 0, Math.PI * 2); ctx.fill();
-            ctx.restore();
-            ctx.fillStyle = '#ffd700';
-            ctx.strokeStyle = '#9a7a10';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(x - r * 0.5, y - r * 0.7);
-            ctx.lineTo(x - r * 0.5, y - r * 1.05);
-            ctx.lineTo(x - r * 0.25, y - r * 0.82);
-            ctx.lineTo(x, y - r * 1.18);
-            ctx.lineTo(x + r * 0.25, y - r * 0.82);
-            ctx.lineTo(x + r * 0.5, y - r * 1.05);
-            ctx.lineTo(x + r * 0.5, y - r * 0.7);
-            ctx.closePath(); ctx.fill(); ctx.stroke();
-        }
-    }
+    // （已还原为原版纯色圆脸僵尸：身体按类型四色，移除极地动物造型与皇冠）
 
     // ============ 五行属性环（单系整圈 / 双系相生左右各半）============
     const elems = (zombie.elements && zombie.elements.length > 1)
