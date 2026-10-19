@@ -1,0 +1,193 @@
+// 五行极简 v2.2 · P6 真实数值校准模拟器
+//
+// 与 sim_v22.js 的区别：血量/出怪不再用纸面尺度，而是**完全复刻线上**：
+//   · 每波总血 = round(624 × 1.6^(w-1) / 312) × 312，贪心拆成 boss/giant/tank/normal
+//   · 单只血 = zombieTypes[type].health × stage.healthMult（dmgCouple 在 v2.2 恒≈1）
+//   · 出怪时间轴 = max(900, (300000-1500)/总怪数) 的等间隔 + 波间 1200ms
+//   · 玩家 DPS = (40 + atkFlat + E_BASE[el]×1.15^(lv-1)) × K × (克制?AOE:1)
+//   · 漏怪 → HP 积压 → 城墙按 每只 avgDmg×0.03/s 掉血
+//
+// 输出：6 档关卡 × 3 种操作（错配 / 克制未养成 / 克制+养成）的通关或崩盘时间。
+
+const GAME_TIME_LIMIT = 300;          // s
+const WALL_BASE = 2000;               // 城墙基础血
+const WAVE_COUNT = 20;
+
+const TYPE = {
+    normal: { hp: 312,   dmg: 10 },
+    fast:   { hp: 312,   dmg: 8  },
+    tank:   { hp: 1560,  dmg: 20 },
+    giant:  { hp: 7800,  dmg: 35 },
+    boss:   { hp: 39000, dmg: 50 }
+};
+const RESTRAIN = { '金': '火', '木': '金', '土': '木', '水': '土', '火': '水' };
+const E_BASE = { '金': 300, '火': 240, '木': 180, '土': 120, '水': 90 };
+const AOE = { '金': 1.4, '火': 1.6, '木': 1.0, '土': 1.0, '水': 1.0 };
+const AUTO_DPS = 40;
+const RESTRAINT_MULT = 2.5;
+const MISMATCH_MULT = 0.2;
+
+// ---- 关卡基线（复刻 buildStages）----
+const TALENT_CHAPTERS = [2, 4, 6, 8, 10];
+const r2 = v => Math.round(v * 100) / 100;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function stageOf(lv) {
+    const ch = Math.ceil(lv / 6), lvInCh = ((lv - 1) % 6) + 1;
+    const base = Math.pow(1.03, ch - 1);
+    const within = 1 + 0.025 * (lvInCh - 1);
+    const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
+    const climax = (lvInCh === 6) ? 1.05 : 1;
+    const D = base * within * breather * climax;
+    return { lv, ch, lvInCh, healthMult: r2(D), damageMult: r2(clamp(D * 0.62, 0.6, 2.6)) };
+}
+
+// ---- 出怪表（复刻 buildWavePlan）----
+function buildWaves() {
+    const plan = [];
+    for (let i = 1; i <= WAVE_COUNT; i++) {
+        const targetHP = 624 * Math.pow(1.6, i - 1);
+        const isBoss = (i === 10 || i === 15 || i === 20);
+        let hp = Math.round(targetHP / 312) * 312;
+        const comp = [];
+        if (isBoss) { comp.push('boss'); hp -= 39000; }
+        for (const [t, h] of [['giant', 7800], ['tank', 1560], ['normal', 312]]) {
+            while (hp >= h) { comp.push(t); hp -= h; }
+        }
+        while (hp > 0) { comp.push('normal'); hp -= 312; }
+        plan.push({ i, comp, boss: isBoss });
+    }
+    const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
+    const interval = Math.max(900, (GAME_TIME_LIMIT * 1000 - 1500) / totalCount);
+    let t = 1500;
+    for (const w of plan) {
+        w.spawnAt = t;
+        w.interval = interval;
+        w.duration = Math.max(1, w.comp.length * interval) / 1000;   // s
+        t += w.comp.length * interval + 1200;
+        w.endAt = t / 1000;
+    }
+    return plan;
+}
+const WAVES = buildWaves();
+
+// ---- 关卡怪物元素（复刻 P5 教学章 + 章节元素）----
+const CH_ELEMENT = { 1: 'normal', 2: '水', 3: '木', 4: '火', 5: '金', 6: '土' };
+const CH_DUAL = { 7: ['金', '水'], 8: ['火', '土'], 9: ['木', '火'], 10: ['水', '木'] };
+function teachingWaveElements(lv) {
+    if (lv > 6) return null;
+    if (lv === 1) { const a = []; for (let i = 0; i < 20; i++) a.push(i < 10 ? '金' : '火'); return a; }
+    const pool = lv === 2 ? ['金', '火', '土'] : lv === 3 ? ['金', '火', '土', '水'] : ['金', '火', '土', '水', '木'];
+    const a = []; for (let i = 0; i < 20; i++) a.push(pool[i % pool.length]); return a;
+}
+function waveMonsterElements(lv, waveIdx) {
+    const te = teachingWaveElements(lv);
+    if (te) return [te[waveIdx - 1]];
+    const ch = Math.ceil(lv / 6);
+    if (CH_DUAL[ch]) return CH_DUAL[ch];
+    return [CH_ELEMENT[ch]];
+}
+
+// ---- 玩家 DPS ----
+// mode: 'mismatch'（全程错配某元素）| 'counter'（按目标元素切克制）
+function dpsVsTarget(st, el, elLv, atkFlat, mode) {
+    const base = AUTO_DPS + atkFlat + E_BASE[el] * Math.pow(1.15, elLv - 1);
+    const counter = RESTRAIN[st];
+    if (mode === 'counter') {
+        if (el === counter) return base * RESTRAINT_MULT * (AOE[el] || 1);
+        if (el === st) return base * MISMATCH_MULT;
+        return base;
+    }
+    // mismatch：玩家固定用 el，尽量制造最差
+    if (el === st) return base * MISMATCH_MULT;
+    if (el === counter) return base * RESTRAINT_MULT * (AOE[el] || 1);
+    return base;
+}
+
+// ---- 主模拟 ----
+function run(lv, opts) {
+    const st = stageOf(lv);
+    const mode = opts.mode || 'counter';
+    const elLvAll = opts.elLv || 1;
+    const atkFlat = opts.atkFlat || 0;
+    const wallMax = WALL_BASE + (opts.wallHp || 0);
+    let wall = wallMax;
+
+    const dt = 0.25;
+    let t = 0, backlogHP = 0, lastWave = -1;
+    let curR = 0, curDPS = 0, curAvgHP = 1, curAvgDmg = 0.1;
+    const log = [];
+
+    while (t < GAME_TIME_LIMIT) {
+        // 切波：重算该波的出怪 HP 速率与平均属性
+        let wi = -1;
+        for (let i = 0; i < WAVES.length; i++) {
+            if (t >= WAVES[i].spawnAt / 1000 && t < WAVES[i].endAt) { wi = i; break; }
+        }
+        if (wi !== lastWave && wi >= 0) {
+            lastWave = wi;
+            const w = WAVES[wi];
+            const els = waveMonsterElements(lv, w.i);
+            let totalHP = 0, totalDmg = 0, n = 0;
+            const hpByEl = {};
+            for (const type of w.comp) {
+                const hp = TYPE[type].hp * st.healthMult;
+                const el = els[n % els.length];
+                totalHP += hp;
+                totalDmg += TYPE[type].dmg * st.damageMult;
+                hpByEl[el] = (hpByEl[el] || 0) + hp;
+                n++;
+            }
+            curR = totalHP / w.duration;
+            curAvgHP = totalHP / Math.max(1, w.comp.length);
+            curAvgDmg = totalDmg / Math.max(1, w.comp.length);
+            // 元素按血量占比加权 DPS
+            let wdps = 0;
+            for (const el in hpByEl) {
+                wdps += (hpByEl[el] / totalHP) * dpsVsTarget(el, opts.el || '火', elLvAll, atkFlat, mode);
+            }
+            curDPS = wdps;
+        }
+
+        const net = curR - curDPS;
+        if (net > 0) backlogHP += net * dt;
+        else backlogHP = Math.max(0, backlogHP + net * dt);   // net<0 → 消化积压
+
+        if (backlogHP > 0) {
+            const stuck = backlogHP / Math.max(1, curAvgHP);   // 积压折算成「贴墙怪数量」
+            wall -= stuck * curAvgDmg * 0.03 * dt;             // 每只每 0.5s 啄 0.015×dmg → 0.03/s
+            if (wall <= 0) return { lv, mode, collapse: Math.round(t), wall: 0, R: Math.round(curR), DPS: Math.round(curDPS), avgHP: Math.round(curAvgHP), win: false };
+        }
+        t += dt;
+    }
+    return { lv, mode, collapse: null, wall: Math.round(wall), R: Math.round(curR), DPS: Math.round(curDPS), avgHP: Math.round(curAvgHP), win: true };
+}
+
+function fmt(r) {
+    const tag = r.win ? 'WIN ' : ('崩 ' + r.collapse + 's');
+    return `${tag.padEnd(8)} 墙血剩 ${String(r.wall).padStart(5)} | 末段 R=${r.R}HP/s  vs  DPS=${r.DPS}  平均血=${r.avgHP}`;
+}
+
+console.log('=========== v2.2 P6 真实数值校准（真实出怪表 + 真实血量） ===========');
+console.log('波1 总血=624  波10=39000(boss)  波20≈624×1.6^19\n');
+
+const TIERS = [
+    { lv: 1,  name: 'L1  教学·金→火' },
+    { lv: 4,  name: 'L4  全5开' },
+    { lv: 13, name: 'L13 相生教学' },
+    { lv: 30, name: 'L30 中期' },
+    { lv: 55, name: 'L55 后期' },
+    { lv: 60, name: 'L60 终章' }
+];
+
+for (const T of TIERS) {
+    console.log(`\n—— ${T.name}（healthMult=${stageOf(T.lv).healthMult}, dmgMult=${stageOf(T.lv).damageMult}）——`);
+    // 1) 全程错配：固定用金（对多数怪非克制）
+    console.log('  错配(固定金)        ' + fmt(run(T.lv, { mode: 'mismatch', el: '金', elLv: 1 })));
+    // 2) 克制但零养成
+    console.log('  克制·零养成 lv1     ' + fmt(run(T.lv, { mode: 'counter', elLv: 1, atkFlat: 0 })));
+    // 3) 克制 + 养成（按关卡进度给元素等级与树攻击）
+    const grow = { 1: [1, 0], 4: [2, 8], 13: [4, 24], 30: [6, 40], 55: [8, 60], 60: [10, 84] }[T.lv] || [1, 0];
+    console.log('  克制·养成 lv' + String(grow[0]).padEnd(2) + '/atk' + String(grow[1]).padEnd(3) + '  ' + fmt(run(T.lv, { mode: 'counter', elLv: grow[0], atkFlat: grow[1] })));
+}
+
+console.log('\n说明：墙血 2000，未计木连携回血 / 土减伤 / 炸弹；真实局内会略宽松。');
