@@ -92,21 +92,25 @@ const WALL_MAX_HEALTH = 2000;         // v1.1.74(M5)：城墙基础血量由 800
 const FIELD_X0 = WALL_X0;             // 左边界（屏幕左缘）
 const FIELD_X1 = WALL_X1;             // 右边界（屏幕右缘）
 
-// 获取微信状态栏高度（安全区域）
+// 获取微信状态栏高度 + 底部安全区（安全区域）
 let statusBarHeight = 20;
+let safeAreaBottomInset = 0;   // 底部安全区内边距（全面屏 Home 指示条高度；非全面屏为 0）
 try {
-    // 新基础库用 wx.getWindowInfo（同步，含 statusBarHeight）；旧库回退 getSystemInfoSync
-    if (wx.getWindowInfo) {
-        statusBarHeight = wx.getWindowInfo().statusBarHeight || 20;
-    } else {
-        statusBarHeight = wx.getSystemInfoSync().statusBarHeight || 20;
+    // 新基础库用 wx.getWindowInfo（同步，含 statusBarHeight/safeArea）；旧库回退 getSystemInfoSync
+    const _wi = wx.getWindowInfo ? (wx.getWindowInfo() || {}) : (wx.getSystemInfoSync() || {});
+    statusBarHeight = _wi.statusBarHeight || 20;
+    if (_wi.safeArea && typeof _wi.safeArea.bottom === 'number') {
+        safeAreaBottomInset = Math.max(0, Math.round(screenHeight - _wi.safeArea.bottom));
     }
 } catch (e) {
     statusBarHeight = 20;
+    safeAreaBottomInset = 0;
 }
 
 // 安全顶部偏移量（状态栏高度 + 10px间隙）
 const SAFE_TOP_OFFSET = statusBarHeight + 10;
+// P1 修复：底部安全区偏移（五行坞 / 控制按钮 / 炸弹按钮必须整体上移这么多，否则被系统手势吃掉）
+const SAFE_BOTTOM_OFFSET = safeAreaBottomInset;
 
 // ==================== 关卡系统 ====================
 // 第一章（新手教学 + 五行入门）：每关有明确主题，难度平滑上升；
@@ -968,8 +972,11 @@ function drawDailyTaskEntryButton() {
 
 // 五行坞占屏底部高度比例（P1 视觉身份层）
 const DOCK_H_RATIO = 0.11;
+const DOCK_HEIGHT = screenHeight * DOCK_H_RATIO;
+// P1 修复：坞顶扣除底部安全区（全面屏 Home 指示条约 34px），绘制与点击命中共用同一基准
+const DOCK_TOP = screenHeight - SAFE_BOTTOM_OFFSET - DOCK_HEIGHT;
 // 控制按钮（音效/暂停/炸弹）基线：位于五行坞上方，避开顶部信息栏与微信胶囊
-const CONTROL_Y = screenHeight * (1 - DOCK_H_RATIO) - buttonSize - 16;
+const CONTROL_Y = DOCK_TOP - buttonSize - 16;
 const BOMB_BTN_X = screenWidth - 48;
 const BOMB_BTN_Y = CONTROL_Y + 27;
 
@@ -2704,8 +2711,8 @@ const ELEMENT_RING = {
 // ============ 五行极简 v2.2 视觉身份层（P1）：坞区 + 汉字武器 ============
 // 五行坞图标布局（绘制与点击命中共用，保证一致）
 function getElementDockRects() {
-    const DOCK_H = screenHeight * DOCK_H_RATIO;
-    const dockTop = screenHeight - DOCK_H;
+    const DOCK_H = DOCK_HEIGHT;      // P1 修复：统一使用扣除底部安全区后的坞顶
+    const dockTop = DOCK_TOP;
     const n = WUXING_ORDER.length;
     const iconSize = Math.min(screenWidth * 0.16, DOCK_H * 0.78);
     const gap = (screenWidth - n * iconSize) / (n + 1);
@@ -2751,13 +2758,13 @@ function drawElementDock() {
     const counterHints = getCounterHintElements();
     const isCounter = (e) => counterHints.indexOf(e) >= 0;
     const isUnlocked = (e) => unlocked.indexOf(e) >= 0;
-    const DOCK_H = screenHeight * DOCK_H_RATIO;
-    const dockTop = screenHeight - DOCK_H;
+    const DOCK_H = DOCK_HEIGHT;      // P1 修复：统一使用扣除底部安全区后的坞顶
+    const dockTop = DOCK_TOP;
     const now = Date.now();
 
-    // 坞底栏
+    // 坞底栏（向下延伸进底部安全区，避免留黑边）
     ctx.fillStyle = 'rgba(10, 20, 38, 0.92)';
-    ctx.fillRect(0, dockTop, screenWidth, DOCK_H);
+    ctx.fillRect(0, dockTop, screenWidth, screenHeight - dockTop);
     ctx.strokeStyle = 'rgba(255,210,74,0.25)';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, dockTop); ctx.lineTo(screenWidth, dockTop); ctx.stroke();
@@ -2840,8 +2847,13 @@ function drawZombie(zombie, now) {
     
     // ===== 汉字怪物（国风化 · 五行极简 v2.2 视觉身份层）=====
     // 元素色 + 字形 双重编码；类型用字号/描边/冠区分（色弱与零学习成本友好）
-    const glyph = WUXING_GLYPH[zombie.element] || '僵';
-    const col = WUXING_COLORS[zombie.element] || WUXING_COLORS.normal;
+    // P1 修复：双系关卡（第7-10章 = 第37-60关）monster.element === 'normal'，真实五行存在 elements 数组里；
+    // 旧写法只读 zombie.element → 退化成灰色「僵」，双系关卡的五行编码全部丢失。主字形/主色改取 elements[0]。
+    const _primaryEl = (zombie.element && zombie.element !== 'normal')
+        ? zombie.element
+        : ((zombie.elements && zombie.elements.length) ? zombie.elements[0] : (zombie.element || 'normal'));
+    const glyph = WUXING_GLYPH[_primaryEl] || '僵';
+    const col = WUXING_COLORS[_primaryEl] || WUXING_COLORS.normal;
     const typeStyle = {
         normal: { fs: 1.5,  lw: 3, dark: '#6b4a1f' },
         fast:   { fs: 1.35, lw: 2, dark: '#9a5a10' },
@@ -2877,10 +2889,23 @@ function drawZombie(zombie, now) {
         ctx.fillText('👑', x, y - r * 1.15);
     }
 
+    // P1 修复：双系相生怪在右上角补一个「第二元素」小字（只靠半环颜色不够直观）
+    if (zombie.elements && zombie.elements.length > 1 && WUXING_GLYPH[zombie.elements[1]]) {
+        const _sec = zombie.elements[1];
+        ctx.font = 'bold ' + (fontSize * 0.44) + 'px "STKaiti","KaiTi","SimHei","Microsoft YaHei",sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = Math.max(1.5, fontSize * 0.05);
+        ctx.strokeStyle = 'rgba(8,16,28,0.92)';
+        ctx.strokeText(WUXING_GLYPH[_sec], x + r * 0.8, y - r * 0.8);
+        ctx.fillStyle = WUXING_COLORS[_sec] || WUXING_COLORS.normal;
+        ctx.fillText(WUXING_GLYPH[_sec], x + r * 0.8, y - r * 0.8);
+    }
+
     // 攻击笔画变形（近墙啄击时向下伸出元素武器，指向城墙）
     const attacking = (zombie.y > WALL_Y - zombie.radius - 30);
     if (attacking) {
-        drawElementWeapon(x, y + r * 0.9, zombie.element, col);
+        drawElementWeapon(x, y + r * 0.9, _primaryEl, col);   // P1 修复：双系怪也用主元素武器
     }
 
 
@@ -3986,8 +4011,8 @@ function drawAdDemoGuide() {
 
     adDemoTimer++;
 
-    const bombBtnX = screenWidth - 48;
-    const bombBtnY = screenHeight - 48;
+    const bombBtnX = BOMB_BTN_X;      // P1 修复：跟随炸弹按钮新位置（五行坞上方），否则引导动画指向旧位置空白处
+    const bombBtnY = BOMB_BTN_Y;
 
     if (adDemoState === 'guiding') {
         // 炸弹按钮加强闪光边框
@@ -6860,8 +6885,8 @@ function adDemoBombExplosion() {
     if (adBombExploded) return;
     adBombExploded = true;
 
-    const bombX = screenWidth - 48;
-    const bombY = screenHeight - 48;
+    const bombX = BOMB_BTN_X;         // P1 修复：与炸弹按钮实际位置一致（P1 已把按钮移到五行坞上方）
+    const bombY = BOMB_BTN_Y;
     const EXPLOSION_RADIUS = Math.max(screenWidth, screenHeight);
 
     // 播放爆炸音效
