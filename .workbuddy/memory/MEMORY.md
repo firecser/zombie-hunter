@@ -26,7 +26,9 @@
   - **验收发现并修复 3 bug**：①双系关(第37-60关)`element='normal'`+`elements[]` 导致怪物退化灰色「僵」→ 主字形取 elements[0] + 右上角第二元素角标；②无底部安全区 → 新增 `SAFE_BOTTOM_OFFSET`(读 `safeArea.bottom`) + `DOCK_HEIGHT`/`DOCK_TOP` 统一基准，坞/控制按钮/炸弹全按 DOCK_TOP 排版；③素材演示模式炸弹坐标写死 `screenHeight-48` → 改用 `BOMB_BTN_X/Y`。
   - **测试覆盖教训**：`smoke_p1.js` 把双系样本写成 `element:'木'`，绕过了真实形态 `element:'normal'`，导致 BUG-①漏检。新增 `scripts/smoke_p1_fix.js`（记录型 ctx 断言 fillText 实参 + 模拟 safeArea）6 项 PASS。
   - **硬规则（新增）**：改任何底部 UI（坞/按钮/炸弹/提示）必须用 `DOCK_TOP`/`SAFE_BOTTOM_OFFSET` 统一基准，禁止写死 `screenHeight - N`。
-- 🔄 P2 战斗重写（进行中）：activeElement接入战斗——停旧15技能自动释放，改手动选元素发射，子弹带 activeElement 经 getElementBonus(zombie,activeElement) 结算(克制×2.5/错配×0.2)，并加相生连携同层表现；数值须把 sim_v22 基线(autoDPS40/克制2.5/LvMul1.15)映射到实际武器DPS。
+- ✅ P2 战斗重写（已完成）：`shootElement(el)` 固定炮台发射当前元素子弹(w='element')；`update()` 停 `shootBase`+属性CD循环+死亡射线；`getElementBonus` 重写为**克制×2.5 / 同元素×0.2 / 中性×1.0**（双系取最差）；`damageZombie` 克制时再乘 `ELEMENT_AOE`(金1.4/火1.6)；相生连携=切到 `ELEMENT_SHENG[上个元素]` → 4s ×1.2 + 坞上青色脉冲环「连携」。常量：autoDPS40 / E_BASE 金300火240木180土120水90 / 射速220ms / `elementLevels`(全1等P4) / `elementLvMul`。
+  - 验证 `scripts/smoke_p2.js` 6项PASS（三态/双系/单发数值/damageZombie端到端/连携×1.2/旧链路无调用点）。
+  - **遗留数值问题（归 P6）**：sim_v22 血量尺度(普30/坦80/BOSS200)远小于实际 `zombieTypes`(312/1560/39000) → 实测 BOSS 约35s(克制/lv1)偏肉；小怪健康(0.3–1.1s)。
 - P3 三选一池重写为4类(元素精通/相生连携/克制增幅/通用属性)，删旧分支树/qualNodes。
 - P4 局外养成：5元素树(~8节点/棵)替代18天赋树119节点；删旧 talentData/applyTalentsToBattle。
 - P5 渐进解锁：L1双元素、L13首遇相生，按60关梯度接入；删死代码(CREATURE_VISUAL/旧skill defs)。

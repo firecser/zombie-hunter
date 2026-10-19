@@ -196,6 +196,27 @@ function getStageUnlockedElements(lv) {
     if (lv === 3) return ['火', '水', '木', '土'];
     return ['金', '木', '水', '火', '土'];
 }
+
+// ===== v2.2 五行极简 · 战斗数值（对齐 scripts/sim_v22.js 校准）=====
+// 固定炮台自动射击模型：单发伤害 = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el]×LvMul) / 射速Hz，
+// 命中时再乘 getElementBonus(zombie, el)：克制×2.5 / 错配×0.2 / 中性×1.0；克制时再乘 ELEMENT_AOE 多目标等效。
+const ELEMENT_AUTO_DPS   = 40;                                        // 中性保底 DPS（autoDPS）
+const ELEMENT_BASE_DPS   = { '金':300, '火':240, '木':180, '土':120, '水':90 }; // 五元素基础 DPS（E_BASE，lv1）
+const ELEMENT_AOE        = { '金':1.4, '火':1.6, '木':1.0, '土':1.0, '水':1.0 }; // 多目标等效（克制时生效）
+const ELEMENT_FIRE_RATE  = 220;                                        // 炮台射速（ms）
+const ELEMENT_FIRE_HZ    = 1000 / ELEMENT_FIRE_RATE;                   // ≈4.55 发/s
+const ELEMENT_BULLET_SPEED = 640;                                      // 五行子弹速度（px/s）
+let   elementLevels      = { '金':1, '木':1, '水':1, '火':1, '土':1 };  // 元素熟练度（P4 局外养成接入，默认 lv1）
+function elementLvMul(el) { return Math.pow(1.15, (elementLevels[el] || 1) - 1); } // LvMul = 1.15^(lv-1)
+// 相生映射：A 生 B（水生木 / 木生火 / 火生土 / 土生金 / 金生水）
+const ELEMENT_SHENG = { '水':'木', '木':'火', '火':'土', '土':'金', '金':'水' };
+
+// 相生连携（P2 同层表现）：切到「被上个元素所生」的元素时激活短时增益 + 明显视觉
+let lastActiveElement = '火';
+let synergyUntil = 0;                 // 连携增益结束时间戳（Date.now()）
+const SYNERGY_DURATION = 4000;        // 连携增益持续 4s
+const SYNERGY_DMG_MUL  = 1.20;        // 连携期间全伤害 +20%
+
 // 场上怪物需要被克制的玩家元素集合（坞区红色脉冲提示）
 function getCounterHintElements() {
     const set = {};
@@ -2194,29 +2215,23 @@ function _wuxingSuppressBonus(atkWx, targetElement) {
 }
 
 // 计算元素伤害倍率：状态异常加成 + 五行克制 + 五行相生协同
+// v2.2 五行极简：元素伤害倍率（克制×2.5 / 错配×0.2 / 中性×1.0）
+//   克制：element 恰好是克制 zombie 元素的玩家元素（ELEMENT_COUNTER[zEl] === element）
+//   错配：element 与 zombie 元素相同（怪物抗同元素）
+//   双系相生怪：取「各系最差克制」的最小值，防单属性同时碾压两系
 function getElementBonus(zombie, element) {
     if (!zombie || !element) return 1;
-    const now = Date.now();
-    const atkWx = WUXING_ELEMENT[element];
-    let mult = 1;
-    // Phase2 异常交互：状态 × 元素 增伤
-    if (zombie.frozenUntil > now && STATUS_ELEMENT_BONUS.frozen[element]) mult += STATUS_ELEMENT_BONUS.frozen[element];
-    if (zombie.slowUntil > now && STATUS_ELEMENT_BONUS.slow[element]) mult += STATUS_ELEMENT_BONUS.slow[element];
-    if (zombie.burningUntil > now && STATUS_ELEMENT_BONUS.burning[element]) mult += STATUS_ELEMENT_BONUS.burning[element];
-    // 五行压制 + 克制：单系怪直接算；双系相生怪取「各系最差克制」的最小值，
-    // 防止单属性技能同时碾压两系（需对应相生配对或暴力物理流才能突破）。
-    let suppress;
-    if (zombie.elements && zombie.elements.length > 1) {
-        let worst = Infinity;
-        for (const e of zombie.elements) worst = Math.min(worst, _wuxingSuppressBonus(atkWx, e));
-        suppress = (worst === Infinity) ? WUXING_BASE_BONUS : worst;
-    } else {
-        suppress = _wuxingSuppressBonus(atkWx, zombie.element || 'normal');
+    const els = (zombie.elements && zombie.elements.length) ? zombie.elements : [zombie.element || 'normal'];
+    let worst = Infinity;
+    for (const zEl of els) {
+        if (zEl === 'normal') { worst = Math.min(worst, 1); continue; }
+        const counter = ELEMENT_COUNTER[zEl];   // 克制 zEl 的玩家元素
+        let m = 1.0;
+        if (element === counter) m = 2.5;        // 克制
+        else if (element === zEl) m = 0.2;       // 错配（同元素）
+        worst = Math.min(worst, m);
     }
-    mult += suppress;
-    // 五行相生：全局倍率（峰值在恰好 2 棵相生树；单树无协同、3+ 树因分散而衰减）
-    if (atkWx) mult *= wuxingSynergyMult;
-    return mult;
+    return (worst === Infinity) ? 1 : worst;
 }
 
 // 当前子弹的主属性元素：由玩家已激活的属性树等级最高者决定（水>火>雷/金>风/木），默认物理
@@ -2817,6 +2832,19 @@ function drawElementDock() {
             ctx.lineWidth = 4;
             roundRect(ctx, ix - half - 4, iy - half - 4, iconSize + 8, iconSize + 8, 12);
             ctx.stroke();
+            // P2 相生连携激活（同层表现：青色脉冲环 + 上方「连携」，与克制红色脉冲同一视觉层级）
+            if (Date.now() < synergyUntil) {
+                const _sp = 0.5 + 0.5 * Math.sin(now / 120);
+                ctx.strokeStyle = 'rgba(80,220,255,' + (0.6 + 0.4 * _sp).toFixed(2) + ')';
+                ctx.lineWidth = 5 + 3 * _sp;
+                roundRect(ctx, ix - half - 8, iy - half - 8, iconSize + 16, iconSize + 16, 14);
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(150,235,255,0.95)';
+                ctx.font = 'bold ' + (iconSize * 0.28) + 'px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('连携', ix, iy - half - iconSize * 0.2);
+            }
         }
     }
 }
@@ -5162,6 +5190,33 @@ function shootBase() {
     }
 }
 
+// v2.2 五行极简：固定炮台发射「当前选中元素」子弹（克制结算在 damageZombie → getElementBonus）
+// 单发伤害 = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el]×LvMul) / 射速Hz；连携窗口内再 ×SYNERGY_DMG_MUL
+function shootElement(el) {
+    if (!el || el === '物理' || el === 'normal') el = activeElement;
+    if (!el || el === '物理' || el === 'normal') el = '火';
+    AudioSystem.playShoot();
+    const ang = aimAngleForSlot(1);                       // 打「离墙最近」的可射击怪
+    const dir = (ang === null || ang === undefined) ? (-Math.PI / 2) : ang;   // 无目标时竖直向上
+    const gunLength = 40;
+    const lvl = elementLevels[el] || 1;
+    let perShot = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
+    if (Date.now() < synergyUntil) perShot *= SYNERGY_DMG_MUL;   // 相生连携增益
+    bullets.push({
+        x: player.x + Math.cos(dir) * gunLength,
+        y: player.y + Math.sin(dir) * gunLength,
+        vx: Math.cos(dir) * ELEMENT_BULLET_SPEED,
+        vy: Math.sin(dir) * ELEMENT_BULLET_SPEED,
+        radius: 11,
+        damage: perShot,
+        piercing: 0,
+        element: el,
+        skillType: 'element',        // 新统一类型：不触发任何旧属性分支（爆炸/闪电/滚木/AOE 等）
+        canSplit: false,
+        hitZombies: []
+    });
+}
+
 // 属性技能（爆炸/干冰/闪电链/滚木）：按自身 cd 独立释放；吃本树分支、完全不吃火力强化射速
 function shootAttribute(type) {
     if (zombies.length === 0) return;
@@ -5588,7 +5643,10 @@ function updateBullets() {
 // 伤害僵尸
 function damageZombie(zombie, damage, isCrit, element) {
     const now = Date.now();
-    damage *= getElementBonus(zombie, element);   // Phase2 异常交互：状态 × 元素 增伤（element 缺省'物理'→×1）
+    const _eb = getElementBonus(zombie, element);   // v2.2：克制×2.5 / 错配×0.2 / 中性×1.0
+    damage *= _eb;
+    // v2.2：克制时附加多目标等效（金穿透 / 火范围），对齐 sim_v22 的 AOE 系数
+    if (_eb > 2.0 && ELEMENT_AOE[element]) damage *= ELEMENT_AOE[element];
     if (zombie.vulnUntil > now) damage *= (zombie.vulnMul || 1);  // 破甲：爆炸后敌人受伤增加
     zombie.health -= damage;
 
@@ -6960,40 +7018,18 @@ function update(dt) {
         if (a !== null) player.gunAngle = a;
     }
     
-    // 自动射击（基础武器：火力强化，物理子弹，射速仅由火力强化决定，独立于属性技能）
+    // ===== v2.2 五行极简：固定炮台自动发射「当前选中元素」子弹 =====
+    // 停旧 15 技能自动释放（shootBase / shootAttribute）；克制×2.5 / 错配×0.2 由 getElementBonus 在伤害结算时应用。
     const now = Date.now();
-    const _fireMul = (skills.damage && skills.damage._mods) ? skills.damage._mods.fireMul : 1;
     const hasShootable = zombies.some(zombieShootable);
-    if (hasShootable && now - player.lastShot > player.fireRate * _fireMul) {
-        shootBase();
+    const _unlockedEls = getStageUnlockedElements(currentStage);
+    const _fireEl = (_unlockedEls.indexOf(activeElement) >= 0) ? activeElement : (_unlockedEls[0] || '火');
+    if (hasShootable && now - player.lastShot > ELEMENT_FIRE_RATE) {
+        shootElement(_fireEl);
         player.lastShot = now;
     }
 
-    // 属性技能：各自独立 cd 释放（完全不受火力强化射速影响；cd 随等级与自身「疾速弹道」降低）
-    // 关键：仅当确有可射击目标、子弹真正射出时才重置 _lastFire，否则 CD 不转（避免无目标时空转冷却环）
-    for (const type of ATTRIBUTE_BULLET_TYPES) {
-        const s = skills[type];
-        if (!s || s.level <= 0) continue;
-        if (s._lastFire === undefined) s._lastFire = 0;
-        if (hasShootable && now - s._lastFire >= getAttrReleaseCd(type)) {
-            s._lastFire = now;
-            shootAttribute(type);
-        }
-    }
-
-    // 死亡射线（天赋）：每 8 秒对全场僵尸造成一次巨额伤害
-    if (talentMods.deathrayLevel > 0 && zombies.length > 0) {
-        talentMods.deathrayTimer += dt;
-        if (talentMods.deathrayTimer >= 8000) {
-            talentMods.deathrayTimer = 0;
-            const dmg = player.damage * (2 + talentMods.deathrayLevel);
-            for (let k = zombies.length - 1; k >= 0; k--) damageZombie(zombies[k], dmg);  // 倒序：damageZombie 可能 splice 移除僵尸
-            deathRayEffects.push({ x: player.x, y: player.y, life: 400 });
-            AudioSystem.playShoot();
-        }
-    } else {
-        talentMods.deathrayTimer = 0;
-    }
+    // （旧）死亡射线（天赋）等旧技能特效：v2.2 已彻底停用（旧天赋系统将在 P4 整体删除）
 
     updateBullets();
     updateZombies(dt);
@@ -14562,11 +14598,19 @@ wx.onTouchStart((e) => {
                 return;
             }
         } else {
-            // 五行坞点击（P1：选中元素；P2 接入战斗释放）
+            // 五行坞点击（P2：选中元素 = 立即切换炮台发射属性；相生连携在此激活）
             const dockE = hitElementDock(x, y);
             if (dockE) {
                 const unlocked = getStageUnlockedElements(currentStage);
-                if (unlocked.indexOf(dockE) >= 0) activeElement = dockE;
+                if (unlocked.indexOf(dockE) >= 0) {
+                    // 相生连携：切到「被上个元素所生」的元素（水生木/木生火/火生土/土生金/金生水）→ 短时增益
+                    if (ELEMENT_SHENG[lastActiveElement] === dockE) {
+                        synergyUntil = Date.now() + SYNERGY_DURATION;
+                        AudioSystem.playSynergy && AudioSystem.playSynergy();
+                    }
+                    lastActiveElement = activeElement;
+                    activeElement = dockE;
+                }
                 return;
             }
             // 使用炸弹（圆形按钮检测，与drawBombButton一致）
