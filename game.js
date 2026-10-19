@@ -217,6 +217,14 @@ let synergyUntil = 0;                 // 连携增益结束时间戳（Date.now(
 const SYNERGY_DURATION = 4000;        // 连携增益持续 4s
 const SYNERGY_DMG_MUL  = 1.20;        // 连携期间全伤害 +20%
 
+// ===== P3 三选一：4 类卡（元素精通 / 相生连携 / 克制增幅 / 通用属性）=====
+const ELEM_MASTERY_MAX = 10;          // 元素精通等级上限（LvMul 最高 1.15^9 ≈ 3.5×）
+let restraintMult = 2.5;              // 克制倍率（可被「克制增幅」卡提升）
+const RESTRAINT_MAX = 3.5;            // 克制倍率上限
+let synergyDurBonus = 0;              // 连携时长加成（ms），上限 +4000
+let synergyDmgBonus = 0;              // 连携增伤加成（倍率增量），上限 +0.40
+let autoDpsBonus = 0;                 // 炮台中性地板加成（「炮台校准」卡），上限 +200
+
 // 场上怪物需要被克制的玩家元素集合（坞区红色脉冲提示）
 function getCounterHintElements() {
     const set = {};
@@ -1806,15 +1814,8 @@ const zombieTypes = {
     boss:   { health: 39000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 30 }
 };
 
-// ==================== 升级选项 ====================
-// 三选一池由 SKILL_DEFS 派生；攻击性技能架构 = 基础(火力强化) + 属性(五行：金木水火土)，故已删除独立的多重射击/高速子弹/穿透弹/致命暴击/缓速弹/油渍（其效果以"共享分支模板"并入各属性树分支）
-const upgradePool = Object.keys(SKILL_DEFS).map(type => ({
-    type: type,
-    name: SKILL_DEFS[type].name,
-    icon: SKILL_DEFS[type].icon,
-    desc: SKILL_DEFS[type].desc
-}));
-
+// ==================== 升级选项（v2.2 P3：4 类卡，不再由 SKILL_DEFS 派生）====================
+// ① 元素精通 ② 相生连携 ③ 克制增幅 ④ 通用属性；候选由 elementLevels + 本关已解锁元素实时生成（见 showUpgradePanel）
 let upgradeOptions = [];
 let selectedUpgrade = -1;
 
@@ -2227,7 +2228,7 @@ function getElementBonus(zombie, element) {
         if (zEl === 'normal') { worst = Math.min(worst, 1); continue; }
         const counter = ELEMENT_COUNTER[zEl];   // 克制 zEl 的玩家元素
         let m = 1.0;
-        if (element === counter) m = 2.5;        // 克制
+        if (element === counter) m = restraintMult;   // 克制（可被三选一「克制增幅」提升）
         else if (element === zEl) m = 0.2;       // 错配（同元素）
         worst = Math.min(worst, m);
     }
@@ -4803,7 +4804,7 @@ function drawUpgradePanel() {
     ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⬆️ 选择升级', screenWidth / 2, currentY);
+    ctx.fillText('五行进阶 · 选择一项', screenWidth / 2, currentY);
     
     // 炸弹获得提示（呼吸动画 + 与技能图标同宽）
     if (justGotBomb) {
@@ -4914,8 +4915,8 @@ function drawUpgradePanel() {
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
         
-        // 卡片边框
-        let borderColor = '#ffd700';
+        // 卡片边框（v2.2 P3：按卡类/元素取色，元素卡用五行色，克制红、连携青、通用土褐）
+        let borderColor = opt.color || '#ffd700';
         if (opt.type === 'skill') borderColor = '#66aaff';
         else if (opt.type === 'stat') borderColor = '#ff8844';
         
@@ -4924,9 +4925,9 @@ function drawUpgradePanel() {
         roundRect(ctx, x, y, cardW, cardH, 10);
         ctx.stroke();
         
-        // 图标
-        ctx.fillStyle = '#fff';
-        ctx.font = '30px Arial';
+        // 图标（v2.2 P3：元素卡直接显示五行汉字，用元素色；其余用白字）
+        ctx.fillStyle = opt.color || '#fff';
+        ctx.font = 'bold 32px "STKaiti","KaiTi","SimHei",Arial,sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(opt.icon, x + cardW / 2, y + 32);
@@ -5200,8 +5201,8 @@ function shootElement(el) {
     const dir = (ang === null || ang === undefined) ? (-Math.PI / 2) : ang;   // 无目标时竖直向上
     const gunLength = 40;
     const lvl = elementLevels[el] || 1;
-    let perShot = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
-    if (Date.now() < synergyUntil) perShot *= SYNERGY_DMG_MUL;   // 相生连携增益
+    let perShot = (ELEMENT_AUTO_DPS + autoDpsBonus + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
+    if (Date.now() < synergyUntil) perShot *= (SYNERGY_DMG_MUL + synergyDmgBonus);   // 相生连携增益
     bullets.push({
         x: player.x + Math.cos(dir) * gunLength,
         y: player.y + Math.sin(dir) * gunLength,
@@ -6577,60 +6578,60 @@ function levelUp() {
     showUpgradePanel();
 }
 
-// 显示升级面板
+// 显示升级面板（v2.2 P3：4 类卡）
+// ① 元素精通 ② 相生连携 ③ 克制增幅 ④ 通用属性
 function showUpgradePanel() {
     gameState = 'upgrade';
-    
-    // 构建候选卡：已拥有大类的基础升级卡 + 其已解锁的衍生分支卡；未满槽时加入未拥有大类卡
+
     const cards = [];
-    for (const t of acquiredSkills) {
-        const def = SKILL_DEFS[t];
-        if (!def) continue;   // 旧存档可能含已删除技能（多重/高速/穿透/暴击/缓速/油渍），跳过避免崩溃
-        // B1(v1.1.74)：基础卡达到 maxLevel 即出池（不再出现在三选一，避免满级后空占卡位）
-        if (skills[t].level >= def.maxLevel) continue;
-        // 基础升级卡（火力强化等大类始终可继续升级；其余技能按原逻辑升级）
-        cards.push({ type: t, name: def.name, icon: def.icon, desc: def.desc });
-        // 衍生分支卡（仅带 branches 的大类有）；图标沿用大类 icon，不另设
-        if (def.branches) {
-            const _taken = skills[t].branches || {};
-            for (const bid of getAvailableBranches(t)) {
-                const b = def.branches[bid];
-                const bl = _taken[bid] || 0;
-                cards.push({
-                    type: t, branch: bid, icon: def.icon,
-                    name: def.name + '-' + b.name,
-                    branchLevel: bl + 1,
-                    desc: b.desc
-                });
-            }
-        }
+    const _unlocked = getStageUnlockedElements(currentStage);
+
+    // ① 元素精通：每个已解锁元素一张，提升 elementLevels（驱动 elementLvMul）
+    for (const el of _unlocked) {
+        const lv = elementLevels[el] || 1;
+        if (lv >= ELEM_MASTERY_MAX) continue;
+        cards.push({
+            kind: 'elem', el: el, type: 'element',
+            name: el + '·精通 ' + lv + '→' + (lv + 1),
+            icon: el, color: WUXING_COLORS[el],
+            desc: el + ' 元素伤害 +15%'
+        });
     }
-    if (acquiredSkills.length < MAX_SKILLS) {
-        for (const t of Object.keys(SKILL_DEFS)) {
-            if (!acquiredSkills.includes(t)) {
-                const def = SKILL_DEFS[t];
-                cards.push({ type: t, name: def.name, icon: def.icon, desc: def.desc });
-            }
-        }
+    // ② 相生连携：延长连携时长 / 提高连携增伤
+    if (synergyDurBonus < 4000 || synergyDmgBonus < 0.40) {
+        cards.push({
+            kind: 'synergy', type: 'synergy', name: '相生连携', icon: '生', color: '#50dcff',
+            desc: '连携 +1s、增伤 +10%'
+        });
+    }
+    // ③ 克制增幅：2.5 → 3.5
+    if (restraintMult < RESTRAINT_MAX - 1e-6) {
+        cards.push({
+            kind: 'restraint', type: 'restraint',
+            name: '克制 ' + restraintMult.toFixed(1) + '→' + (restraintMult + 0.1).toFixed(1),
+            icon: '克', color: '#ff5a5f',
+            desc: '克制倍率 +0.1'
+        });
+    }
+    // ④ 通用属性（城墙 = player.health，本作唯一失败条件）
+    cards.push({ kind: 'general', sub: 'wall',   type: 'general', name: '城墙加固', icon: '墙', color: '#c8915a', desc: '上限 +120 并回满' });
+    cards.push({ kind: 'general', sub: 'repair', type: 'general', name: '紧急抢修', icon: '修', color: '#8fd3a0', desc: '恢复 25% 城墙生命' });
+    if (autoDpsBonus < 200) {
+        cards.push({ kind: 'general', sub: 'power', type: 'general', name: '炮台校准', icon: '炮', color: '#9fb4cc', desc: '炮台基础伤害 +20' });
     }
 
-    if (isSkillLab) {
-        // 技能实验室：列出全部候选卡（含火力强化的所有可用分支），不随机抽 3
-        upgradeOptions = cards;
-    } else {
-        // v1.1.74(B2)：去掉「前 4 波强制火力强化卡」限制——卡池完全按权重随机；
-        // 火力强化基础卡已在 upgradeCardWeight 加权(2.0)，前期稳定可刷出，无需强制。
-        upgradeOptions = weightedPick3(cards);
-    }
+    upgradeOptions = isSkillLab ? cards : weightedPick3(cards);
     selectedUpgrade = -1;
 }
 
-// 三选一候选卡权重：火力强化基础卡加权（与分支不互斥，需稳定可刷出）；分支卡 1.0；其余已拥有/新技能 1.4
+// 三选一权重：元素精通 1.4（成长主线）/ 克制增幅 1.2 / 相生连携 0.9 / 通用属性 0.7
 function upgradeCardWeight(card) {
-    if (card.type === 'damage' && !card.branch) return 2.0;
-    if (card.branch) return 1.0;
-    return 1.4;
+    if (card.kind === 'elem') return 1.4;
+    if (card.kind === 'restraint') return 1.2;
+    if (card.kind === 'synergy') return 0.9;
+    return 0.7;
 }
+
 function weightedPick3(cards) {
     const pool = cards.slice();
     const out = [];
@@ -6649,58 +6650,37 @@ function weightedPick3(cards) {
     return out;
 }
 
-// 应用升级
+// 应用升级（v2.2 P3：4 类卡；旧 skills/branches/qualNodes 逻辑已移除）
 function applyUpgrade(upgrade) {
-    // 注意：天赋会预先抬高部分技能等级（爆炸/闪电链等），
-    // 因此这里必须用 acquiredSkills 判断是否首次获得，否则会绕过 MAX_SKILLS 槽位限制。
-    if (!acquiredSkills.includes(upgrade.type)) {
-        acquiredSkills.push(upgrade.type);
+    if (upgrade && upgrade.kind) {
+        if (upgrade.kind === 'elem') {
+            const el = upgrade.el;
+            elementLevels[el] = Math.min(ELEM_MASTERY_MAX, (elementLevels[el] || 1) + 1);
+        } else if (upgrade.kind === 'synergy') {
+            synergyDurBonus = Math.min(4000, synergyDurBonus + 1000);
+            synergyDmgBonus = Math.min(0.40, Math.round((synergyDmgBonus + 0.10) * 100) / 100);
+        } else if (upgrade.kind === 'restraint') {
+            restraintMult = Math.min(RESTRAINT_MAX, Math.round((restraintMult + 0.1) * 10) / 10);
+        } else if (upgrade.kind === 'general') {
+            if (upgrade.sub === 'repair') {
+                player.health = Math.min(player.maxHealth, player.health + player.maxHealth * 0.25);
+            } else if (upgrade.sub === 'power') {
+                autoDpsBonus = Math.min(200, autoDpsBonus + 20);
+            } else {
+                player.maxHealth += 120;
+                player.health = player.maxHealth;
+            }
+        }
     }
-    
-    skills[upgrade.type].level++;
-    
-    // 衍生分支卡：选分支 = 该大类继续升级（不占新槽）；分支等级 +1 并重算派生修正
-    if (upgrade.branch) {
-        skills[upgrade.type].branches = skills[upgrade.type].branches || {};
-        skills[upgrade.type].branches[upgrade.branch] = (skills[upgrade.type].branches[upgrade.branch] || 0) + 1;
-        if (upgrade.type === 'damage') recomputeDamageMods();
-        else if (upgrade.type === 'explosive') recomputeExplosiveMods();
-        else if (upgrade.type === 'freeze') recomputeFreezeMods();
-        else if (upgrade.type === 'lightning') recomputeLightningMods();
-        else if (upgrade.type === 'wood') recomputeWoodMods();
-        else if (upgrade.type === 'earth') recomputeEarthMods();
-    }
-
-    // 五行相生协同：获得/升级任何技能后重新计算
-    recomputeWuxingSynergy();
-    
-    // 升级效果统一走 SKILL_DEFS[type].apply（每级增量，复用原 switch 语义）
-    const _def = SKILL_DEFS[upgrade.type];
-    if (_def && _def.apply) _def.apply(skills[upgrade.type].level);
-    // v1.1.74(A2/A3)：五行技能升级后按新等级重算其基础伤害字段（与火力强化 player.damage 彻底解耦）
-    if (upgrade.type === 'explosive' || upgrade.type === 'freeze' || upgrade.type === 'lightning' || upgrade.type === 'wood' || upgrade.type === 'earth') {
-        recomputeElemDamage();
-    }
-    // 质变节点（qualNodes）：升级到指定等级触发一次性强化
-    fireQualNodes(upgrade.type);
 
     gameState = 'playing';
     gameRunning = true;
     lastTime = Date.now();
-
-    // 连锁升级：本次经验溢出跨多级时，选完上一项后立即继续弹下一级三选一，让玩家逐级都选
-    if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
-        levelUp();
-    }
-    
-    // 重置炸弹获得标志
     justGotBomb = false;
     bombFull = false;
 
-    // 连锁升级：本次经验溢出跨多级（如炸弹清屏）时，继续弹出下一级三选一，让玩家逐级都选
-    if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
-        levelUp();
-    }
+    // 连锁升级：经验溢出跨多级时，选完继续弹下一级三选一
+    if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) levelUp();
 }
 
 // 使用炸弹
@@ -14605,7 +14585,7 @@ wx.onTouchStart((e) => {
                 if (unlocked.indexOf(dockE) >= 0) {
                     // 相生连携：切到「被上个元素所生」的元素（水生木/木生火/火生土/土生金/金生水）→ 短时增益
                     if (ELEMENT_SHENG[lastActiveElement] === dockE) {
-                        synergyUntil = Date.now() + SYNERGY_DURATION;
+                        synergyUntil = Date.now() + SYNERGY_DURATION + synergyDurBonus;
                         AudioSystem.playSynergy && AudioSystem.playSynergy();
                     }
                     lastActiveElement = activeElement;
