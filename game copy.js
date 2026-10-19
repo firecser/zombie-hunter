@@ -319,6 +319,54 @@ let playerData = {
     acquiredSkills: ['damage']  // 已获得的技能
 };
 
+// ==================== 旧天赋存档迁移（v2.2 P4 · C 方案）====================
+// 旧 119 节点天赋树已被 5 元素树替代，旧节点 id 在新树中不存在。
+// 处理：按「旧节点累计花费」全额折成金币返还（一次性），并删除旧 key。
+// 封顶 LEGACY_REFUND_CAP，避免老存档一次性获得过多金币冲击新树经济。
+const LEGACY_REFUND_CAP = 200000;
+const LEGACY_TALENT_COST = (function () {
+    const m = {
+        // 基础 18 节点（v1.0.55 数据）
+        core: 2000, damage: 300, health: 300, goldearn: 400, expearn: 400,
+        attackspeed: 500, crit: 500, piercing: 800, shield: 500, bombcount: 1200,
+        explosive: 1000, freeze: 800, slow: 800, lightning: 1500, multishot: 1500,
+        deathray: 5000, immortal: 8000, devour: 5000,
+        // 统御 12 节点
+        sup_war0: 1000, sup_war1: 2000, sup_guard0: 1000, sup_guard1: 2000,
+        sup_celest: 3000, sup_life: 3000, sup_wealth: 3000, sup_core: 1500,
+        sup_unify: 1500, sup_apex: 5000, sup_apex2: 5000, sup_origin: 1500,
+        // 防御 16 节点
+        def_stone: 600, def_thorn: 800, def_regen: 800, def_iron: 1000, def_unyield: 2000,
+        def_barrier: 1000, def_guard: 1500, def_aegis: 3000, def_leech: 600, def_vamp: 1000,
+        def_eternal: 3000, def_vital: 800, def_bastion: 1500, def_sanct: 3000,
+        def_rampart: 800, def_citadel: 3000
+    };
+    // 五行深链 35 节点：{jin,mu,shui,huo,tu} × I/II/III 甲/乙 + 共鸣
+    ['jin', 'mu', 'shui', 'huo', 'tu'].forEach(function (k) {
+        m[k + '_t1a'] = 400;  m[k + '_t1b'] = 400;
+        m[k + '_t2a'] = 800;  m[k + '_t2b'] = 800;
+        m[k + '_t3a'] = 1500; m[k + '_t3b'] = 1500;
+        m[k + '_cap'] = 3000;
+    });
+    return m;
+})();
+
+// 按旧节点的「累计花费」估算退款：Σ(n=1..lv) round(base·n²/4)，与旧 getTalentCost 完全一致
+function migrateLegacyTalents(data) {
+    if (!data || !data.talentLevels) return 0;
+    let refund = 0;
+    for (const id in data.talentLevels) {
+        if (talentData[id]) continue;            // 新树节点：保留，不迁移
+        const base = LEGACY_TALENT_COST[id];
+        const lv = Math.max(0, Math.floor(data.talentLevels[id] || 0));
+        if (base && lv > 0) {
+            for (let n = 1; n <= lv; n++) refund += Math.round((base * n * n) / 4);
+        }
+        delete data.talentLevels[id];            // 旧 key 一律清掉（含未知 id）
+    }
+    return Math.min(LEGACY_REFUND_CAP, refund);
+}
+
 // 保存玩家数据到Storage
 function savePlayerData() {
     // 从当前player对象同步数据
@@ -355,7 +403,15 @@ function loadPlayerData() {
                 acquiredSkills: data.acquiredSkills || ['damage'],
                 talentLevels: data.talentLevels || {}
             };
-            
+
+            // v2.2 P4(C)：旧 119 节点天赋 → 按旧累计花费返还金币（一次性；旧 key 会被删除）
+            const _legacyRefund = migrateLegacyTalents(playerData);
+            if (_legacyRefund > 0) {
+                playerData.gold += _legacyRefund;
+                try { wx.setStorageSync('zombieHunterPlayerData', JSON.stringify(playerData)); } catch (e2) {}
+                console.log('[迁移] 旧天赋返还金币:', _legacyRefund);
+            }
+
             // 同步到player对象
             player.gold = playerData.gold;
             player.diamond = playerData.diamond;

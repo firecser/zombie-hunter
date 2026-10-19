@@ -176,6 +176,22 @@ const driver = `
     ok('旧天赋 id（core/damage/crit/explosive/deathray…）全部消失');
   } catch(e){ fail('旧天赋清理', e); }
 
+  // ---------- 9) 旧存档迁移（C 方案：按旧累计花费返金币 + 封顶）----------
+  try {
+    // core 5 级：Σ(n=1..5) round(2000·n²/4) = 500+2000+4500+8000+12500 = 27500
+    const data = { gold: 1000, talentLevels: { core: 5, huo_atk1: 2, legacy_unknown: 3 } };
+    const refund = migrateLegacyTalents(data);
+    if (refund !== 27500) throw new Error('core 5 级应返 27500, 实=' + refund);
+    if (data.talentLevels['core'] !== undefined) throw new Error('旧 key core 未删除');
+    if (data.talentLevels['legacy_unknown'] !== undefined) throw new Error('未知旧 key 未删除');
+    if (data.talentLevels['huo_atk1'] !== 2) throw new Error('新树节点被误删: ' + data.talentLevels['huo_atk1']);
+    // 封顶：core 满级 20 → 1,435,000 → 截 200000
+    const big = { talentLevels: { core: 20 } };
+    const capped = migrateLegacyTalents(big);
+    if (capped !== LEGACY_REFUND_CAP) throw new Error('封顶应 ' + LEGACY_REFUND_CAP + ', 实=' + capped);
+    ok('旧存档迁移：core×5 返 27500（精确累计）/ 封顶 ' + LEGACY_REFUND_CAP + ' / 新节点保留');
+  } catch(e){ fail('旧存档迁移', e); }
+
   console.log('\\n=== P4 SMOKE RESULT ===');
   console.log(results.join('\\n'));
   const bad = results.some(r => r.indexOf('FAIL') === 0);
