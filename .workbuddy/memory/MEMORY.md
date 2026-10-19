@@ -65,13 +65,16 @@
 - `game.js.map`（source map）随包提审但勿提交到 git；仓库永远存可读 game.js。
 
 ## Git 推送鉴权（PAT，用户要求记住）
-- 用途：本机 Git Credential Manager 缓存的旧凭据已失效，推送 `firecser/zombie-hunter` 时用此 Classic PAT 内联鉴权。
-- **可用推送命令（已实测，2026-08-19 跑通）**：
-  `git -c http.sslVerify=false push https://$(cat .pat)@github.com/firecser/zombie-hunter.git main <TAG>`
-  - ⚠️ 必须带 `-c http.sslVerify=false`：本机 schannel 在代理 MITM 下吊销检查报 `CRYPT_E_NO_REVOCATION_CHECK`，且 `http.schannelCheckRevoke=false` **对该 git 版本无效**，唯有关闭 TLS 校验能推通。
-- **PAT**：存于本地 git-ignored 文件 `.pat`（仓库根目录，明文；本机推送时用 `git push https://$(cat .pat)@github.com/...` 内联鉴权，不入库、不泄露）。如需轮换/撤销，更新 `.pat` 即可。
+- 用途：本机 Git Credential Manager 缓存的旧凭据已失效，推送 `firecser/zombie-hunter` 时用此 Classic PAT（前缀 `ghp_`）内联鉴权。
+- **已验证可用的推送命令（2026-10-19 实测通过代理连通，但当前 PAT 已失效）**：
+  `PAT=$(tr -d '\n' < .pat) && git -c http.sslVerify=false -c credential.helper= push "https://${PAT}:@github.com/firecser/zombie-hunter.git" main --follow-tags`
+  - ⚠️ **`-c credential.helper=` 必须带**：本机配了 `credential.helper=manager`（GCM），它会在 GIT_TERMINAL_PROMPT=0 下拦截 URL 内联 PAT 并因无法弹窗报 `could not read Password`；清空 helper 才能让 URL 凭证生效。
+  - ⚠️ **PAT 必须作用户名且显式空密码 `https://${PAT}:@...`**：只写 `https://${PAT}@...`（无冒号）git 仍会请求密码触发提示；用 `x-access-token:${PAT}` 会因这是经典 PAT（非细粒度）被 GitHub 拒。
+  - ⚠️ `.pat` 文件带末尾换行（41字节=40字符+`\n`），必须用 `tr -d '\n'` 去掉，否则 URL 变形触发密码提示。
+  - ⚠️ `-c http.sslVerify=false` 仍需：环境走 MITM 代理（`HTTPS_PROXY=127.0.0.1:52724`），关闭 TLS 校验才能连通；代理已能让 git 实际到达 GitHub（返回的是 GitHub 的鉴权拒绝而非连接失败）。
+- **PAT 有效期**：`.pat` 生成于 2026-08-07，2026-10-19 推送时 GitHub 返回 `401 Bad credentials` / `Invalid username or token`——**已过期或吊销**。轮换方式：到 github.com/settings/tokens 新建 Classic PAT（勾 `repo` 范围），明文写入 `.pat`（不要末尾换行）即可，无需改命令。
+- **PAT**：存于本地 git-ignored 文件 `.pat`（仓库根目录，明文；内联鉴权，不入库、不泄露）。如需轮换/撤销，更新 `.pat` 即可。
 - 安全：明文 PAT 已移出 git 跟踪（v1.0.64 推送时 GitHub Push Protection 因历史含明文 PAT 拦截，已用 filter-branch 脱敏历史并将明文转入 `.pat`）。
-- 备注：本机 `C:\Windows\System32\drivers\etc\hosts` 被代理/VPN 写入 `127.0.0.1 github.com` 等映射，推送前需开启能访问 GitHub 的代理/VPN（否则解析到 127.0.0.1 导致连接失败）。
 
 ## 微信开发者工具报错排查（重要，已确诊）
 - **`[] ENOENT ... open '.../zombie-hunter-game/undefined'`，栈含 `PreCompileProject.getFile → SummerCompiler.getFile`**：这是**微信开发者工具 Stable `2.01.25xxx`（如 2.01.2510290）自身的已知 bug**，**与项目代码/配置/目录结构无关**（社区官方同款帖子栈帧逐字相同，纯 Canvas/H5 项目同样中招）。
