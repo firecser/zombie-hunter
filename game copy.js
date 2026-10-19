@@ -75,7 +75,7 @@ const TANK_FIRE_LINE_Y = screenHeight * 0.25;
 
 // 城墙（阻挡敌人下落）：位于背景地平线处，横跨全屏；墙体承受原坦克的伤害，
 // 敌人只攻击城墙、不再攻击坦克。
-const WALL_Y = screenHeight * 0.82;   // 与背景 horizon groundY 一致（地平线处），刚好挡住坦克
+const WALL_Y = screenHeight * 0.70;   // P1 视觉身份层：战场整体上移，给底部五行坞腾空间（地平线处，刚好挡住坦克）
 const WALL_HEIGHT = 40;               // 墙体厚度（自地平线向下延伸）
 const WALL_X0 = 0;
 const WALL_X1 = screenWidth;          // 横跨全屏，完全阻拦
@@ -178,6 +178,32 @@ const CHAPTER_THEMES = [
 
 // 元素 → 推荐克制技能（用于 HUD / 关卡选择提示）
 const ELEMENT_COUNTER = { '金':'火', '木':'金', '土':'木', '水':'土', '火':'水' };
+
+// ============ 五行极简 v2.2 视觉身份层（P1）============
+const WUXING_ORDER = ['金', '木', '水', '火', '土'];
+const WUXING_COLORS = { '金':'#ffd23a', '木':'#46d35a', '水':'#37c6ff', '火':'#ff6a14', '土':'#c8915a', 'normal':'#9aa6b4' };
+const WUXING_GLYPH  = { '金':'金', '木':'木', '水':'水', '火':'火', '土':'土', 'normal':'僵' };
+// 当前选中元素（P2 接入战斗释放；P1 仅视觉选中）
+let activeElement = '火';
+// 逐关渐进解锁玩家可用元素：L1 火+水；L2+木；L3+土；L4+金(全5开)
+function getStageUnlockedElements(lv) {
+    if (lv <= 1) return ['火', '水'];
+    if (lv === 2) return ['火', '水', '木'];
+    if (lv === 3) return ['火', '水', '木', '土'];
+    return ['金', '木', '水', '火', '土'];
+}
+// 场上怪物需要被克制的玩家元素集合（坞区红色脉冲提示）
+function getCounterHintElements() {
+    const set = {};
+    for (const z of zombies) {
+        const ms = (z.elements && z.elements.length > 1) ? z.elements : [z.element || 'normal'];
+        for (const m of ms) {
+            const c = ELEMENT_COUNTER[m];
+            if (c) set[c] = true;
+        }
+    }
+    return Object.keys(set);
+}
 
 // 难度锯齿曲线：
 //   · 整体随章节按 pow(1.12, ch-1) 阶梯上升；
@@ -940,11 +966,18 @@ function drawDailyTaskEntryButton() {
     }
 }
 
-// 按钮位置（放在左下角）
+// 五行坞占屏底部高度比例（P1 视觉身份层）
+const DOCK_H_RATIO = 0.11;
+// 控制按钮（音效/暂停/炸弹）基线：位于五行坞上方，避开顶部信息栏与微信胶囊
+const CONTROL_Y = screenHeight * (1 - DOCK_H_RATIO) - buttonSize - 16;
+const BOMB_BTN_X = screenWidth - 48;
+const BOMB_BTN_Y = CONTROL_Y + 27;
+
+// 按钮位置：音效(左) / 暂停(右) 居五行坞上方一行
 const soundBtnX = 10;
-const soundBtnY = screenHeight - buttonSize - 10;
+const soundBtnY = CONTROL_Y;
 const pauseBtnX = soundBtnX + buttonSize + buttonGap;
-const pauseBtnY = screenHeight - buttonSize - 10;
+const pauseBtnY = CONTROL_Y;
 
 // ==================== 音频系统（Web Audio API）====================
 const AudioSystem = {
@@ -1440,7 +1473,7 @@ const MiniGameAudio = {
 // ==================== 玩家 ====================
 const player = {
     x: screenWidth / 2,
-    y: screenHeight - 80,
+    y: WALL_Y - 34,   // P1：坦克随战场整体上移，紧贴城墙上方
     radius: 22,
     maxHealth: WALL_MAX_HEALTH,
     health: WALL_MAX_HEALTH,
@@ -2362,7 +2395,7 @@ function drawBackground() {
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
     // 远处暗色山峦
-    const groundY = screenHeight * 0.82;
+    const groundY = WALL_Y;   // P1：地平线跟随城墙上移
     ctx.fillStyle = 'rgba(40, 70, 110, 0.5)';
     for (let i = 0; i < 5; i++) {
         const x = (i / 5) * screenWidth;
@@ -2668,6 +2701,129 @@ const ELEMENT_RING = {
     '金':'#ffd23a', '木':'#46d35a', '水':'#37c6ff', '火':'#ff6a14', '土':'#c8915a', 'normal':null
 };
 
+// ============ 五行极简 v2.2 视觉身份层（P1）：坞区 + 汉字武器 ============
+// 五行坞图标布局（绘制与点击命中共用，保证一致）
+function getElementDockRects() {
+    const DOCK_H = screenHeight * DOCK_H_RATIO;
+    const dockTop = screenHeight - DOCK_H;
+    const n = WUXING_ORDER.length;
+    const iconSize = Math.min(screenWidth * 0.16, DOCK_H * 0.78);
+    const gap = (screenWidth - n * iconSize) / (n + 1);
+    const cy = dockTop + DOCK_H / 2;
+    const rects = [];
+    for (let i = 0; i < n; i++) {
+        const e = WUXING_ORDER[i];
+        const ix = gap + i * (iconSize + gap) + iconSize / 2;
+        rects.push({ e: e, x: ix, y: cy, size: iconSize });
+    }
+    return rects;
+}
+
+// 元素汉字「笔画变形」为武器（攻击时向下指向城墙）
+function drawElementWeapon(x, y, element, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    if (element === '金') {            // 剑刃
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 26); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x - 6, y + 20); ctx.lineTo(x + 6, y + 20); ctx.stroke();
+    } else if (element === '木') {     // 藤枪
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + 8, y + 14, x, y + 28); ctx.stroke();
+    } else if (element === '水') {     // 水鞭
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x - 12, y + 16, x + 6, y + 26); ctx.stroke();
+    } else if (element === '火') {     // 焰刀
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 10, y + 22); ctx.lineWidth = 6; ctx.stroke();
+    } else if (element === '土') {     // 岩锤
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 18); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y + 24, 8, 0, Math.PI * 2); ctx.fill();
+    } else {                           // 普通爪
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 4, y + 18); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 4, y + 18); ctx.stroke();
+    }
+    ctx.restore();
+}
+
+// 绘制五行坞（底部 5 图标：解锁/锁定/选中/克制高亮脉冲）
+function drawElementDock() {
+    const unlocked = getStageUnlockedElements(currentStage);
+    const counterHints = getCounterHintElements();
+    const isCounter = (e) => counterHints.indexOf(e) >= 0;
+    const isUnlocked = (e) => unlocked.indexOf(e) >= 0;
+    const DOCK_H = screenHeight * DOCK_H_RATIO;
+    const dockTop = screenHeight - DOCK_H;
+    const now = Date.now();
+
+    // 坞底栏
+    ctx.fillStyle = 'rgba(10, 20, 38, 0.92)';
+    ctx.fillRect(0, dockTop, screenWidth, DOCK_H);
+    ctx.strokeStyle = 'rgba(255,210,74,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, dockTop); ctx.lineTo(screenWidth, dockTop); ctx.stroke();
+
+    const rects = getElementDockRects();
+    for (const rc of rects) {
+        const e = rc.e, ix = rc.x, iy = rc.y, iconSize = rc.size;
+        const half = iconSize / 2;
+        roundRect(ctx, ix - half, iy - half, iconSize, iconSize, 10);
+        if (!isUnlocked(e)) {
+            ctx.fillStyle = 'rgba(40,52,70,0.9)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(120,140,170,0.4)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(200,210,230,0.8)';
+            ctx.font = iconSize * 0.4 + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('🔒', ix, iy);
+            continue;
+        }
+        const col = WUXING_COLORS[e];
+        ctx.fillStyle = col;
+        ctx.fill();
+        if (isCounter(e)) {
+            const pulse = 0.5 + 0.5 * Math.sin(now / 160);
+            ctx.strokeStyle = 'rgba(255,60,60,' + (0.5 + 0.5 * pulse) + ')';
+            ctx.lineWidth = 3 + 2 * pulse;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,255,0.92)';
+            ctx.font = 'bold ' + (iconSize * 0.26) + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('克', ix + half - iconSize * 0.16, iy - half + iconSize * 0.16);
+        } else {
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        // 汉字（印章内反白）
+        ctx.font = 'bold ' + (iconSize * 0.56) + 'px "STKaiti","KaiTi","SimHei",sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = Math.max(2, iconSize * 0.05);
+        ctx.strokeStyle = 'rgba(20,30,10,0.6)';
+        ctx.strokeText(e, ix, iy + iconSize * 0.02);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(e, ix, iy + iconSize * 0.02);
+        // 选中态（金边 + 外发光环）
+        if (e === activeElement) {
+            ctx.strokeStyle = (typeof ROYALE !== 'undefined' && ROYALE.gold) ? ROYALE.gold : '#ffd23a';
+            ctx.lineWidth = 4;
+            roundRect(ctx, ix - half - 4, iy - half - 4, iconSize + 8, iconSize + 8, 12);
+            ctx.stroke();
+        }
+    }
+}
+
+// 命中测试：返回点中的五行元素或 null
+function hitElementDock(px, py) {
+    const rects = getElementDockRects();
+    for (const rc of rects) {
+        const half = rc.size / 2;
+        if (px >= rc.x - half && px <= rc.x + half && py >= rc.y - half && py <= rc.y + half) return rc.e;
+    }
+    return null;
+}
+
 // 绘制僵尸（冰雪风格 + 极地怪物皮肤）
 function drawZombie(zombie, now) {
     const x = zombie.x;
@@ -2682,75 +2838,51 @@ function drawZombie(zombie, now) {
     ctx.fillStyle = 'rgba(100, 150, 180, 0.3)';
     ctx.fill();
     
-    // 身体颜色（按怪物类型区分：普通绿 / 快速橙 / 坦克紫 / BOSS红；高饱和强描边，暗背景高对比）
-    const bodyColors = {
-        normal: { body: '#3fa34d', coat: '#5cc04f', outline: '#1f5e26' },
-        fast:   { body: '#e8932e', coat: '#ffb347', outline: '#9a5a10' },
-        tank:   { body: '#7a45d6', coat: '#a06bff', outline: '#4a2589' },
-        boss:   { body: '#d63b40', coat: '#ff5a5f', outline: '#8a1f24' }
+    // ===== 汉字怪物（国风化 · 五行极简 v2.2 视觉身份层）=====
+    // 元素色 + 字形 双重编码；类型用字号/描边/冠区分（色弱与零学习成本友好）
+    const glyph = WUXING_GLYPH[zombie.element] || '僵';
+    const col = WUXING_COLORS[zombie.element] || WUXING_COLORS.normal;
+    const typeStyle = {
+        normal: { fs: 1.5,  lw: 3, dark: '#6b4a1f' },
+        fast:   { fs: 1.35, lw: 2, dark: '#9a5a10' },
+        tank:   { fs: 1.9,  lw: 5, dark: '#4a2589' },
+        boss:   { fs: 2.5,  lw: 6, dark: '#8a1f24' }
     };
-    const colors = bodyColors[zombie.type] || bodyColors.normal;
-    
-    // 身体主体
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.95, 0, Math.PI * 2);
-    ctx.fillStyle = colors.coat;
-    ctx.fill();
-    ctx.strokeStyle = colors.outline;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    
-    // 外套
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.8, 0, Math.PI * 2);
-    ctx.fillStyle = colors.body;
-    ctx.fill();
-    
-    // 头顶
-    ctx.beginPath();
-    ctx.arc(x, y - r * 0.15, r * 0.55, 0, Math.PI * 2);
-    ctx.fillStyle = colors.outline;
-    ctx.fill();
-    ctx.strokeStyle = colors.outline;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // 脸部
-    ctx.fillStyle = '#e8eef4';
-    ctx.beginPath();
-    ctx.ellipse(x, y - r * 0.2, r * 0.4, r * 0.35, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 眼睛（红色发光）
-    const eyeSize = r * 0.12;
-    
-    // 左眼
-    ctx.fillStyle = '#ff0000';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 右眼
-    ctx.beginPath();
-    ctx.arc(x + r * 0.15, y - r * 0.3, eyeSize, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 嘴巴
-    ctx.fillStyle = '#2a1a1a';
-    ctx.beginPath();
-    ctx.ellipse(x, y - r * 0.1, r * 0.15, r * 0.1, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 手臂
-    ctx.fillStyle = colors.coat;
-    ctx.beginPath();
-    ctx.ellipse(x - r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, Math.PI / 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(x + r * 0.9, y + r * 0.1, r * 0.25, r * 0.15, -Math.PI / 4, 0, Math.PI * 2);
-    ctx.fill();
+    const ts = typeStyle[zombie.type] || typeStyle.normal;
+    const fontSize = r * ts.fs;
 
-    // （已还原为原版纯色圆脸僵尸：身体按类型四色，移除极地动物造型与皇冠）
+    // 印章底（暗色圆，增强前景对比）
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.02, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(8,16,28,0.85)';
+    ctx.fill();
+    ctx.lineWidth = ts.lw;
+    ctx.strokeStyle = col;
+    ctx.stroke();
+
+    // 汉字（元素色填充 + 暗描边）
+    ctx.font = 'bold ' + fontSize + 'px "STKaiti","KaiTi","SimHei","Microsoft YaHei",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = Math.max(2, fontSize * 0.08);
+    ctx.strokeStyle = ts.dark;
+    ctx.strokeText(glyph, x, y + fontSize * 0.04);
+    ctx.fillStyle = col;
+    ctx.fillText(glyph, x, y + fontSize * 0.04);
+
+    // BOSS 冠
+    if (zombie.type === 'boss') {
+        ctx.font = 'bold ' + (r * 0.8) + 'px sans-serif';
+        ctx.fillStyle = '#ffd23a';
+        ctx.fillText('👑', x, y - r * 1.15);
+    }
+
+    // 攻击笔画变形（近墙啄击时向下伸出元素武器，指向城墙）
+    const attacking = (zombie.y > WALL_Y - zombie.radius - 30);
+    if (attacking) {
+        drawElementWeapon(x, y + r * 0.9, zombie.element, col);
+    }
+
 
     // ============ 五行属性环（单系整圈 / 双系相生左右各半）============
     const elems = (zombie.elements && zombie.elements.length > 1)
@@ -3748,7 +3880,7 @@ function drawUI() {
     drawTopRightButtons();
     
     // ========== 技能栏（底部） ==========
-    drawSkillUI();
+    drawElementDock();   // P1：底部五行坞替代旧 15 技能栏（战斗释放由 P2 接入）
     
     // ========== 炸弹按钮（右下角圆形） ==========
     drawBombButton();
@@ -3756,8 +3888,8 @@ function drawUI() {
 
 // 绘制炸弹按钮（圆形）
 function drawBombButton() {
-    const btnX = screenWidth - 48;
-    const btnY = screenHeight - 48;
+    const btnX = BOMB_BTN_X;
+    const btnY = BOMB_BTN_Y;
     const btnR = 27; // 55px直径 / 2
     
     // 发光效果（可用时）
@@ -6611,7 +6743,7 @@ function startGame() {
     
     // 重置玩家（城墙血量即玩家血量）：基础值 ×(1+城墙百分比天赋) + 平血天赋
     player.x = screenWidth / 2;
-    player.y = screenHeight - 80;
+    player.y = WALL_Y - 34;   // P1：坦克随战场整体上移
     player.health = WALL_MAX_HEALTH * (1 + talentMods.wallHealthMul);
     player.maxHealth = WALL_MAX_HEALTH * (1 + talentMods.wallHealthMul);
     player.exp = 0;
@@ -14405,9 +14537,16 @@ wx.onTouchStart((e) => {
                 return;
             }
         } else {
+            // 五行坞点击（P1：选中元素；P2 接入战斗释放）
+            const dockE = hitElementDock(x, y);
+            if (dockE) {
+                const unlocked = getStageUnlockedElements(currentStage);
+                if (unlocked.indexOf(dockE) >= 0) activeElement = dockE;
+                return;
+            }
             // 使用炸弹（圆形按钮检测，与drawBombButton一致）
-            const btnX = screenWidth - 48;
-            const btnY = screenHeight - 48;
+            const btnX = BOMB_BTN_X;
+            const btnY = BOMB_BTN_Y;
             const btnR = 30; // 稍微大一点的点击区域
             const dist = Math.hypot(x - btnX, y - btnY);
             
