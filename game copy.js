@@ -247,6 +247,29 @@ const TALENT_CHAPTERS = [2, 4, 6, 8, 10];
 function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function _round2(v) { return Math.round(v * 100) / 100; }
 
+// ===== v2.2 P5：第 1 章（1~6 关）改为「五行教学章」=====
+// 原因：旧数据第 1 章 element='normal'（无克制系数），前 6 关完全学不到五行 → 与「唯一战略内核」冲突。
+// 规则：按关号逐步引入怪物元素，且**保证其克制元素本关必已解锁**（getStageUnlockedElements）。
+//   L1 解锁 火/水 → 前半 金怪(火克)、后半 火怪(水克)  ⇒ 一关内就教会「读色换元素」
+//   L2 解锁 +木   → 追加 土怪(木克)
+//   L3 解锁 +土   → 追加 水怪(土克)
+//   L4 全 5 开    → 追加 木怪(金克)，五素轮换
+function buildTeachingWaveElements(lv) {
+    if (lv > 6) return null;                       // 第 2 章起沿用章节主题元素
+    const WAVES = 20;                              // 与 WAVE_COUNT 一致（此处早于其定义，勿引用变量）
+    const half = Math.ceil(WAVES / 2);
+    const arr = [];
+    if (lv === 1) {
+        for (let i = 0; i < WAVES; i++) arr.push(i < half ? '金' : '火');
+        return arr;
+    }
+    const pool = (lv === 2) ? ['金', '火', '土']
+               : (lv === 3) ? ['金', '火', '土', '水']
+               :              ['金', '火', '土', '水', '木'];
+    for (let i = 0; i < WAVES; i++) arr.push(pool[i % pool.length]);
+    return arr;
+}
+
 function buildStages() {
     const stages = [];
     for (let lv = 1; lv <= 60; lv++) {
@@ -283,6 +306,8 @@ function buildStages() {
             // 五行属性：单系用 element，双系相生用 elements（zombie.elements）；normal 章节两者皆无
             element: theme.elements ? 'normal' : theme.element,
             elements: theme.elements || null,
+            // v2.2 P5：第 1 章按波次投放元素（五行教学）；其余关卡为 null，沿用上面的章节元素
+            waveElements: buildTeachingWaveElements(lv),
             creature: theme.creature,
             bossCreature: theme.bossCreature
         });
@@ -6421,8 +6446,10 @@ function spawnWave(w, stage) {
     //   · 单系章节：所有怪 element = stage.element（normal 章节为 'normal'，克制系数=1）。
     //   · 双系相生章节：elements = stage.elements（取各系最差克制，见 getElementBonus）。
     //   · creature 决定极地皮肤；Boss 使用 bossCreature。
-    const zElement = stage.element || 'normal';
-    const zElements = stage.elements || null;
+    // v2.2 P5：教学关按「本波」元素投放（waveElements[w.i-1]），其余关卡沿用章节元素
+    const _waveEl = (stage.waveElements && stage.waveElements[w.i - 1]) || null;
+    const zElement = _waveEl || stage.element || 'normal';
+    const zElements = _waveEl ? null : (stage.elements || null);
     // v1.1.73：每波总经验 = EXP_BASE × 波次（清完刚好升 1 级），按本波怪数均分 → 每只 exp = 总经验/怪数。
     // 经验与「怪量/体型」彻底解耦：厚血大怪不再单只给海量经验，保证升级节奏恒定（每波 1 级）。
     const expVal = (EXP_BASE * w.i) / w.comp.length;
