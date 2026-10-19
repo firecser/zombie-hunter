@@ -150,7 +150,8 @@ function getWaveTier(wave) {
 const CHAPTER_THEMES = [
     { id:1,  name:'冰雪初现', icon:'❄️', element:'normal', elements:null,
       creature:'seal',      bossCreature:'sealKing',
-      desc:'教学关卡·普通冰雪僵尸',             descColor:'#88cc88', terrain:'#1b3a4b' },
+      // v2.2 P5：第 1 章为五行教学章（按波投放金/火/土/水/木，见 buildTeachingWaveElements）
+      desc:'五行教学·读色选克（火→水→木→土→金）', descColor:'#88cc88', terrain:'#1b3a4b' },
     { id:2,  name:'暴风骤起', icon:'🌨️', element:'水',     elements:null,
       creature:'penguin',   bossCreature:'emperorPenguin',
       desc:'水属性·用「土」技能克制',             descColor:'#37c6ff', terrain:'#16384f' },
@@ -1885,8 +1886,8 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 // 经验值与血量严格成正比（用户设计）：普通=1经验/60血，精英(tank)=2经验/120血，BOSS=4经验/240血
 // → 击杀所需伤害 ∝ 经验（1:2:4）。fast 为高速脆皮（同 1 经验，血略低），不在比例关系约束内
 // v1.1.4 难度重平衡：基础血量 ×1.5（总血量负载约为原版 2.25 倍；EXP_BASE 在 v1.1.6 由3降为2以缓解 lv5 前怪量过密）
-// 体型档（v1.1.73，表规则）：小=312、中(tank)=1560、大(giant)=7800、BOSS=39000（比例 1:5:25:125）。
-// 怪量由 buildWavePlan 按「每波总血量 = 624×1.6^(w-1)」贪心凑出，每只怪血量取自此处体型档。
+// 体型档（v2.2 P6(A) 重定标）：小=90、中(tank)=360、大(giant)=1800、BOSS=9000（比例 1:4:20:100）。
+// 怪量由 buildWavePlan 按「每波总血量 = 624×1.25^(w-1)」贪心凑出，每只怪血量取自此处体型档。
 const zombieTypes = {
     // 击杀金币仅作战斗手感，量级已压低，使「直线型通关奖励」成为金币获取的主导直线
     // v2.2 P6(A)：体型血按「每关~5分钟 + 克制可清」重定标（原 312/1560/7800/39000 需 8667~43333 DPS，玩家上限仅 3876）
