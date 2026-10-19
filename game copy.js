@@ -2774,31 +2774,6 @@ function drawFieldBorders() {
     ctx.fillRect(FIELD_X1 - strip, 0, strip, screenHeight);
 }
 
-// ====== 极地怪物皮肤（冰雪僵尸世界观：南北极海陆空动植物）======
-// 每只怪物以「海豹僵尸」为基底造型，叠加 species 专属特征（耳/獠牙/喙/鳍/翼/角/尾/王冠）。
-// body/coat/outline 为身体配色；feature 决定附加特征（空格分隔）；boss 系带 crown 且体型更大。
-const CREATURE_VISUAL = {
-    seal:          { body:'#3fa34d', coat:'#5cc04f', outline:'#1f5e26', feature:'' },
-    sealKing:      { body:'#d63b40', coat:'#ff5a5f', outline:'#8a1f24', feature:'crown' },
-    penguin:       { body:'#2b3a55', coat:'#3f5a82', outline:'#16233a', feature:'beak' },
-    emperorPenguin:{ body:'#d63b40', coat:'#ff6a4d', outline:'#8a1f24', feature:'beak crown' },
-    polarBear:     { body:'#9fb6c9', coat:'#cfe0ec', outline:'#5b7488', feature:'ears' },
-    bearTroll:     { body:'#7a45d6', coat:'#a06bff', outline:'#4a2589', feature:'ears crown' },
-    walrus:        { body:'#b5652e', coat:'#d98a4a', outline:'#7a3f12', feature:'tusks' },
-    lavaWalrus:    { body:'#d63b40', coat:'#ff7a1a', outline:'#8a1f24', feature:'tusks crown' },
-    arcticFox:     { body:'#cfd6e6', coat:'#eef3fb', outline:'#8a93a8', feature:'ears' },
-    foxDemon:      { body:'#ffd23a', coat:'#ffe880', outline:'#9a7a10', feature:'ears crown' },
-    reindeer:      { body:'#9c6b3f', coat:'#c8915a', outline:'#5e3c1f', feature:'horns' },
-    reindeerKing:  { body:'#c8915a', coat:'#f1d4ad', outline:'#5e3c1f', feature:'horns crown' },
-    orca:          { body:'#1c2733', coat:'#33485c', outline:'#0c141c', feature:'fins' },
-    orcaKing:      { body:'#1c2733', coat:'#39e0ff', outline:'#0c141c', feature:'fins crown' },
-    snowyOwl:      { body:'#dfe6ee', coat:'#f4f8fc', outline:'#9aa6b4', feature:'wings' },
-    owlKing:       { body:'#ff9a4a', coat:'#ffd0a0', outline:'#9a5a10', feature:'wings crown' },
-    puffin:        { body:'#2b3a55', coat:'#ff6a6a', outline:'#16233a', feature:'beak' },
-    puffinKing:    { body:'#ff6a6a', coat:'#ffae3a', outline:'#8a1f24', feature:'beak crown' },
-    iceDragon:     { body:'#2bd6c0', coat:'#7af0e0', outline:'#0f7a6e', feature:'wings tail' },
-    dragonKing:    { body:'#ff4dff', coat:'#ff9aff', outline:'#7a1f7a', feature:'wings tail crown' }
-};
 
 // 怪物五行属性环：单系一圈；双系相生左右各半（让玩家一眼识别属性弱点）
 const ELEMENT_RING = {
@@ -4248,82 +4223,6 @@ function drawPauseModal() {
 }
 
 // 绘制技能UI（复刻H5版本 - 底部居中，小方块）
-function drawSkillUI() {
-    const skillSize = 32;
-    const skillGap = 4;
-    const maxPerRow = 5;
-    
-    // 获取已获得的技能
-    const activeSkills = [];
-    for (const [key, skill] of Object.entries(skills)) {
-        if (skill.level > 0) {
-            activeSkills.push({ key, ...skill });
-        }
-    }
-    
-    if (activeSkills.length === 0) return;
-    
-    // 计算总宽度，居中显示
-    const totalWidth = Math.min(activeSkills.length, maxPerRow) * (skillSize + skillGap) - skillGap;
-    let skillX = (screenWidth - totalWidth) / 2;
-    let skillY = screenHeight - 38;
-    
-    activeSkills.forEach((skill, index) => {
-        // 换行处理
-        if (index > 0 && index % maxPerRow === 0) {
-            skillX = (screenWidth - totalWidth) / 2;
-            skillY -= skillSize + skillGap + 2;
-        }
-        
-        // 技能按钮背景（皇室战争风：暗底 + 金边 + 顶部高光）
-        ctx.fillStyle = 'rgba(8, 20, 36, 0.85)';
-        roundRect(ctx, skillX, skillY, skillSize, skillSize, 6);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-        roundRect(ctx, skillX + 1, skillY + 1, skillSize - 2, skillSize * 0.4, 5);
-        ctx.fill();
-        ctx.strokeStyle = ROYALE.gold;
-        ctx.lineWidth = 1.5;
-        roundRect(ctx, skillX, skillY, skillSize, skillSize, 6);
-        ctx.stroke();
-        
-        // 图标
-        ctx.fillStyle = '#fff';
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(skill.icon, skillX + skillSize / 2, skillY + skillSize / 2 - 3);
-        
-        // 等级
-        ctx.fillStyle = ROYALE.gold;
-        ctx.font = '7px Arial';
-        ctx.fillText(`Lv${skill.level}`, skillX + skillSize / 2, skillY + skillSize - 4);
-
-        // 技能释放 CD 冷却遮罩（地雷/油渍/龙卷风）：参考炸弹，黑色径向扇形 + 剩余秒数
-        const cdInfo = getSkillCooldown(skill.key);
-        if (cdInfo && cdInfo.timer > 0 && cdInfo.timer < cdInfo.interval) {
-            const remain = cdInfo.interval - cdInfo.timer;
-            const cx = skillX + skillSize / 2;
-            const cy = skillY + skillSize / 2;
-            const cr = skillSize / 2 - 1;
-            const startAngle = -Math.PI / 2;
-            const endAngle = startAngle + (remain / cdInfo.interval) * Math.PI * 2;
-            ctx.beginPath();
-            ctx.moveTo(cx, cy);
-            ctx.arc(cx, cy, cr, startAngle, endAngle);
-            ctx.closePath();
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-            ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 10px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(`${Math.ceil(remain / 1000)}`, cx, cy);
-        }
-
-        skillX += skillSize + skillGap;
-    });
-}
 
 // 获取指定技能的释放 CD 进度（timer 从 0 计到 interval，返回剩余时间）
 function getSkillCooldown(key) {
@@ -5238,39 +5137,6 @@ function skillSlotOf(type) {
     return idx < 0 ? 1 : idx + 1;
 }
 
-function shootBase() {
-    if (zombies.length === 0) return;
-
-    // 播放射击音效
-    AudioSystem.playShoot();
-
-    const baseAngle = player.gunAngle;
-    const gunLength = 40;
-
-    // 火力强化分支派生修正（dmgMul 伤害、radiusMul 子弹体型、bulletCountBoost 连发）；不继承属性树
-    const _dm = (skills.damage && skills.damage._mods) || { dmgMul: 1, radiusMul: 1, bulletCountBoost: 0 };
-    // v1.1.74(A5-A11)：charge 分支连发+1/级 → 发射 (1+bulletCountBoost) 颗，单发按通用多弹衰减
-    const _bc = _dm.bulletCountBoost || 0;
-    const _n = 1 + _bc;
-    const _baseDmg = player.damage * _dm.dmgMul / (1 + MULTI_BULLET_DMG_PENALTY * _bc);
-    const _spread = 0.15;
-    for (let _i = 0; _i < _n; _i++) {
-        let bulletAngle = baseAngle;
-        if (_n > 1) bulletAngle += (_i - (_n - 1) / 2) * _spread;
-        bullets.push({
-            x: player.x + Math.cos(baseAngle) * gunLength,
-            y: player.y + Math.sin(baseAngle) * gunLength,
-            vx: Math.cos(bulletAngle) * player.bulletSpeed,
-            vy: Math.sin(bulletAngle) * player.bulletSpeed,
-            radius: 6 * _dm.radiusMul,
-            damage: _baseDmg,
-            piercing: player.bulletPiercing,
-            element: '物理',
-            skillType: 'damage',
-        hitZombies: []
-        });
-    }
-}
 
 // v2.2 五行极简：固定炮台发射「当前选中元素」子弹（克制结算在 damageZombie → getElementBonus）
 // 单发伤害 = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el]×LvMul) / 射速Hz；连携窗口内再 ×SYNERGY_DMG_MUL
@@ -5301,111 +5167,9 @@ function shootElement(el) {
 }
 
 // 属性技能（爆炸/干冰/闪电链/滚木）：按自身 cd 独立释放；吃本树分支、完全不吃火力强化射速
-function shootAttribute(type) {
-    if (zombies.length === 0) return;
-
-    // 滚木（木属性树）使用独立弹道系统：从城墙底部竖直向上碾压
-    if (type === 'wood') {
-        shootWood();
-        return;
-    }
-
-    // 地刺（土属性树）使用独立场地系统：直接在战场上生成静止石钟乳簇
-    if (type === 'earth') {
-        spawnEarthSpikes();
-        return;
-    }
-
-    // 播放射击音效
-    AudioSystem.playShoot();
-
-    // 五行子弹各自按技能槽序号瞄准「离墙第 n 近」的怪（不再共用坦克炮管朝向）
-    const baseAngle = aimAngleForSlot(skillSlotOf(type)) || player.gunAngle;
-    const gunLength = 40;
-    const def = SKILL_DEFS[type];
-    const m = attrModsForType(type) || {};
-
-    const n = 1 + (m.bulletCountBoost || 0);                 // 多重爆裂/多重干冰
-    const _spd = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * (m.speedMul || 1);  // 默认比普通子弹慢；疾速弹道（自身分支）可提速，仍独立于火力强化
-    // 多发子弹：额外子弹数越多，单发伤害越低（整体总伤随子弹数亚线性增长，避免多重无脑碾压）
-    // v1.1.73：物理子弹(type==='damage')用 player.damage（火力强化直接作用）；
-    // 五行弹道用 elemBaseDmg(系别) = FIVE_ELEM_BASE×分系倍率，与火力强化彻底解耦（表规则：五行不读 player.damage）。
-    const _elem = SKILL_DEFS[type].element;
-    const _base = (type === 'damage') ? player.damage : elemBaseDmg(_elem);
-    let dmg = _base / (1 + MULTI_BULLET_DMG_PENALTY * (m.bulletCountBoost || 0));
-    // 覆盖类减伤（用户要求）：穿透 +1 → 单发 -20%；弹射目标 +1 → 单发 -20%（仅闪电链）；冻结扩大范围 → 单发 -20%/级
-    if (m.pierceBoost) dmg /= (1 + REACH_DMG_PENALTY * m.pierceBoost);
-    if (type === 'lightning' && m.chainCountBoost) dmg *= Math.pow(1 - REACH_DMG_PENALTY, m.chainCountBoost);
-    if (type === 'freeze' && m.dmgMul) dmg *= m.dmgMul;
-    let piercing = player.bulletPiercing + (m.pierceBoost || 0);
-    const canSplit = !!m.canSplit;                          // 多重 Lv5 质变：命中分裂（由分支等级判定，与子弹数公式解耦）
-
-    for (let i = 0; i < n; i++) {
-        const spread = 0.15;
-        let bulletAngle = baseAngle;
-        if (n > 1) bulletAngle += (i - (n - 1) / 2) * spread;
-
-        bullets.push({
-            x: player.x + Math.cos(baseAngle) * gunLength,
-            y: player.y + Math.sin(baseAngle) * gunLength,
-            vx: Math.cos(bulletAngle) * _spd,
-            vy: Math.sin(bulletAngle) * _spd,
-            radius: ATTR_BULLET_BASE_RADIUS * elementVisual(def.element).size,
-            damage: dmg,
-            piercing: piercing,
-            element: def.element,          // 火/水/雷/土 —— 由属性树自身元素决定
-            skillType: type,
-            canSplit: canSplit,
-            hitZombies: []
-        });
-    }
-}
 
 // 滚木（木属性树）：从城墙底部竖直向上释放，碾压路径上的敌人
 // 设计为独立弹道系统（非普通子弹）：从城墙底部 spawn、竖直向上、水平矩形 hitbox 一路碾压
-function shootWood() {
-    if (zombies.length === 0) return;
-    const m = woodMods();
-    const wallW = screenWidth;
-    const baseW = wallW * WOOD_LOG_BASE_WIDTH_RATIO * m.logWidthMul;   // 基础 1/4 城墙宽，巨木向 1/2 成长
-    const count = Math.min(6, 1 + (m.bulletCountBoost || 0) + (m.logCountBoost || 0));   // 多重滚木 / 连发滚木 互斥，硬上限 6 根防超模
-    const speed = player.bulletSpeed * ATTR_BULLET_SPEED_MUL * WOOD_LOG_SPEED_MUL * (m.speedMul || 1);  // 厚重慢速
-    const lvl = Math.max(1, skills.wood.level || 1);
-    // 单根每击伤害：五行标配 +35% × 木专属(logDmgMul) × 基础技能等级成长；多根按多重系数衰减避免无脑碾压
-    // 覆盖类减伤（用户要求）：木刺穿透 +1 → 单根 -20%
-    const perHit = elemBaseDmg('木') * m.logDmgMul
-                 * (1 + 0.08 * (lvl - 1)) * WOOD_LOG_DMG_FACTOR
-                 / (1 + MULTI_BULLET_DMG_PENALTY * (count - 1))
-                 / (1 + REACH_DMG_PENALTY * (m.pierceBoost || 0));
-
-    // 与金火水一致：按技能槽位瞄准。第 m 根滚木（m=1..count）瞄「第 n+m-1 个离墙最近」的敌人，n=wood 的槽位
-    const baseSlot = skillSlotOf('wood');
-    const now = Date.now();
-
-    for (let i = 0; i < count; i++) {
-        const target = getSlotTarget(baseSlot + i);   // 已自动 clamp 到存在的僵尸数
-        const targetX = target ? target.x : screenWidth / 2;
-        const w = Math.min(baseW, wallW);
-        const cx = Math.max(w / 2, Math.min(wallW - w / 2, targetX));
-        pendingWoodLogs.push({
-            releaseAt: now + i * WOOD_LOG_RELEASE_INTERVAL,
-            config: {
-                x: cx, y: WALL_Y, w: w,
-                thick: WOOD_LOG_THICKNESS + (m.pierceBoost || 0) * 5,   // 木刺穿透：滚木略粗（仍然保持细）
-                vy: -speed,
-                dmg: perHit,
-                critChance: getCritChance(m), critMult: getCritMult(m),   // 暴击属性在释放时快照，升级三选一不影响本次正在释放/排队的滚木
-                rebound: !!m.rebound, reboundDmgMul: m.reboundDmgMul || 1,
-                splinterChance: m.splinterChance || 0, splinterDmgMul: m.splinterDmgMul || 1,
-                rootChance: m.rootChance || 0, rootDuration: m.rootDuration || 0,
-                strangleVineBonus: m.strangleVineBonus || 0,
-                thornBurst: !!m.thornBurst, woodSpike: !!m.woodSpike,
-                hitMap: {}, phase: 'up', born: now
-            }
-        });
-    }
-    AudioSystem.playShoot();
-}
 
 // 错峰释放待滚木队列：按预定时间把 pending log 移入活动 logs
 function updatePendingWoodLogs() {
@@ -7078,7 +6842,7 @@ function update(dt) {
         return;
     }
     
-    // 机枪跟踪（普通子弹占第 1 槽，瞄准「离墙最近」的可射击怪；属性子弹各自按技能槽序号独立瞄准，见 shootAttribute / aimAngleForSlot）。
+    // 炮台跟踪（瞄准「离墙最近」的可射击怪，见 aimAngleForSlot）。
     // 这里只负责坦克炮管朝向（普通子弹目标 = 离墙第 1 近）。
     if (zombies.length > 0) {
         const a = aimAngleForSlot(1);
@@ -7086,7 +6850,7 @@ function update(dt) {
     }
     
     // ===== v2.2 五行极简：固定炮台自动发射「当前选中元素」子弹 =====
-    // 停旧 15 技能自动释放（shootBase / shootAttribute）；克制×2.5 / 错配×0.2 由 getElementBonus 在伤害结算时应用。
+    // 旧 15 技能自动释放已整体移除（P2 停用 / P5b 删码）；克制×2.5 / 错配×0.2 由 getElementBonus 在伤害结算时应用。
     const now = Date.now();
     const hasShootable = zombies.some(zombieShootable);
     const _unlockedEls = getStageUnlockedElements(currentStage);
