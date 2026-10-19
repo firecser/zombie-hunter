@@ -50,7 +50,9 @@ const sandbox = {
     setTimeout, clearTimeout, setInterval, clearInterval,
     requestAnimationFrame: () => 0, cancelAnimationFrame: () => {},
     module: { exports: {} }, require: () => ({}), globalThis: null,
-    __hasElemInit: /elementLevels\[_el\] = Math\.min\(ELEM_MASTERY_MAX, 1 \+ \(elementBaseLevels\[_el\] \|\| 0\)\)/.test(src)
+    __hasElemInit: /elementLevels\[_el\] = Math\.min\(ELEM_MASTERY_MAX, 1 \+ \(elementBaseLevels\[_el\] \|\| 0\)\)/.test(src),
+    // 跨局重置：局内三选一增益/连携状态必须每局归零（防上一局残留）
+    __hasRunReset: /局内三选一增益与连携状态必须每局重置/.test(src) && /restraintMult = 2\.5;/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -165,7 +167,8 @@ const driver = `
     const cost2 = (function(){ const t = { level: 1, cost: 300 }; return getTalentCost(t); })();
     if (cost1 !== 75 || cost2 !== 300) throw new Error('消耗应 75/300（2次幂）, 实=' + cost1 + '/' + cost2);
     if (elementBaseLevels['金'] !== 3) throw new Error('金开局等级应 3');
-    ok('开局等级接线 + 消耗 2 次幂（Lv0→1:75, Lv1→2:300）');
+    if (!__hasRunReset) throw new Error('startGame 缺少局内增益/连携的跨局重置');
+    ok('开局等级接线 + 消耗 2 次幂（Lv0→1:75, Lv1→2:300）+ 跨局重置');
   } catch(e){ fail('开局等级/消耗', e); }
 
   // ---------- 8) 旧天赋 id 已消失 ----------

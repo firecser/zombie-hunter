@@ -226,6 +226,9 @@ const RESTRAINT_MAX = 3.5;            // 克制倍率上限
 let synergyDurBonus = 0;              // 连携时长加成（ms），上限 +4000
 let synergyDmgBonus = 0;              // 连携增伤加成（倍率增量），上限 +0.40
 let autoDpsBonus = 0;                 // 炮台中性地板加成（「炮台校准」卡），上限 +200
+// P5.3 相生连携首次引导（第 13 关起、每局一次）
+let synergyHintUntil = 0;
+let synergyHintDone = false;
 
 // 场上怪物需要被克制的玩家元素集合（坞区红色脉冲提示）
 function getCounterHintElements() {
@@ -1891,11 +1894,12 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 const zombieTypes = {
     // 击杀金币仅作战斗手感，量级已压低，使「直线型通关奖励」成为金币获取的主导直线
     // v2.2 P6(A)：体型血按「每关~5分钟 + 克制可清」重定标（原 312/1560/7800/39000 需 8667~43333 DPS，玩家上限仅 3876）
-    normal: { health: 90,   speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 2 },
-    fast:   { health: 85,   speed: 1.2, damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 3 },
-    tank:   { health: 360,  speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 5 },
-    giant:  { health: 1800, speed: 0.28, damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 10 },
-    boss:   { health: 9000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 30 }
+    // v2.2 P6 审计 BUG-A 修复：怪量 1663→159 后击杀金币需 ×20，否则单关收入 1,269 而满树需 181 万
+    normal: { health: 90,   speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 40 },
+    fast:   { health: 85,   speed: 1.2, damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 60 },
+    tank:   { health: 360,  speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 100 },
+    giant:  { health: 1800, speed: 0.28, damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 200 },
+    boss:   { health: 9000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 600 }
 };
 
 // ==================== 升级选项（v2.2 P3：4 类卡，不再由 SKILL_DEFS 派生）====================
@@ -3994,7 +3998,23 @@ function drawUI() {
     
     // ========== 技能栏（底部） ==========
     drawElementDock();   // P1：底部五行坞替代旧 15 技能栏（战斗释放由 P2 接入）
-    
+
+    // P5.3：相生连携首次引导横幅（第 13 关起、每局首次触发后显示 4s）
+    if (Date.now() < synergyHintUntil) {
+        const _bx = screenWidth * 0.1, _bw = screenWidth * 0.8, _bh = 32;
+        const _by = DOCK_TOP - _bh - 14;
+        ctx.fillStyle = 'rgba(8, 26, 40, 0.9)';
+        roundRect(ctx, _bx, _by, _bw, _bh, 8); ctx.fill();
+        ctx.strokeStyle = 'rgba(80, 220, 255, 0.9)';
+        ctx.lineWidth = 2;
+        roundRect(ctx, _bx, _by, _bw, _bh, 8); ctx.stroke();
+        ctx.fillStyle = '#9fe9ff';
+        ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('相生连携：' + lastActiveElement + ' 生 ' + activeElement + ' · 伤害 +20%', screenWidth / 2, _by + _bh / 2);
+        ctx.textBaseline = 'alphabetic';
+    }
+
     // ========== 炸弹按钮（右下角圆形） ==========
     drawBombButton();
 }
@@ -6235,90 +6255,6 @@ function spawnWave(w, stage) {
     }
 }
 
-// 等效 DPS 指数（开局=1）：用于「难度-等效火力耦合」。
-// 关键修正：旧版把周期性技能(闪电链/木滚木/地刺)的「单轮倍率」直接乘进指数，导致其被严重高估
-// （火力+闪电 lv10 实测 idx≈40~59，但真实 DPS 倍率仅约 9~12）。周期性技能应按「每秒伤害贡献」归一化，
-// 而非单轮倍率相乘。本版改用真实 DPS 比值模型：
-//   总 DPS = Σ(各伤害源每秒输出) / 开局 DPS(=26/0.5=52/s)
-//   · 火力(物理)：射速 × 单发(含多重分摊) × 穿透沿线多目标
-//   · 火/冰：子弹命中触发 AOE，跟随火力射速（每发附加 aoeDamage）
-//   · 闪电链/木滚木/土地刺：独立 CD 周期性释放，按 (单轮伤害 × 1000/cd) 计入持续 DPS
-// 所有因子只增不减 → 指数恒 ≥1（只能变难不变弱）。数值更贴近真实，dmgCouple 才能正确加压。
-function getPlayerDpsIndex() {
-    const _dm = (skills.damage && skills.damage._mods) ? skills.damage._mods : { fireMul: 1, dmgMul: 1 };
-    const _fireMul = _dm.fireMul;
-    const fireRate = Math.max(120, player.fireRate * _fireMul);
-    const shotsPerSec = 1000 / fireRate;
-    const m = attributeMods();
-    const bc = m.bulletCountBoost || 0;
-    const pb = m.pierceBoost || 0;
-    const shots = 1 + bc;
-    // 火力强化的「增伤分支」(重型枪管/蓄能射击) 落在 skills.damage._mods.dmgMul，
-    // 是物理基础 DPS 的公共基底，必须纳入 idx，否则纯火力拉满后耦合完全失效(怪被秒)。
-    const dmgPerShot = player.damage * _dm.dmgMul / (1 + 0.20 * bc);   // 多重弹单发衰减
-
-    // 1) 火力持续 DPS（含增伤分支/多重/穿透）
-    let dps = shotsPerSec * shots * dmgPerShot * (1 + pb * 0.6);
-
-    // 2) 重型枪管爆炸 AoE（物理）：命中产生半径 aoeRadius 的范围伤，占命中 50%（物理基底，按比例乘入 idx）
-    const _dmAoe = (skills.damage && skills.damage._mods && skills.damage._mods.aoeRadius) || 0;
-    if (_dmAoe > 0) {
-        const nIn = Math.min(12, Math.round(_dmAoe / 40 * 3));
-        dps *= (1 + nIn * 0.5);
-    }
-    // 3) 火/冰：子弹命中触发 AOE，跟随火力射速；伤害基准改用解耦后的元素字段(player.fireDamage / player.waterDamage)
-    //    （F2/C1 修复：原版用 skills.level 线性估算，未反映 A2/A3 五行解耦后的真实基础伤害，导致火/水流派 idx 被低估）
-    for (const key of ['explosive', 'freeze']) {
-        const lvl = (skills[key] && skills[key].level) || 0;
-        if (lvl > 0) {
-            const elem = key === 'explosive' ? '火' : '水';
-            const radius = 40 + lvl * 20;
-            const nIn = Math.min(10, Math.round(radius / 40 * 4));
-            const frac = 0.15 + lvl * 0.05;
-            dps += shotsPerSec * nIn * frac * elemBaseDmg(elem);   // 每发 AOE 单目标伤害 = 元素基础 × 比例
-        }
-    }
-
-    // 3) 闪电链（金）：独立 CD 周期性弹射，按每秒贡献计入
-    const lm = lightningMods();
-    const lv = (skills.lightning && skills.lightning.level) || 0;
-    if (lv > 0) {
-        const chain = lv + 1 + (lm.chainCountBoost || 0);
-        const per = 0.4 * (lm.chainDmgMul || 1) / Math.pow(1.2, lm.chainCountBoost || 0);
-        const cd = getAttrReleaseCd('lightning');
-        dps += chain * per * elemBaseDmg('金') * (1000 / cd);
-    }
-
-    // 4) 木（滚木）：独立 CD 周期性全屏碾压，按每秒贡献计入
-    const wm = woodMods();
-    const wl = (skills.wood && skills.wood.level) || 0;
-    if (wl > 0) {
-        const count = Math.min(6, 1 + (wm.logCountBoost || 0));
-        const perRow = Math.min(9, 5 + Math.floor(count));
-        const cd = getAttrReleaseCd('wood');
-        dps += elemBaseDmg('木') * perRow * count * 0.5 * (1000 / cd);
-    }
-
-    // 5) 土（地刺）：独立 CD 周期性范围伤，按每秒贡献计入
-    const em = earthMods();
-    const el = (skills.earth && skills.earth.level) || 0;
-    if (el > 0) {
-        const cd = getAttrReleaseCd('earth');
-        const nSpikes = Math.min(6, 1 + (em.pierceBoost ? 0 : 0) + el);  // 地刺簇数随级成长(上限6)
-        dps += elemBaseDmg('土') * 1.45 * nSpikes * (1000 / cd) * 0.5;       // 每刺约2跳，半额计入持续
-    }
-
-    const baseDps = 26 / 0.5;   // 开局 DPS = 52/s（伤害26 × 射速2/s），idx 基准
-    return dps / baseDps;
-}
-
-// 战斗内「三选一卡池进度」：累计已做出的强化选择次数 = 当前等级 - 1（开局 Lv1=0 次）。
-// 每清一波升 1 级 → 触发一次三选一面板 → 选 1 次（基础升级或分支升级均 +1 级，故与 level 严格同步）。
-// 相比"拍脑袋按波次"，用真实卡池进度分段更准确：它直接反映玩家实际拿到的强化节点数量，
-// 火力/多重/穿透/各属性树的解锁与抬升都落在这些选择节点上。难度分段应贴合这些节点。
-function getPickProgress() {
-    return Math.max(0, player.level - 1);
-}
 
 // 难度耦合系数：把"等效 DPS 指数(真实 DPS 比值)"按【卡池进度】映射为怪物 HP 倍率。
 // v1.1.73 起改为「不封顶·偏离追踪」：每场战斗仅 20 波，去掉所有 min() 上限封顶（F4 清理旧分段封顶注释）。
@@ -6328,18 +6264,6 @@ function getPickProgress() {
 //   · ratio <1（玩家弱于期望）→ 下限 1，维持波次基线血量，不降难度。
 // 因期望基准与 buildWavePlan 的 1.6 血量基线同源，couple 仅做「偏离修正」、不会与波次基线双重复利爆墙。
 // 前期(进度0-4)完全不耦合，保护已调好的平滑手感；lv5 前轻松可升。
-function getDmgCouple(idx, progress) {
-    const p = progress;
-    // v1.1.73（不封顶·偏离追踪）：每场战斗仅 20 波，去掉所有 min() 上限封顶。
-    // 设计：以「期望 DPS 基准 expectedIdx = 1.6^progress」为锚（与波次血量基线 1.6/波 同源），
-    // 取 ratio = idx / expectedIdx（玩家实际 DPS 相对期望的偏离）：
-    //   · ratio ≥1（玩家超出期望）→ couple = ratio^0.95 >1，加压但恒 ≤idx（可清，只变难不变弱）。
-    //   · ratio <1（玩家弱于期望）→ 下限 1，维持波次基线血量，不降难度。
-    // 因期望基准与 buildWavePlan 的 1.6 血量基线同源，couple 仅做「偏离修正」、不会与波次基线双重复利爆墙。
-    if (p <= 4) return 1;                                  // 前期：完全不耦合，保护已调好的平滑手感
-    const expectedIdx = Math.pow(1.6, p);
-    return Math.max(1, Math.pow(idx / expectedIdx, 0.95)); // 偏离追踪·不封顶
-}
 
 // 把到点的待生成怪真正推入战场（每帧调用；血量按当前时间膨胀；五行属性由 pendingSpawns.zElement 决定，当前统一普通）
 function updatePendingSpawns() {
@@ -6353,19 +6277,11 @@ function updatePendingSpawns() {
         // tier.hpT/dmgT 已按"玩家技能解锁等级(Lv5/8/11/14/17/18) + 火力成长"反推，使两条曲线交叉上升、偏离≤20%。
         // 原 hpWaveGrow/hpGrow 指数/时间线性增长已废弃，改由 tier 表单一主控（STAGES.healthMult 仅作关卡间基线差）。
         const tier = getWaveTier(p.wave);
-        // C 难度重平衡（方向1·等效火力耦合·按卡池进度分段·混合指数+阶梯）：
-        // 分段锚点改为「三选一卡池进度」(getPickProgress = 累计选择次数 = level-1)，而非拍脑袋波次——
-        // 进度直接对应玩家真实拿到的强化节点（火力/多重/穿透/属性树解锁都落在此）。
-        // 低段用指数平滑跟随 idx，高段叠加阶梯跳跃(step)制造质变里程碑式陡增；中后段另叠怪量(见 buildWavePlan)。
-        //   进度 0-4  ：couple = 1                （前期不耦合，沿用 A+B 平滑手感，lv5 可升）
-        //   进度 5-7  ：min(1.8, idx^0.25)
-        //   进度 8-10 ：min(2.6, idx^0.40)        （阶梯一：多重/穿透解锁）
-        //   进度11-13 ：min(3.2, idx^0.48)        （阶梯二：属性树高阶）
-        //   进度14-16 ：min(4.0, idx^0.55) + 0.3  （阶梯三：闪电链/木成型，跳 +0.3）
-        //   进度 ≥17  ：min(5.0, idx^0.60) + 0.5  （终极段最强耦合 + 跳 +0.5）
-        // getPlayerDpsIndex() 所有因子只增不减 → idx 恒 ≥1 → 各段 couple 恒 ≥1（只能变难不变弱）。
-        const dmgCouple = getDmgCouple(getPlayerDpsIndex(), getPickProgress());
-        const healthMult = stage.healthMult * dmgCouple;   // v1.1.73：血量曲线由 buildWavePlan 主控，tier.hpT 已置1.0 不参与缩放
+        // v2.2 P6 审计：原「难度-火力耦合」(getPlayerDpsIndex/getDmgCouple) 已整体删除——
+        //   ① 波次曲线改为 1.25 后，其 1.6^progress 基准失效；
+        //   ② v2.2 玩家力量不再由旧 skills 等级驱动（idx 恒为 1），耦合恒等于 1。
+        // 现在血量只由「关卡基线 × 波次 tier 表」决定，成长压力交给 E_BASE / 元素精通 / 局外树。
+        const healthMult = stage.healthMult;
         const damageMult = stage.damageMult * tier.dmgT;
         zombies.push({
             id: _zombieIdSeq++,
@@ -6713,6 +6629,15 @@ function startGame() {
     recomputeElemDamage();
     talentMods.deathrayTimer = 0;
     invincibleUntil = 0;
+    // v2.2 审计修复：局内三选一增益与连携状态必须每局重置，否则会跨局累积（与 elementLevels 同类问题）
+    restraintMult = 2.5;
+    synergyDurBonus = 0;
+    synergyDmgBonus = 0;
+    autoDpsBonus = 0;
+    synergyUntil = 0;
+    synergyHintUntil = 0;
+    synergyHintDone = false;
+    lastActiveElement = activeElement;
 
     // 清空对象
     bullets = [];
@@ -14338,6 +14263,11 @@ wx.onTouchStart((e) => {
                     // 相生连携：切到「被上个元素所生」的元素（水生木/木生火/火生土/土生金/金生水）→ 短时增益
                     if (ELEMENT_SHENG[lastActiveElement] === dockE) {
                         synergyUntil = Date.now() + SYNERGY_DURATION + synergyDurBonus;
+                        // P5.3：第 13 关起首次触发时给一次文字引导（每局一次，教玩家「刻意凑相生」）
+                        if (currentStage >= 13 && !synergyHintDone) {
+                            synergyHintDone = true;
+                            synergyHintUntil = Date.now() + 4000;
+                        }
                         AudioSystem.playSynergy && AudioSystem.playSynergy();
                     }
                     lastActiveElement = activeElement;
