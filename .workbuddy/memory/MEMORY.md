@@ -31,7 +31,10 @@
   - **遗留数值问题（归 P6）**：sim_v22 血量尺度(普30/坦80/BOSS200)远小于实际 `zombieTypes`(312/1560/39000) → 实测 BOSS 约35s(克制/lv1)偏肉；小怪健康(0.3–1.1s)。
 - ✅ P3 三选一池重写（已完成）：4类卡 `kind=elem/synergy/restraint/general`；元素卡只出本关已解锁元素；`applyUpgrade` 按 kind 分派，**旧 skills/branches/qualNodes 彻底退出三选一**；删 `upgradePool`。上限：元素Lv10 / 克制3.5 / 连携+4s+40% / 炮台+200。验证 `smoke_p3.js` 7项PASS。
   - **数值注意（P6）**：元素精通被 autoDPS 地板稀释，Lv1→2 实际 +12.9%（非15%）；Lv10 火单发194.7、中性885DPS、克制3540DPS。
-- P4 局外养成：5元素树(~8节点/棵)替代18天赋树119节点；删旧 talentData/applyTalentsToBattle。
+- ✅ P4 局外养成（已完成）：5元素页签 × 8节点 = 40节点替代旧119节点；`applyTalentsToBattle` 只产出 `atkFlat/hpFlat/defPct/critChance/critDamage/elemLevel`（合规白名单），其余旧字段固定中性；`elemAtkFlat` 进单发分子、`wallDefPct` 进城墙减伤、`elementBaseLevels` 决定开局元素等级。上限：减伤30% / 暴击率25%(安全帽60%) / 暴击倍率3.0 / 元素攻击+84/元素。**顺手修复 P3 跨局残留 bug**：`startGame` 现按 `1+elementBaseLevels[el]` 重置 `elementLevels`。
+  - 消耗沿用 2次幂 `cost×next²/4`、金币沿用直线 `200+30×(关-1)`（原已满足，未改）。
+  - **待用户决策**：旧存档 `talentLevels` 旧 id 静默归零（老玩家投资清零）→ 方案 A 不处理 / B 折算 / C 返金币。
+  - 验证 `smoke_p4.js` 8项PASS。
 - P5 渐进解锁：L1双元素、L13首遇相生，按60关梯度接入；删死代码(CREATURE_VISUAL/旧skill defs)。
 - P6 模拟器(sim_v22)校准后整体回归 + 真机手感微调。
 

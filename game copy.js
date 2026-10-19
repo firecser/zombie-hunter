@@ -5201,7 +5201,8 @@ function shootElement(el) {
     const dir = (ang === null || ang === undefined) ? (-Math.PI / 2) : ang;   // 无目标时竖直向上
     const gunLength = 40;
     const lvl = elementLevels[el] || 1;
-    let perShot = (ELEMENT_AUTO_DPS + autoDpsBonus + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
+    // v2.2 P4：局外元素树的「元素攻击」以固定值进入分子（elemAtkFlat）
+    let perShot = (ELEMENT_AUTO_DPS + autoDpsBonus + (elemAtkFlat[el] || 0) + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
     if (Date.now() < synergyUntil) perShot *= (SYNERGY_DMG_MUL + synergyDmgBonus);   // 相生连携增益
     bullets.push({
         x: player.x + Math.cos(dir) * gunLength,
@@ -6095,6 +6096,8 @@ function updateZombies(dt) {
 
             // 护盾减伤（技能 −10%/级 + 天赋 −2%/级，封顶 80%）
             damage *= (1 - getShieldReduce());
+            // v2.2 P4：元素树「坚守」城墙减伤（wallDefPct，上限 30%）
+            damage *= (1 - wallDefPct);
 
             player.health -= damage * 0.015;
             player.hurtTime = now;
@@ -6840,9 +6843,10 @@ function startGame() {
     player.bulletPiercing += talentMods.piercingBonus;
     player.bulletCount += talentMods.bulletCountBonus;
     // 护盾不折入技能等级（技能 −10%/级 与 天赋 −2%/级 权重不同，由 getShieldReduce 分别结算）
-    skills.explosive.level += talentMods.explosiveLevel;
-    skills.lightning.level += talentMods.lightningLevel;
-    skills.freeze.level += talentMods.freezeSkillLevel;     // 干冰弹天赋起手等级（mirror 爆炸/闪电；skills.freeze 恒在 SKILL_DEFS，无需守卫）
+    // v2.2 P4：局外元素树 → 本局起始元素等级（同时修复跨局残留：每局都从 1 + 局外等级 起算）
+    for (const _el of ['金', '木', '水', '火', '土']) {
+        elementLevels[_el] = Math.min(ELEM_MASTERY_MAX, 1 + (elementBaseLevels[_el] || 0));
+    }
     bombMaxCount = BOMB_MAX_COUNT + talentMods.bombMaxBonus;
     // 质变节点：天赋预置等级也可能达到节点，统一在等级确定后补触发一次
     for (const key of Object.keys(skills)) fireQualNodes(key);
@@ -7338,163 +7342,75 @@ let heroData = {
 // 微信头像
 let wechatAvatarImage = null; // 加载后的 Image 对象
 
-// 天赋数据（按章节解锁）
-// prerequisite: { id: 'talent_id', level: N } - 前置天赋及其等级要求
-// 天赋设计说明（v1.0.55 重做）：
-// 前期基础属性类天赋（core/damage/health/attackspeed）由“百分比”改为“直接加数值”，
-// 让玩家升级时能立刻感觉到数值变化。金币/经验类保留百分比（经济概念），攻速改为直接减 ms。
-// 所有天赋在 startGame 时通过 applyTalentsToBattle() 折入本场战斗（player / skills / 机制标记）。
-let talentData = {
-    'core': { name: '怪物之心', icon: '👾', level: 0, max: 20, cost: 2000, perLevelPower: 200, effect: '攻击 +1，生命 +2', chapter: 1, prerequisite: null },
-    'damage': { name: '攻击力', icon: '⚔️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '攻击 +1', chapter: 2, prerequisite: { id: 'core', level: 5 } },
-    'health': { name: '生命', icon: '❤️', level: 0, max: 30, cost: 300, perLevelPower: 30, effect: '生命 +6', chapter: 2, prerequisite: { id: 'core', level: 5 } },
-    'goldearn': { name: '金币获取', icon: '🪙', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '金币 +5%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
-    'expearn': { name: '经验获取', icon: '⭐', level: 0, max: 20, cost: 400, perLevelPower: 40, effect: '经验 +5%', chapter: 2, prerequisite: { id: 'damage', level: 3 } },
-    'attackspeed': { name: '攻击速度', icon: '⚡', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '攻速 −10ms', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'crit': { name: '暴击率', icon: '💥', level: 0, max: 25, cost: 500, perLevelPower: 50, effect: '暴击率 +1%（暴击×2）', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'piercing': { name: '穿透', icon: '🗡️', level: 0, max: 10, cost: 800, perLevelPower: 80, effect: '穿透 +1', chapter: 4, prerequisite: { id: 'damage', level: 10 } },
-    'shield': { name: '护盾', icon: '🛡️', level: 0, max: 20, cost: 500, perLevelPower: 50, effect: '受伤 −2%', chapter: 4, prerequisite: { id: 'health', level: 10 } },
-    'explosive': { name: '爆炸', icon: '💣', level: 0, max: 10, cost: 1000, perLevelPower: 100, effect: '爆炸范围 +1级', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'freeze': { name: '冰冻', icon: '❄️', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中冰冻 +1.5%，干冰弹起手 +1级', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'slow': { name: '减速', icon: '🐌', level: 0, max: 15, cost: 800, perLevelPower: 80, effect: '命中减速 +2%', chapter: 6, prerequisite: { id: 'attackspeed', level: 5 } },
-    'bombcount': { name: '炸弹上限', icon: '💣', level: 0, max: 8, cost: 1200, perLevelPower: 120, effect: '炸弹上限 +1', chapter: 6, prerequisite: { id: 'shield', level: 5 } },
-    'lightning': { name: '闪电链', icon: '⚡', level: 0, max: 10, cost: 1500, perLevelPower: 150, effect: '闪电链 +1级', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
-    'multishot': { name: '连射', icon: '🏹', level: 0, max: 8, cost: 1500, perLevelPower: 150, effect: '子弹 +1', chapter: 8, prerequisite: { id: 'crit', level: 10 } },
-    'deathray': { name: '死亡射线', icon: '💥', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '全屏射线（每8秒）', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'immortal': { name: '不朽之身', icon: '🔮', level: 0, max: 3, cost: 8000, perLevelPower: 800, effect: '复活 +1次（无敌10秒）', chapter: 10, prerequisite: { id: 'lightning', level: 5 } },
-    'devour': { name: '吞噬万物', icon: '🌪️', level: 0, max: 5, cost: 5000, perLevelPower: 500, effect: '击杀回血 +1', chapter: 10, prerequisite: { id: 'lightning', level: 5 } }
-};
-
-// ==================== 天赋分栏子页 + 五行深养成链 + 统御真前置树（v1.1.40 / v1.1.41） ====================
-// 说明：原 v1.1.40~v1.1.41 的混淆产物不可还原，此处为忠实重建的数据驱动天赋系统。
-// 四个分栏子页：根脉 / 五行 / 统御 / 防御。五行各含 I/II/III 三阶段深链 + 共鸣；统御为深前置树。
+// ==================== 局外养成：五行元素树（v2.2 P4）====================
+// 硬约束（沿用既有设计铁律）：
+//   · 每元素一棵树、8 节点；只允许影响「攻 / 防 / HP」+ 两个百分比（暴击率、暴击倍率）
+//   · 禁止百分比加减伤害；禁止改战场机制（CD / 范围 / 控制时长 / 技能等级 / 子弹数）
+//   · 消耗沿用 2 次幂曲线（getTalentCost）；金币获取沿用直线斜率（getStageGoldReward）
+// v2.2 语义映射：「攻」= 该元素固定攻击加成（elemAtkFlat，直接进单发伤害分子）；
+//                「精通」= 该元素开局等级（elementBaseLevels，驱动 LvMul）
 
 const TALENT_PAGES = [
-    { id: 'root',    label: '根脉', icon: '🌱' },
-    { id: 'element', label: '五行', icon: '☯️' },
-    { id: 'supreme', label: '统御', icon: '👑' },
-    { id: 'defense', label: '防御', icon: '🛡️' }
+    { id: 'jin',  label: '金', icon: '金' },
+    { id: 'mu',   label: '木', icon: '木' },
+    { id: 'shui', label: '水', icon: '水' },
+    { id: 'huo',  label: '火', icon: '火' },
+    { id: 'tu',   label: '土', icon: '土' }
 ];
 
-// 每个分栏子页的有序布局项：{h:true,text} 表头 或 {id} 节点
-const talentLayout = { root: [], element: [], supreme: [], defense: [] };
+let talentData = {};
+const talentLayout = { jin: [], mu: [], shui: [], huo: [], tu: [] };
+
+// 局外养成产出的「本局起始值」（applyTalentsToBattle 填充）
+let elementBaseLevels = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+let elemAtkFlat = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+let wallDefPct = 0;        // 城墙减伤（0~0.30）
 
 function mkTalent(o) {
     return {
         level: 0, max: o.max, cost: o.cost, perLevelPower: o.pp, effect: o.effect,
-        chapter: o.ch, prerequisite: o.prerequisite || null, page: o.page,
+        chapter: o.ch, prerequisite: o.prerequisite || null, page: o.page, elKey: o.elKey,
         icon: o.icon, name: o.name, contrib: o.contrib || null
     };
 }
-function scaleContrib(contrib, mul) {
-    const r = {};
-    for (const k in contrib) r[k] = contrib[k] * mul;
-    return r;
-}
 
 function buildTalentTree() {
-    const setPage = (id, page) => { if (talentData[id]) talentData[id].page = page; };
-
-    // ---- 根脉页：基础属性 ----
-    talentLayout.root.push({ h: true, text: '🌟 根脉 · 基础属性' });
-    ['core', 'damage', 'health', 'goldearn', 'expearn'].forEach(id => { setPage(id, 'root'); talentLayout.root.push({ id }); });
-    talentLayout.root.push({ h: true, text: '⚔️ 根脉 · 进阶属性' });
-    ['attackspeed', 'crit', 'piercing', 'shield', 'bombcount'].forEach(id => { setPage(id, 'root'); talentLayout.root.push({ id }); });
-
-    // ---- 五行页：基础技能 ----
-    talentLayout.element.push({ h: true, text: '🔥 五行 · 基础技能' });
-    ['explosive', 'freeze', 'slow', 'lightning', 'multishot'].forEach(id => { setPage(id, 'element'); talentLayout.element.push({ id }); });
-
-    // ---- 统御页：终极天赋（基础3个） ----
-    talentLayout.supreme.push({ h: true, text: '👑 统御 · 终极天赋' });
-    ['deathray', 'immortal', 'devour'].forEach(id => { setPage(id, 'supreme'); talentLayout.supreme.push({ id }); });
-
-    // ---- 五行深养成链（金/木/水/火/土 各 I/II/III + 共鸣） ----
-    const ELEMENTS = [
-        { key: 'jin',  name: '金', icon: '⚔️', src: 'lightning', contrib: { critChance: 0.005, lightningLevel: 1 },  desc: '暴击与雷电' },
-        { key: 'mu',   name: '木', icon: '🌿', src: 'health',    contrib: { healthBonus: 4, lifestealPerKill: 1 },    desc: '生命与汲取' },
-        { key: 'shui', name: '水', icon: '💧', src: 'freeze',    contrib: { freezeChance: 0.01, slowChance: 0.01 },   desc: '冰霜与减速' },
-        { key: 'huo',  name: '火', icon: '🔥', src: 'damage',    contrib: { damageBonus: 1 },                       desc: '烈焰与焚伤' },
-        { key: 'tu',   name: '土', icon: '⛰️', src: 'shield',    contrib: { shieldLevel: 1, healthBonus: 3 },       desc: '山岳与守护' }
+    const EL = [
+        { key: 'jin',  name: '金' },
+        { key: 'mu',   name: '木' },
+        { key: 'shui', name: '水' },
+        { key: 'huo',  name: '火' },
+        { key: 'tu',   name: '土' }
     ];
-    const TIERS = [
-        { t: 'I',   max: 10, cost: 400,  pp: 40,  ch: 2, mul: 1 },
-        { t: 'II',  max: 10, cost: 800,  pp: 80,  ch: 4, mul: 1.5 },
-        { t: 'III', max: 10, cost: 1500, pp: 150, ch: 6, mul: 2 }
-    ];
-    ELEMENTS.forEach(el => {
-        talentLayout.element.push({ h: true, text: el.icon + ' 五行 · ' + el.name + '系（' + el.desc + '）' });
-        let prevB = null;
-        TIERS.forEach((tier, ti) => {
-            const a = el.key + '_t' + (ti + 1) + 'a';
-            const b = el.key + '_t' + (ti + 1) + 'b';
-            const pre = ti === 0 ? el.src : prevB;
-            const mk = (id, sub) => talentData[id] = mkTalent({
-                name: el.name + '·' + tier.t + sub, icon: el.icon, max: tier.max, cost: tier.cost, pp: tier.pp, ch: tier.ch,
-                effect: el.desc + '强化（每级）', prerequisite: pre ? { id: pre, level: 5 } : null,
-                page: 'element', contrib: scaleContrib(el.contrib, tier.mul)
-            });
-            mk(a, '甲'); mk(b, '乙');
-            talentLayout.element.push({ id: a }, { id: b });
-            prevB = b;
-        });
-        const cap = el.key + '_cap';
-        talentData[cap] = mkTalent({
-            name: el.name + '·共鸣', icon: '✨', max: 5, cost: 3000, pp: 300, ch: 8,
-            effect: el.name + '系质变：全' + el.desc + '大幅提升', prerequisite: { id: prevB, level: 10 },
-            page: 'element', contrib: scaleContrib(el.contrib, 3)
-        });
-        talentLayout.element.push({ id: cap });
+    EL.forEach(el => {
+        const page = el.key;
+        const L = talentLayout[page];
+        const add = (id, conf) => {
+            talentData[id] = mkTalent(Object.assign({ page: page, elKey: el.name, icon: el.name }, conf));
+            L.push({ id: id });
+        };
+        L.push({ h: true, text: el.name + ' 系 · 攻击' });
+        add(page + '_atk1', { name: el.name + '·锋锐 I',  max: 10, cost: 300,  pp: 30,  ch: 1,
+            effect: el.name + '元素攻击 +2', prerequisite: null, contrib: { atkFlat: 2 } });
+        add(page + '_atk2', { name: el.name + '·锋锐 II', max: 10, cost: 800,  pp: 80,  ch: 3,
+            effect: el.name + '元素攻击 +4', prerequisite: { id: page + '_atk1', level: 5 }, contrib: { atkFlat: 4 } });
+        add(page + '_lv',   { name: el.name + '·精通',    max: 5,  cost: 1600, pp: 160, ch: 5,
+            effect: '开局' + el.name + '元素 +1 级', prerequisite: { id: page + '_atk2', level: 5 }, contrib: { elemLevel: 1 } });
+        add(page + '_cap',  { name: el.name + '·共鸣',    max: 3,  cost: 3600, pp: 360, ch: 8,
+            effect: el.name + '攻击 +8、城墙生命 +200', prerequisite: { id: page + '_lv', level: 3 }, contrib: { atkFlat: 8, hpFlat: 200 } });
+        L.push({ h: true, text: el.name + ' 系 · 生存' });
+        add(page + '_hp',   { name: el.name + '·厚土',    max: 10, cost: 300,  pp: 30,  ch: 1,
+            effect: '城墙生命 +80', prerequisite: null, contrib: { hpFlat: 80 } });
+        add(page + '_def',  { name: el.name + '·坚守',    max: 10, cost: 500,  pp: 50,  ch: 3,
+            effect: '城墙减伤 +1.5%', prerequisite: { id: page + '_hp', level: 3 }, contrib: { defPct: 0.015 } });
+        L.push({ h: true, text: el.name + ' 系 · 暴击' });
+        add(page + '_crit', { name: el.name + '·会心',    max: 10, cost: 600,  pp: 60,  ch: 4,
+            effect: '暴击率 +0.5%', prerequisite: { id: page + '_atk1', level: 3 }, contrib: { critChance: 0.005 } });
+        add(page + '_cdmg', { name: el.name + '·会心伤害', max: 10, cost: 900,  pp: 90,  ch: 6,
+            effect: '暴击倍率 +0.05', prerequisite: { id: page + '_crit', level: 5 }, contrib: { critDamage: 0.05 } });
     });
-
-    // ---- 统御真前置树（12 节点） ----
-    const S = (id, name, icon, max, cost, pp, ch, effect, pre, contrib) =>
-        talentData[id] = mkTalent({ name, icon, max, cost, pp, ch, effect, prerequisite: pre, page: 'supreme', contrib });
-    S('sup_war0',   '统御·战',   '⚔️', 10, 1000, 100, 8,  '战斗潜能（每级）',           { id: 'jin_cap',  level: 3 }, { damageBonus: 2 });
-    S('sup_war1',   '统御·战·极', '🗡️', 10, 2000, 200, 10, '伤害大幅提升（每级）',       { id: 'sup_war0', level: 10 }, { damageBonus: 3 });
-    S('sup_guard0', '统御·御',   '🛡️', 10, 1000, 100, 8,  '守护潜能（每级）',           { id: 'tu_cap',   level: 3 }, { shieldLevel: 2 });
-    S('sup_guard1', '统御·御·极', '🏰', 10, 2000, 200, 10, '减伤大幅提升（每级）',       { id: 'sup_guard0', level: 10 }, { shieldLevel: 3, healthBonus: 20 });
-    S('sup_celest', '统御·天',   '☀️', 5,  3000, 300, 10, '死亡射线 +1 级',             { id: 'huo_cap',  level: 3 }, { deathrayLevel: 1 });
-    S('sup_life',   '统御·命',   '❤️', 5,  3000, 300, 10, '不朽 +1 / 汲取 +2',          { id: 'mu_cap',   level: 3 }, { immortalCharges: 1, lifestealPerKill: 2 });
-    S('sup_wealth', '统御·财',   '🪙', 5,  3000, 300, 10, '金币/经验 +10%（每级）',      { id: 'shui_cap', level: 3 }, { goldMult: 0.1, expMult: 0.1 });
-    S('sup_core',   '统御·心',   '💠', 10, 1500, 150, 8,  '攻血兼修（每级）',           { id: 'devour',   level: 3 }, { damageBonus: 1, healthBonus: 10 });
-    S('sup_unify',  '统御·合',   '🔆', 10, 1500, 150, 8,  '五行协调（每级）',           { id: 'shui_cap', level: 3 }, { freezeChance: 0.005, slowChance: 0.005 });
-    S('sup_apex',   '统御·极',   '🌟', 5,  5000, 500, 10, '全能质变：全局强化',         { id: 'sup_war1', level: 10 }, { damageBonus: 5, shieldLevel: 3, healthBonus: 30, lifestealPerKill: 3 });
-    S('sup_apex2',  '统御·穹',   '🌌', 5,  5000, 500, 10, '全能质变：资源增益',         { id: 'sup_guard1', level: 10 }, { goldMult: 0.15, expMult: 0.15 });
-    S('sup_origin', '统御·源',   '🔮', 10, 1500, 150, 8,  '本源潜能（每级）',           { id: 'immortal', level: 3 }, { healthBonus: 15, lifestealPerKill: 2 });
-    ['sup_war0', 'sup_war1', 'sup_guard0', 'sup_guard1', 'sup_celest', 'sup_life', 'sup_wealth', 'sup_core', 'sup_unify', 'sup_apex', 'sup_apex2', 'sup_origin']
-        .forEach(id => talentLayout.supreme.push({ id }));
-
-    // ---- 防御深链（14 节点） ----
-    const D = (id, name, icon, max, cost, pp, ch, effect, pre, contrib) => {
-        talentData[id] = mkTalent({ name, icon, max, cost, pp, ch, effect, prerequisite: pre, page: 'defense', contrib });
-        talentLayout.defense.push({ id });
-    };
-    talentLayout.defense.push({ h: true, text: '🛡️ 防御 · 守护系' });
-    D('def_stone',  '岩盾',     '🪨', 10, 600,  60,  2,  '受伤 -1%/级',            { id: 'shield',    level: 5 }, { shieldLevel: 1 });
-    D('def_thorn',  '荆棘',     '🌵', 10, 800,  80,  4,  '反伤护盾 +1/级',        { id: 'def_stone', level: 5 }, { shieldLevel: 1 });
-    D('def_regen',  '回春',     '🌱', 10, 800,  80,  4,  '击杀回血 +1/级',        { id: 'def_stone', level: 5 }, { lifestealPerKill: 1 });
-    D('def_iron',   '铁壁',     '🧱', 10, 1000, 100, 6,  '受伤 -2%/级',           { id: 'def_thorn', level: 5 }, { shieldLevel: 2 });
-    D('def_unyield','不屈',     '💪', 5,  2000, 200, 8,  '复活 +1（每级）',       { id: 'def_iron',  level: 10 }, { immortalCharges: 1 });
-    D('def_barrier','壁垒',     '⛩️', 10, 1000, 100, 6,  '生命 +15/级',           { id: 'def_regen', level: 5 }, { healthBonus: 15 });
-    D('def_guard',  '守护',     '🔰', 10, 1500, 150, 8,  '受伤 -2%/级',           { id: 'def_barrier', level: 10 }, { shieldLevel: 2 });
-    D('def_aegis',  '庇护',     '✨', 5,  3000, 300, 10, '全减伤质变',            { id: 'def_guard', level: 10 }, { shieldLevel: 3, healthBonus: 30 });
-    talentLayout.defense.push({ h: true, text: '🩸 防御 · 汲取系' });
-    D('def_leech',  '汲取',     '🩸', 10, 600,  60,  2,  '击杀回血 +1/级',        { id: 'bombcount', level: 3 }, { lifestealPerKill: 1 });
-    D('def_vamp',   '嗜血',     '🧛', 10, 1000, 100, 6,  '击杀回血 +2/级',        { id: 'def_leech', level: 10 }, { lifestealPerKill: 2 });
-    D('def_eternal','不朽之拥', '♾️', 5,  3000, 300, 10, '复活 +1/级',            { id: 'def_vamp',  level: 10 }, { immortalCharges: 1 });
-    D('def_vital',  '生机',     '💗', 10, 800,  80,  4,  '生命 +10/级',           { id: 'def_leech', level: 5 }, { healthBonus: 10 });
-    D('def_bastion','堡垒',     '🏯', 10, 1500, 150, 8,  '生命 +20/级',           { id: 'def_vital', level: 10 }, { healthBonus: 20 });
-    D('def_sanct',  '圣域',     '⛪', 5,  3000, 300, 10, '生命质变 + 减伤',        { id: 'def_bastion', level: 10 }, { healthBonus: 40, shieldLevel: 2 });
-    talentLayout.defense.push({ h: true, text: '🧱 防御 · 城墙系（v1.1.65 基础血量下调，需投资恢复容错）' });
-    // 城墙血量（百分比）：基础城墙血量已从 5000 下调到 800，此处提供「百分比」恢复通道。
-    // 设计：阶梯式乘算，满级合计 +270%（即基础×3.7≈2960），配合既有平血天赋可逼近旧 5000 容错；
-    // 数值经过平衡——单级 +12%/+30% 不破坏前期（基础仍偏紧、逼迫清场），把容错交还给愿意投资的玩家。
-    D('def_rampart','筑垒',     '🧱', 10, 800,  80,  4,  '城墙血量 +12%/级',      { id: 'shield',    level: 3 }, { wallHealthMul: 0.12 });
-    D('def_citadel','王城',     '🏰', 5,  3000, 300, 10, '城墙血量 +30%/级',      { id: 'def_rampart', level: 10 }, { wallHealthMul: 0.30 });
 }
 buildTalentTree();
-
 // 天赋分栏子页 Tab 栏几何（绘制与点击共用，保证一致）
 function getTalentTabRects() {
     const topOffset = SAFE_TOP_OFFSET;
@@ -7531,12 +7447,12 @@ let talentMods = {
     wallHealthMul: 0   // 城墙血量百分比加成（v1.1.65 新增，替代被移除的「墙血随波收紧」）
 };
 
-// 根据已加点天赋，计算本场战斗的全部修正
+// 根据已加点元素树，计算本场战斗的全部修正（v2.2 P4）
+// 只产出：元素固定攻击 / 城墙生命 / 城墙减伤 / 暴击率 / 暴击倍率 / 元素开局等级
 function applyTalentsToBattle() {
-    const t = talentData;
     const m = {
         damageBonus: 0, healthBonus: 0, fireRateBonus: 0,
-        critChance: 0, critDamageMult: 2, critLevel: 0,
+        critChance: 0, critDamageMult: 1.5, critLevel: 0,      // 暴击倍率基准 1.5×，上限 3.0×
         piercingBonus: 0, shieldLevel: 0,
         explosiveLevel: 0, lightningLevel: 0, freezeSkillLevel: 0,
         freezeChance: 0, slowChance: 0, freezeLevel: 0, slowLevel: 0,
@@ -7546,47 +7462,33 @@ function applyTalentsToBattle() {
         immortalCharges: 0, lifestealPerKill: 0,
         wallHealthMul: 0
     };
-    // 基础属性：直接加数值
-    m.damageBonus += t.core.level * 1 + t.damage.level * 1;
-    m.healthBonus += t.core.level * 2 + t.health.level * 6;
-    m.fireRateBonus -= t.attackspeed.level * 10;            // 攻速：每级 −10ms
-    // 机制类
-    m.critChance += t.crit.level * 0.01;                    // 暴击率：每级 +1%（局内「致命暴击」每级 +5%）
-    m.critLevel = t.crit.level;
-    m.piercingBonus += t.piercing.level;                    // 穿透：每级 +1
-    m.shieldLevel += t.shield.level;                        // 护盾：每级受伤 −2%（叠加技能护盾 −10%/级）
-    m.explosiveLevel += t.explosive.level;                  // 爆炸：每级 +1 级范围
-    m.lightningLevel += t.lightning.level;                  // 闪电链：每级 +1 级
-    m.freezeSkillLevel += t.freeze.level;                   // 干冰弹起手等级：每级 +1 级（mirror 爆炸/闪电）
-    m.freezeChance += t.freeze.level * 0.015;               // 命中冰冻：每级 +1.5%（局内「冰霜弹」每级 +6%）
-    m.slowChance += t.slow.level * 0.02;                    // 命中减速：每级 +2%（局内「缓速弹」每级 +8%）
-    m.freezeLevel = t.freeze.level;
-    m.slowLevel = t.slow.level;
-    m.bulletCountBonus += t.multishot.level;                // 连射：每级 +1 子弹
-    m.bombMaxBonus += t.bombcount.level;                    // 炸弹上限：每级 +1
-    m.goldMult *= (1 + t.goldearn.level * 0.05);            // 金币：每级 +5%
-    m.expMult *= (1 + t.expearn.level * 0.05);              // 经验：每级 +5%
-    m.deathrayLevel += t.deathray.level;                    // 死亡射线：每级 +1 级（每8秒全屏伤害）
-    m.immortalCharges += t.immortal.level;                  // 不朽之身：每级 +1 次复活
-    m.lifestealPerKill += t.devour.level;                   // 吞噬万物：每级击杀回血 +1
+    const baseLv = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+    const atk = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+    let defPct = 0;
 
-    // 五行深链 / 统御 / 防御 等新节点的通用贡献（声明了 contrib 才生效；基础18节点不含 contrib，不受影响）
-    const CONTRIB_MULT = ['goldMult', 'expMult', 'critDamageMult'];
     for (const key in talentData) {
-        const c = talentData[key].contrib;
-        if (!c) continue;
-        const lv = talentData[key].level;
-        if (lv <= 0) continue;
-        for (const k in c) {
-            if (CONTRIB_MULT.indexOf(k) >= 0) {
-                m[k] *= (1 + lv * c[k]);
-            } else {
-                m[k] += lv * c[k];
-            }
+        const t = talentData[key];
+        const lv = t.level || 0;
+        if (lv <= 0 || !t.contrib) continue;
+        const el = t.elKey;
+        for (const k in t.contrib) {
+            const v = t.contrib[k] * lv;
+            if (k === 'atkFlat')            atk[el] = (atk[el] || 0) + v;
+            else if (k === 'hpFlat')        m.healthBonus += v;
+            else if (k === 'defPct')        defPct += v;
+            else if (k === 'critChance')    m.critChance += v;
+            else if (k === 'critDamage')    m.critDamageMult += v;
+            else if (k === 'elemLevel')     baseLv[el] = (baseLv[el] || 0) + v;
         }
     }
 
+    m.critChance = Math.min(0.60, m.critChance);              // 暴击率上限 60%
+    m.critDamageMult = Math.min(3.0, m.critDamageMult);       // 暴击倍率上限 3.0×
+
     talentMods = m;
+    elementBaseLevels = baseLv;
+    elemAtkFlat = atk;
+    wallDefPct = Math.min(0.30, defPct);                      // 城墙减伤上限 30%
 }
 
 // 检查天赋是否满足前置条件
@@ -8114,7 +8016,7 @@ function drawTalentTab(r, active) {
 
 // ---- 天赋拓扑布局（DAG）：按 prerequisite 链分层 + barycenter 排序，避免连线穿过图标 ----
 // 对每个子页布局一次，结果缓存于 talentPageLayout[pageId]，命中检测使用同一缓存
-const talentPageLayout = { root: null, element: null, supreme: null, defense: null };
+const talentPageLayout = {};   // P4：按元素页 id 动态缓存（jin/mu/shui/huo/tu）
 
 function layoutTalentPage(pageId, contentTop, contentH, nodeSizeParam, xGap, colGap) {
     const paddingX = 14;
@@ -14696,7 +14598,7 @@ wx.onTouchStart((e) => {
                 levelReturnHandled = true;  // 标记已处理
                 gameState = 'mainMenu';
                 mainMenuTab = 'talent';
-                talentPage = 'root';
+                talentPage = 'jin';
                 talentScrollX = 0;
                 isSkillLab = false;
                 return;
@@ -15174,7 +15076,7 @@ function handleLevelClick(x, y) {
 let talentNodes = [];
 
 // 天赋分栏子页（v1.1.40 分栏子页：根脉/五行/统御/防御）+ 滚动偏移
-let talentPage = 'root'; // 'root' | 'element' | 'supreme' | 'defense'
+let talentPage = 'jin'; // 五行元素页（v2.2 P4）：jin | mu | shui | huo | tu
 let talentScrollX = 0;
 // 天赋页拖动滚动状态（横版：水平拖动）
 let talentDragStartX = 0;
