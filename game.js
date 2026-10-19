@@ -14063,14 +14063,17 @@ function handleMainMenuTouch(x, y) {
     
     // 关卡Tab的章节/关卡点击
     if (mainMenuTab === 'level') {
-        let currentY = 50;
+        // 必须与 drawMainMenuLevel 的布局完全一致：章节区域起点 = SAFE_TOP_OFFSET + 滚动偏移，
+        // 否则点到的章节/关卡与画面错位（尤其滚动后），导致点第二章无反应。
+        let currentY = SAFE_TOP_OFFSET + levelScrollY;
         
         for (const chapter of CHAPTERS) {
             const isExpanded = mainMenuExpandedChapter === chapter.id && isChapterUnlocked(chapter);
             const chapterH = isExpanded ? 210 : 70;
             
-            // 点击章节头部（展开/折叠）
-            if (y >= currentY && y <= currentY + 60 && x >= 15 && x <= screenWidth - 15) {
+            // 点击章节条（展开/折叠）：折叠态整条可点，展开态点顶部 60px 收起
+            const headerH = isExpanded ? 60 : chapterH;
+            if (y >= currentY && y <= currentY + headerH && x >= 15 && x <= screenWidth - 15) {
                 if (isChapterUnlocked(chapter)) {
                     mainMenuExpandedChapter = mainMenuExpandedChapter === chapter.id ? 0 : chapter.id;
                 }
