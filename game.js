@@ -201,7 +201,8 @@ function getStageUnlockedElements(lv) {
 // 固定炮台自动射击模型：单发伤害 = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el]×LvMul) / 射速Hz，
 // 命中时再乘 getElementBonus(zombie, el)：克制×2.5 / 错配×0.2 / 中性×1.0；克制时再乘 ELEMENT_AOE 多目标等效。
 const ELEMENT_AUTO_DPS   = 40;                                        // 中性保底 DPS（autoDPS）
-const ELEMENT_BASE_DPS   = { '金':300, '火':240, '木':180, '土':120, '水':90 }; // 五元素基础 DPS（E_BASE，lv1）
+// v2.2 P6(A)：水/土 原低 DPS 是为「控制/护盾」职能买单，v2.2 已删状态与护盾 → 拉回与木同档
+const ELEMENT_BASE_DPS   = { '金':300, '火':240, '木':180, '土':170, '水':170 }; // 五元素基础 DPS（E_BASE，lv1）
 const ELEMENT_AOE        = { '金':1.4, '火':1.6, '木':1.0, '土':1.0, '水':1.0 }; // 多目标等效（克制时生效）
 const ELEMENT_FIRE_RATE  = 220;                                        // 炮台射速（ms）
 const ELEMENT_FIRE_HZ    = 1000 / ELEMENT_FIRE_RATE;                   // ≈4.55 发/s
@@ -281,7 +282,8 @@ function buildStages() {
         const within = 1 + 0.025 * (lvInCh - 1);
         const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
         const climax = (lvInCh === 6) ? 1.05 : 1;
-        const D = base * within * breather * climax;
+        // v2.2 P6(A)：第 1 章为教学章（五行初识），整体再降 25%，确保零养成也能过
+        const D = base * within * breather * climax * (ch === 1 ? 0.75 : 1);
 
         const healthMult = _round2(D);
         const damageMult = _round2(_clamp(D * 0.62, 0.6, 2.6));
@@ -575,7 +577,7 @@ const WAVE_COUNT = 20;
 const EXP_BASE = 2;           // 经验/升级基准：wave i 经验 = EXP_BASE*i，cost(L→L+1) = EXP_BASE*L（保持「每波刚好升1级」耦合）；v1.1.6 由3降为2：缓解 lv5 前怪量过密、打不过
 const WAVE_INITIAL_DELAY = 1500;   // 第一波出现前的初始延迟(ms)
 const WAVE_JITTER = 120;           // 出怪抖动(ms)，避免机械等距
-const WAVE_SPAWN_GAP = 900;    // 每只怪最小出怪间隔(ms)：控制同屏在场峰值，避免大量怪同时段压墙
+const WAVE_SPAWN_GAP = 1100;   // 每只怪最小出怪间隔(ms)：v2.2 P6(A) 由 900 放宽，给「读色换元素」留反应时间
 const WAVE_GAP = 1200;         // 波与波之间的缓冲空当(ms)：让玩家逐波清，而非连绵不绝堆墙
 let WAVE_INTERVAL = 800;           // 每怪平均出怪间隔(ms)，由 buildWavePlan 取 max(WAVE_SPAWN_GAP, 原估算)
 const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（更多可击目标、更多升级素材）；
@@ -583,37 +585,36 @@ const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（�
                                 // 因 WAVE_SPAWN_GAP 放大了间隔，密度增加的是「总量」而非「同时段压力」。
 function buildWavePlan() {
     const plan = [];
-    // v1.1.73（表规则）：每波「全部怪物总血量」= 上一波总血量 ×1.6，而非每只怪 ×1.6。
-    // 第1波 = 2 只小怪(312×2 = 624) → 第 w 波总血 = 624 × 1.6^(w-1)。
-    // 体型档（zombieTypes）：小=312、中(tank)=1560、大(giant)=7800、BOSS=39000（比例 1:5:25:125）。
-    // 由 AI 贪心凑：目标总血取整到 312 的倍数（最小体型粒度），再从最大可用体型往下填，
-    // 使组成总血量尽量逼近 624×1.6^(w-1)（误差 ≤ 半只小怪，符合「去凑」的近似）。
-    // BOSS 仅出现在总血量 ≥39000 的波（w≥10）：w10/w15/w20 各 1 只，其余波用 tank/giant/normal 凑。
+    // v2.2 P6(A) 重定标：每波总血 = 624 × 1.25^(w-1)
+    //   原 1.6 → 波20 总血 471 万 / 604 只、单关出怪 ≈25 分钟，与「每关 5 分钟」冲突。
+    //   新曲线：波20 ≈ 4.3 万、总只数 ≈ 300、单关 ≈ 5.3 分钟。
+    // 体型档（zombieTypes）：normal=90 / tank=360 / giant=1800 / BOSS=9000（比例 1:4:20:100）
+    // BOSS 仅在预算 ≥9000 的波出现：w13 / w17 / w20。
+    const UNIT = 90;                       // 最小体型粒度（= normal 血量）
+    const BOSS_WAVES = [13, 17, 20];
     for (let i = 1; i <= WAVE_COUNT; i++) {
-        const targetHP = 624 * Math.pow(1.6, i - 1);
-        const isBoss = (i === 10 || i === 15 || i === 20);   // BOSS=39000 只在预算足够容纳时出现
-        let hp = Math.round(targetHP / 312) * 312;            // 取整到最小体型粒度，误差最小
+        const targetHP = 624 * Math.pow(1.25, i - 1);
+        const isBoss = (BOSS_WAVES.indexOf(i) >= 0) && (targetHP >= 9000);
+        let hp = Math.round(targetHP / UNIT) * UNIT;
         const comp = [];
-        if (isBoss) { comp.push('boss'); hp -= 39000; }
-        // 贪心：giant(7800) → tank(1560) → normal(312)，使怪量尽量少（大怪少、压力集中于少量厚血）
-        const tiers = [['giant', 7800], ['tank', 1560], ['normal', 312]];
-        for (const [t, h] of tiers) {
+        if (isBoss) { comp.push('boss'); hp -= 9000; }
+        for (const [t, h] of [['giant', 1800], ['tank', 360], ['normal', 90]]) {
             while (hp >= h) { comp.push(t); hp -= h; }
         }
-        while (hp > 0) { comp.push('normal'); hp -= 312; }    // 余数补小怪（极少）
+        while (hp > 0) { comp.push('normal'); hp -= UNIT; }
         plan.push({ i, comp, boss: isBoss });
     }
     // 排时间轴：每只怪之间留固定下限间隔（WAVE_SPAWN_GAP），波间叠缓冲（WAVE_GAP），逐波清。
-    // 后段波总怪量随 1.6 曲线激增（用户已接受出怪排队拉长），间隔受 GAME_TIME_LIMIT 约束自动放大。
     const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
     WAVE_INTERVAL = Math.max(WAVE_SPAWN_GAP, (GAME_TIME_LIMIT - WAVE_INITIAL_DELAY) / totalCount);
     let t = WAVE_INITIAL_DELAY;
     for (const w of plan) {
         w.spawnAt = t;
-        t += w.comp.length * WAVE_INTERVAL + WAVE_GAP;   // 波与波之间留缓冲空当
+        t += w.comp.length * WAVE_INTERVAL + WAVE_GAP;
     }
     return plan;
 }
+
 const WAVE_PLAN = buildWavePlan();
 
 // ==================== 买量素材演示模式 ====================
@@ -1888,11 +1889,12 @@ const IMMORTAL_INVINCIBLE_TIME = 10000;   // 复活后无敌时长（毫秒）
 // 怪量由 buildWavePlan 按「每波总血量 = 624×1.6^(w-1)」贪心凑出，每只怪血量取自此处体型档。
 const zombieTypes = {
     // 击杀金币仅作战斗手感，量级已压低，使「直线型通关奖励」成为金币获取的主导直线
-    normal: { health: 312, speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 2 },
-    fast:   { health: 312, speed: 1.2, damage: 8, radius: 18, color: '#8b7ca3', exp: 1, gold: 3 },
-    tank:   { health: 1560, speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 5 },
-    giant:  { health: 7800, speed: 0.28, damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 10 },
-    boss:   { health: 39000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 30 }
+    // v2.2 P6(A)：体型血按「每关~5分钟 + 克制可清」重定标（原 312/1560/7800/39000 需 8667~43333 DPS，玩家上限仅 3876）
+    normal: { health: 90,   speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 2 },
+    fast:   { health: 85,   speed: 1.2, damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 3 },
+    tank:   { health: 360,  speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 5 },
+    giant:  { health: 1800, speed: 0.28, damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 10 },
+    boss:   { health: 9000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 30 }
 };
 
 // ==================== 升级选项（v2.2 P3：4 类卡，不再由 SKILL_DEFS 派生）====================

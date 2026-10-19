@@ -14,14 +14,18 @@ const WALL_BASE = 2000;               // 城墙基础血
 const WAVE_COUNT = 20;
 
 const TYPE = {
-    normal: { hp: 312,   dmg: 10 },
-    fast:   { hp: 312,   dmg: 8  },
-    tank:   { hp: 1560,  dmg: 20 },
-    giant:  { hp: 7800,  dmg: 35 },
-    boss:   { hp: 39000, dmg: 50 }
+    normal: { hp: 90,   dmg: 10 },
+    fast:   { hp: 85,   dmg: 8  },
+    tank:   { hp: 360,  dmg: 20 },
+    giant:  { hp: 1800, dmg: 35 },
+    boss:   { hp: 9000, dmg: 50 }
 };
+const WAVE_GROWTH = 1.25;      // P6(A)：1.6 → 1.25
+const UNIT = 90;               // 最小体型粒度
+const BOSS_WAVES = [13, 17, 20];
+const SPAWN_GAP = 1100;        // P6(A)：900 → 1100ms
 const RESTRAIN = { '金': '火', '木': '金', '土': '木', '水': '土', '火': '水' };
-const E_BASE = { '金': 300, '火': 240, '木': 180, '土': 120, '水': 90 };
+const E_BASE = { '金': 300, '火': 240, '木': 180, '土': 170, '水': 170 };
 const AOE = { '金': 1.4, '火': 1.6, '木': 1.0, '土': 1.0, '水': 1.0 };
 const AUTO_DPS = 40;
 const RESTRAINT_MULT = 2.5;
@@ -37,7 +41,7 @@ function stageOf(lv) {
     const within = 1 + 0.025 * (lvInCh - 1);
     const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
     const climax = (lvInCh === 6) ? 1.05 : 1;
-    const D = base * within * breather * climax;
+    const D = base * within * breather * climax * (ch === 1 ? 0.75 : 1);   // 第1章教学再降 25%
     return { lv, ch, lvInCh, healthMult: r2(D), damageMult: r2(clamp(D * 0.62, 0.6, 2.6)) };
 }
 
@@ -45,19 +49,19 @@ function stageOf(lv) {
 function buildWaves() {
     const plan = [];
     for (let i = 1; i <= WAVE_COUNT; i++) {
-        const targetHP = 624 * Math.pow(1.6, i - 1);
-        const isBoss = (i === 10 || i === 15 || i === 20);
-        let hp = Math.round(targetHP / 312) * 312;
+        const targetHP = 624 * Math.pow(WAVE_GROWTH, i - 1);
+        const isBoss = (BOSS_WAVES.indexOf(i) >= 0) && (targetHP >= 9000);
+        let hp = Math.round(targetHP / UNIT) * UNIT;
         const comp = [];
-        if (isBoss) { comp.push('boss'); hp -= 39000; }
-        for (const [t, h] of [['giant', 7800], ['tank', 1560], ['normal', 312]]) {
+        if (isBoss) { comp.push('boss'); hp -= 9000; }
+        for (const [t, h] of [['giant', 1800], ['tank', 360], ['normal', 90]]) {
             while (hp >= h) { comp.push(t); hp -= h; }
         }
-        while (hp > 0) { comp.push('normal'); hp -= 312; }
+        while (hp > 0) { comp.push('normal'); hp -= UNIT; }
         plan.push({ i, comp, boss: isBoss });
     }
     const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
-    const interval = Math.max(900, (GAME_TIME_LIMIT * 1000 - 1500) / totalCount);
+    const interval = Math.max(SPAWN_GAP, (GAME_TIME_LIMIT * 1000 - 1500) / totalCount);
     let t = 1500;
     for (const w of plan) {
         w.spawnAt = t;
@@ -89,18 +93,12 @@ function waveMonsterElements(lv, waveIdx) {
 
 // ---- 玩家 DPS ----
 // mode: 'mismatch'（全程错配某元素）| 'counter'（按目标元素切克制）
-function dpsVsTarget(st, el, elLv, atkFlat, mode) {
-    const base = AUTO_DPS + atkFlat + E_BASE[el] * Math.pow(1.15, elLv - 1);
-    const counter = RESTRAIN[st];
-    if (mode === 'counter') {
-        if (el === counter) return base * RESTRAINT_MULT * (AOE[el] || 1);
-        if (el === st) return base * MISMATCH_MULT;
-        return base;
-    }
-    // mismatch：玩家固定用 el，尽量制造最差
-    if (el === st) return base * MISMATCH_MULT;
-    if (el === counter) return base * RESTRAINT_MULT * (AOE[el] || 1);
-    return base;
+// activeEl：玩家当前选中的元素；st：目标怪物元素
+function dpsFor(st, activeEl, elLv, atkFlat) {
+    const base = AUTO_DPS + atkFlat + E_BASE[activeEl] * Math.pow(1.15, elLv - 1);
+    if (activeEl === RESTRAIN[st]) return base * RESTRAINT_MULT * (AOE[activeEl] || 1);  // 克制
+    if (activeEl === st) return base * MISMATCH_MULT;                                     // 错配
+    return base;                                                                          // 中性
 }
 
 // ---- 主模拟 ----
@@ -141,9 +139,13 @@ function run(lv, opts) {
             curAvgHP = totalHP / Math.max(1, w.comp.length);
             curAvgDmg = totalDmg / Math.max(1, w.comp.length);
             // 元素按血量占比加权 DPS
+            //   counter  ：每个怪都切到它的克制元素（smart play）
+            //   mismatch ：全程固定一个元素（模拟不会玩 / 乱点）
             let wdps = 0;
             for (const el in hpByEl) {
-                wdps += (hpByEl[el] / totalHP) * dpsVsTarget(el, opts.el || '火', elLvAll, atkFlat, mode);
+                // 错配模式：玩家始终用「怪物自身元素」→ 稳定 ×0.2（真正的最差操作）
+                const activeEl = (mode === 'counter') ? RESTRAIN[el] : el;
+                wdps += (hpByEl[el] / totalHP) * dpsFor(el, activeEl, elLvAll, atkFlat);
             }
             curDPS = wdps;
         }
