@@ -35,8 +35,9 @@
   - 消耗沿用 2次幂 `cost×next²/4`、金币沿用直线 `200+30×(关-1)`（原已满足，未改）。
   - **待用户决策**：旧存档 `talentLevels` 旧 id 静默归零（老玩家投资清零）→ 方案 A 不处理 / B 折算 / C 返金币。
   - 验证 `smoke_p4.js` 8项PASS。
-- P5 渐进解锁：L1双元素、L13首遇相生，按60关梯度接入；删死代码(CREATURE_VISUAL/旧skill defs)。
-- P6 模拟器(sim_v22)校准后整体回归 + 真机手感微调。
+- ✅ P5 关卡元素对齐（已完成）：第1章改为**五行教学章**——新增 `buildTeachingWaveElements(lv)`（仅 lv≤6）→ `stage.waveElements`（20波）→ `spawnWave` 按波投放。L1 前10波金(火克)/后10波火(水克)、L2 土(木克)、L3 水(土克)、L4-6 木(金克)；第7关起 null 走章节元素。**不变量**：每关每波怪的克制元素必须已解锁（`smoke_p5.js` 全60关逐波校验）。
+- ✅ P5b 死代码清理（-10540字符）：逐块删 `CREATURE_VISUAL`/`drawSkillUI`/`shootBase`/`shootAttribute`/`shootWood`，**每块删后跑全量冒烟**。保留 `getBulletElement`(spawnSplitBullets 用)/`pendingWoodLogs`+`updateLogs`(update 调用)/`*Mods`(getPlayerDpsIndex 读)/`SKILL_DEFS`(存档兼容)。
+- ✅ P6 真实数值校准（方案A，已完成）：新建 `scripts/sim_v22_real.js` 复刻线上出怪表。**原曲线 1.6^w 与 v2.2 亚线性力量差 2 个数量级**（波20=471万血/604只、单关25分钟）→ 改为 **g=1.25 / 体型血 90·85·360·1800·9000 / BOSS 波次13·17·20 / 出怪间隔1100ms / 第1章×0.75 / 水·土 E_BASE 170**。结果：单关 **5.4分钟**；错配 143–181s 崩、克制零养成过前中期、**L60 终章零养成崩246s、养成后满血清**。**待真机验收**（时长/切换手感/终章门槛/同屏密度）。
 
 ## 战斗代码铁律
 - 改 battle 相关必须基于代码事实，不猜测；重做机制前先纸面建模(三层循环+火力门数值自洽)。
