@@ -22,7 +22,10 @@
 - **状态**：纸面模型+数值校准已完成（sim_v22.js 验证火力门自洽：错配41-96s崩、克制lv1撑278-293s、L55满养成稳过且零养成285s崩）。**代码尚未落地**，v1.1.80(HEAD)仍为旧怪物按type四色。
 
 ## 开发清单（v2.2 落地，分阶段，勿跨阶段猜战斗代码）
-- ✅ P1 视觉身份层（已落地，本地 fb73ef5）：汉字怪物渲染+底部五行坞(克制高亮/选中金边)+战场整体上移(WALL_Y 0.82→0.70，控制按钮随动)+activeElement选中(坞点击)。旧战斗逻辑未动。验证 scripts/smoke_p1.js 5项PASS。
+- ✅ P1 视觉身份层（已落地 fb73ef5，**验收后修复于 653d009**）：汉字怪物渲染+底部五行坞(克制高亮/选中金边)+战场整体上移(WALL_Y 0.82→0.70，控制按钮随动)+activeElement选中(坞点击)。旧战斗逻辑未动。
+  - **验收发现并修复 3 bug**：①双系关(第37-60关)`element='normal'`+`elements[]` 导致怪物退化灰色「僵」→ 主字形取 elements[0] + 右上角第二元素角标；②无底部安全区 → 新增 `SAFE_BOTTOM_OFFSET`(读 `safeArea.bottom`) + `DOCK_HEIGHT`/`DOCK_TOP` 统一基准，坞/控制按钮/炸弹全按 DOCK_TOP 排版；③素材演示模式炸弹坐标写死 `screenHeight-48` → 改用 `BOMB_BTN_X/Y`。
+  - **测试覆盖教训**：`smoke_p1.js` 把双系样本写成 `element:'木'`，绕过了真实形态 `element:'normal'`，导致 BUG-①漏检。新增 `scripts/smoke_p1_fix.js`（记录型 ctx 断言 fillText 实参 + 模拟 safeArea）6 项 PASS。
+  - **硬规则（新增）**：改任何底部 UI（坞/按钮/炸弹/提示）必须用 `DOCK_TOP`/`SAFE_BOTTOM_OFFSET` 统一基准，禁止写死 `screenHeight - N`。
 - 🔄 P2 战斗重写（进行中）：activeElement接入战斗——停旧15技能自动释放，改手动选元素发射，子弹带 activeElement 经 getElementBonus(zombie,activeElement) 结算(克制×2.5/错配×0.2)，并加相生连携同层表现；数值须把 sim_v22 基线(autoDPS40/克制2.5/LvMul1.15)映射到实际武器DPS。
 - P3 三选一池重写为4类(元素精通/相生连携/克制增幅/通用属性)，删旧分支树/qualNodes。
 - P4 局外养成：5元素树(~8节点/棵)替代18天赋树119节点；删旧 talentData/applyTalentsToBattle。
