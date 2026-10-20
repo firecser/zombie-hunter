@@ -207,7 +207,9 @@ const ELEMENT_BASE_DPS   = { '金':300, '火':240, '木':180, '土':170, '水':1
 const ELEMENT_AOE        = { '金':1.4, '火':1.6, '木':1.0, '土':1.0, '水':1.0 }; // 多目标等效（克制时生效）
 const ELEMENT_FIRE_RATE  = 220;                                        // 炮台射速（ms）
 const ELEMENT_FIRE_HZ    = 1000 / ELEMENT_FIRE_RATE;                   // ≈4.55 发/s
-const ELEMENT_BULLET_SPEED = 640;                                      // 五行子弹速度（px/s）
+// 注意：updateBullets() 是按「像素/帧」推进（bullet.x += bullet.vx），与 player.bulletSpeed 同单位！
+// 切勿写成 640（px/s）——那样子弹一帧就飞出屏幕被回收，表现为「完全不发射」。
+const ELEMENT_BULLET_SPEED = 10;                                       // 五行子弹速度（px/帧，≈600px/s）
 let   elementLevels      = { '金':1, '木':1, '水':1, '火':1, '土':1 };  // 元素熟练度（P4 局外养成接入，默认 lv1）
 function elementLvMul(el) { return Math.pow(1.15, (elementLevels[el] || 1) - 1); } // LvMul = 1.15^(lv-1)
 // 相生映射：A 生 B（水生木 / 木生火 / 火生土 / 土生金 / 金生水）

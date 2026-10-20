@@ -168,6 +168,20 @@ const driver = `
     ok('旧发射链路已停用（无 shootBase/shootAttribute 调用点）');
   } catch(e){ fail('旧发射链路停用', e); }
 
+  // ---------- 7) 子弹速度单位（px/帧）：一帧不得飞出屏幕 ----------
+  try {
+    bullets.length = 0; zombies.length = 0;
+    elementLevels['火'] = 1; synergyUntil = 0;
+    shootElement('火');
+    if (bullets.length !== 1) throw new Error('未发射');
+    const b = bullets[0], x0 = b.x, y0 = b.y;
+    updateBullets();
+    if (bullets.indexOf(b) < 0) throw new Error('子弹单帧内被回收（速度单位写成 px/s 了？）');
+    const d = Math.hypot(b.x - x0, b.y - y0);
+    if (!(d > 1 && d < 30)) throw new Error('单帧位移异常: ' + d.toFixed(1) + 'px（应≈10px/帧）');
+    ok('子弹速度单位：单帧位移 ' + d.toFixed(1) + 'px（≈10px/帧，不是 640px/s）');
+  } catch(e){ fail('子弹速度单位', e); }
+
   console.log('\\n=== P2 SMOKE RESULT ===');
   console.log(results.join('\\n'));
   const bad = results.some(r => r.indexOf('FAIL') === 0);
