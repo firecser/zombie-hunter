@@ -240,8 +240,10 @@ const PERK_DEFS = {
 };
 let perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
 let evolution = null;   // { perk, el, key, name }
-// v2.5.2：经验球磁吸半径（200 → 110）。调小后必须靠走位靠近才能吃到，走位意义更大
-const ORB_MAGNET_R = 110;
+// v2.6（A 案）：磁吸半径 70（≈屏宽18%）；掉落物统一竖直下落；经验球漏过返 50%
+const ORB_MAGNET_R = 70;
+const ORB_FALL_SPEED = 1.4;   // px/帧 ≈84px/s：从 y=400 落到墙线约 1.9s，留出反应时间
+const ORB_REFUND = 0.5;       // 漏掉返还比例（保「每波≈1级」的节奏契约）
 
 const EVOLUTIONS = {
     'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
@@ -3840,6 +3842,9 @@ function roundRectPath(x, y, w, h, r) {
 function drawOrbs() {
     // 经验球（青蓝 + 白色「＋」，强调经验）
     for (const orb of expOrbs) {
+        // v2.6：接近墙线时闪烁预警（明确「要漏掉了」）
+        const _danger = orb.y > WALL_Y - 60;
+        if (_danger) ctx.globalAlpha = 0.45 + 0.4 * Math.abs(Math.sin(Date.now() / 90));
         const glow = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius * 2);
         glow.addColorStop(0, 'rgba(80, 200, 255, 0.55)');
         glow.addColorStop(1, 'rgba(80, 200, 255, 0)');
@@ -3864,6 +3869,7 @@ function drawOrbs() {
         ctx.moveTo(orb.x, orb.y - orb.radius * 0.4);
         ctx.lineTo(orb.x, orb.y + orb.radius * 0.4);
         ctx.stroke();
+        if (_danger) ctx.globalAlpha = 1;
     }
 
     // 金币（金色圆饼 + ¥ 符号 + 深金描边，强调硬币）
@@ -6443,55 +6449,64 @@ function updateParticles() {
 
 // 更新掉落物
 function updateOrbs() {
+    // v2.6（A 案）：所有掉落物统一「竖直下落」
+    //   · 经验球：贴身/磁吸拾取；漏过墙线消失，但返还 50% 经验（防升级节奏崩）
+    //   · 金币  ：同样下落；落到墙线自动收取（保护已调好的经济，不漏）
     for (let i = expOrbs.length - 1; i >= 0; i--) {
         const orb = expOrbs[i];
+        orb.y += ORB_FALL_SPEED;
         const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
-        
-        // v2.5.1：不在磁吸范围时，经验球缓慢向下漂移到角色高度
-        // （炮台 y 固定在城墙线，怪死在 y≈300~500，垂直距离本身就可能超半径，否则永远吃不到）
-        if (dist >= ORB_MAGNET_R && orb.y < player.y - 16) orb.y += 3.2;
 
-        // v2.5 M1：进入磁吸半径才吸——走位过去才吃得到，走位有收益
+        // 进入磁吸半径才被吸（走位才有收益）
         if (dist > 5 && dist < ORB_MAGNET_R) {
             const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
             orb.x += Math.cos(angle) * 12;
             orb.y += Math.sin(angle) * 12;
         }
-        
+
+        // 贴身拾取
         if (dist < player.radius + orb.radius) {
-            // 经验球提供经验：拾取后经验条逐步填充，满了自动升级（触发三选一）
             player.exp += (orb.exp || 1) * talentMods.expMult;
             expOrbs.splice(i, 1);
-            
-            // 播放拾取音效
             AudioSystem.playPickup();
-            
-            if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) {
-                levelUp();
-            }
+            if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) levelUp();
+            continue;
+        }
+
+        // 漏过墙线：消失 + 返还 50%
+        if (orb.y > WALL_Y + 36) {
+            player.exp += (orb.exp || 1) * talentMods.expMult * ORB_REFUND;
+            expOrbs.splice(i, 1);
+            if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) levelUp();
         }
     }
-    
+
     for (let i = goldOrbs.length - 1; i >= 0; i--) {
         const orb = goldOrbs[i];
+        orb.y += ORB_FALL_SPEED;
         const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
-        
-        if (dist > 5) {
+
+        if (dist > 5 && dist < ORB_MAGNET_R) {
             const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
             orb.x += Math.cos(angle) * 12;
             orb.y += Math.sin(angle) * 12;
         }
-        
+
         if (dist < player.radius + orb.radius) {
             player.gold += Math.round(5 * talentMods.goldMult);
             goldOrbs.splice(i, 1);
-            
-            // 播放拾取音效
+            AudioSystem.playPickup();
+            continue;
+        }
+
+        // 金币保护：落到墙线附近自动收取，不惩罚经济
+        if (orb.y >= WALL_Y - 12) {
+            player.gold += Math.round(5 * talentMods.goldMult);
+            goldOrbs.splice(i, 1);
             AudioSystem.playPickup();
         }
     }
 }
-
 // 更新伤害数字
 function updateDamageNumbers() {
     for (let i = damageNumbers.length - 1; i >= 0; i--) {

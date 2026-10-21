@@ -52,7 +52,7 @@ const sandbox = {
     module: { exports: {} }, require: () => ({}), globalThis: null,
     // M1 走位：源码级断言（拖动移动 + 经验球磁吸半径）
     __hasMove: /v2\.5 M1：战斗内拖动/.test(src) && /player\.x = Math\.max\(_minX/.test(src),
-    __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 110;/.test(src)
+    __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 70;/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -68,6 +68,7 @@ const driver = `
     perks = { multishot:0, pierce:0, explode:0, chill:0, burn:0, bounce:0 };
     evolution = null; bullets.length = 0; zombies.length = 0;
     autoDpsBonus = 0; synergyDmgBonus = 0; synergyUntil = 0; player.level = 1; player.exp = 0; player.expToLevel = 999999;
+    talentMods.expMult = 1; talentMods.goldMult = 1;
   }
   function zk(x,y,el){ return { x:x, y:y, radius:22, element:el||'金', elements:null, health:1e9, maxHealth:1e9,
                                frozenUntil:0, slowUntil:0, burningUntil:0, vulnUntil:0, vulnMul:1, burnDmg:0,
@@ -151,39 +152,49 @@ const driver = `
     ok('词条命中：爆裂范围伤 + 霜冻减速');
   } catch(e){ fail('词条命中', e); }
 
-  // ---------- 6b) 经验球可达性：远的向下漂移 / 近的磁吸 ----------
+  // ---------- 6b) 掉落物：统一下落 / 半径70 / 漏球返还 / 金币自动收 ----------
   try {
     resetAll(); expOrbs.length = 0; goldOrbs.length = 0;
-    player.exp = 0; player.expToLevel = 999999;
-    const far = { x: 80, y: 200, radius: 4, exp: 1 };
-    expOrbs.push(far);
-    const y0 = far.y;
-    updateOrbs();
-    if (!(far.y > y0)) throw new Error('远处经验球未向下漂移（会永远吃不到）');
+    player.exp = 0; player.expToLevel = 999999; player.gold = 0;
 
-    const near = { x: player.x + 30, y: player.y - 60, radius: 4, exp: 1 };
-    expOrbs.length = 0; expOrbs.push(near);
-    const d0 = Math.hypot(near.x - player.x, near.y - player.y);
-    updateOrbs();
-    if (expOrbs.length === 1) {
-      const d1 = Math.hypot(near.x - player.x, near.y - player.y);
-      if (!(d1 < d0)) throw new Error('近处经验球未被磁吸');
-    }
-    // 中距离（150px）不应被磁吸——证明半径确实缩小了
+    // 远处经验球：必须持续竖直下落（不再停在角色高度）
+    const far = { x: 80, y: 200, radius: 4, exp: 1 };
+    expOrbs.push(far); updateOrbs();
+    if (!(far.y > 200)) throw new Error('经验球未竖直下落');
+
+    // 150px：不应被磁吸（半径 70）
     const mid = { x: player.x + 150, y: player.y - 20, radius: 4, exp: 1 };
     expOrbs.length = 0; expOrbs.push(mid);
-    const mx0 = mid.x;
-    updateOrbs();
-    if (expOrbs.length === 1 && Math.abs(mid.x - mx0) > 1) throw new Error('150px 处不应被磁吸（半径应≈110）');
+    const mx0 = mid.x; updateOrbs();
+    if (expOrbs.length === 1 && Math.abs(mid.x - mx0) > 1) throw new Error('150px 处不应被磁吸（半径应≈70）');
 
-    ok('经验球可达性：远处下漂 / 近处磁吸 / 150px 不强吸（半径 110）');
-  } catch(e){ fail('经验球可达性', e); }
+    // 漏过墙线：消失 + 返还 50%
+    const miss = { x: 40, y: WALL_Y + 40, radius: 4, exp: 8 };
+    expOrbs.length = 0; expOrbs.push(miss);
+    updateOrbs();
+    if (expOrbs.length !== 0) throw new Error('漏过墙线的经验球应消失');
+    if (Math.abs(player.exp - 4) > 0.01) throw new Error('漏球应返还 50% 经验(4), 实=' + player.exp);
+
+    // 金币：竖直下落 + 到墙线自动收取（不漏）
+    goldOrbs.length = 0;
+    const g1 = { x: 60, y: 200, radius: 5 }; goldOrbs.push(g1);
+    updateOrbs();
+    if (!(g1.y > 200)) throw new Error('金币未竖直下落');
+    goldOrbs.length = 0;
+    const g2 = { x: 60, y: WALL_Y - 8, radius: 5 }; goldOrbs.push(g2);
+    player.gold = 0;
+    updateOrbs();
+    if (goldOrbs.length !== 0) throw new Error('金币到墙线应自动收取');
+    if (player.gold <= 0) throw new Error('金币未入账');
+
+    ok('掉落物：统一下落 / 半径70 / 漏球返50% / 金币墙线自动收');
+  } catch(e){ fail('掉落物', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');
     if (!__hasMagnet) throw new Error('经验球未改为常量磁吸半径');
-    ok('走位：拖动移动角色 + 经验球 110px 磁吸');
+    ok('走位：拖动移动角色 + 经验球 70px 磁吸');
   } catch(e){ fail('走位接线', e); }
 
   console.log('\\n=== V25 SMOKE RESULT ===');
