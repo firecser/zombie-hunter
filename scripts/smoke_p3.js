@@ -171,6 +171,9 @@ const driver = `
     restraintMult = RESTRAINT_MAX;
     synergyDurBonus = 4000; synergyDmgBonus = 0.40;
     autoDpsBonus = 0;                      // 炮台卡仍可选
+    // v2.5：词条与进化也必须满，才谈得上「只剩通用卡」
+    perks = { multishot: 3, pierce: 3, explode: 3, chill: 3, burn: 3, bounce: 3 };
+    evolution = { perk: 'multishot', el: '火', key: 'multishot_火', name: '火焰喷射' };
     showUpgradePanel();
     if (upgradeOptions.length !== 3) throw new Error('满级后应仍有 3 张, 实=' + upgradeOptions.length);
     if (!upgradeOptions.every(c => c.kind === 'general')) throw new Error('满级后应只剩通用卡: ' + upgradeOptions.map(keyOf).join('/'));

@@ -228,6 +228,26 @@ let shakeUntil = 0, shakeMag = 0;                                       // 震�
 let slowUntil = 0;                                                      // 慢动作
 let flashUntil = 0, flashColor = '#ffffff';                             // 全屏闪光
 let _detonating = false;                                                // 引爆中（防止二次积印）
+
+// ===== v2.5 词条（M2）与形态进化 =====
+const PERK_DEFS = {
+    multishot: { name: '连发', icon: '连', desc: '弹道 +1' },
+    pierce:    { name: '穿透', icon: '穿', desc: '穿透 +1' },
+    explode:   { name: '爆裂', icon: '爆', desc: '命中范围伤害' },
+    chill:     { name: '霜冻', icon: '冻', desc: '命中减速' },
+    burn:      { name: '灼烧', icon: '燃', desc: '命中点燃' },
+    bounce:    { name: '弹射', icon: '弹', desc: '弹向附近目标' }
+};
+let perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
+let evolution = null;   // { perk, el, key, name }
+
+const EVOLUTIONS = {
+    'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
+    'pierce_金':    { name: '穿甲激光', color: '#ffd23a', radius: 10, pierce: 8, speedMul: 1.5 },
+    'bounce_木':    { name: '藤蔓领域', color: '#46d35a', slowR: 70, slowMs: 2000 },
+    'chill_水':     { name: '冰环',     color: '#37c6ff', slowR: 80, slowMs: 2500, freezeMs: 400 },
+    'burn_土':      { name: '熔岩地带', color: '#c8915a', explodeR: 70, burn: true }
+};
 let   elementLevels      = { '金':1, '木':1, '水':1, '火':1, '土':1 };  // 元素熟练度（P4 局外养成接入，默认 lv1）
 function elementLvMul(el) { return Math.pow(1.15, (elementLevels[el] || 1) - 1); } // LvMul = 1.15^(lv-1)
 // 相生映射：A 生 B（水生木 / 木生火 / 火生土 / 土生金 / 金生水）
@@ -5251,32 +5271,64 @@ function skillSlotOf(type) {
 
 // v2.2 五行极简：固定炮台发射「当前选中元素」子弹（克制结算在 damageZombie → getElementBonus）
 // 单发伤害 = (ELEMENT_AUTO_DPS + ELEMENT_BASE_DPS[el]×LvMul) / 射速Hz；连携窗口内再 ×SYNERGY_DMG_MUL
+// ===== v2.5 射击：单发基础 / 弹道数 / 扇形发射 =====
+function elementPerShot(el) {
+    const lvl = elementLevels[el] || 1;
+    let per = (ELEMENT_AUTO_DPS + autoDpsBonus + (elemAtkFlat[el] || 0) + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
+    if (Date.now() < synergyUntil) per *= (SYNERGY_DMG_MUL + synergyDmgBonus);
+    return per;
+}
+
+// M3：弹道数 = 1 + 精通档位（Lv5/Lv9）+ 词条「连发」+ 进化加成，上限 6
+function bulletCountFor(el) {
+    const lvl = elementLevels[el] || 1;
+    let n = 1 + Math.min(2, Math.floor((lvl - 1) / 4)) + (perks.multishot || 0);
+    if (evolution && evolution.el === el && evolution.perk === 'multishot') n += 2;
+    return Math.max(1, Math.min(6, n));
+}
+
+function spawnBulletFan(el, dmg, isTap, isCombo, comboKey) {
+    const n = bulletCountFor(el);
+    const ang0 = aimAngleForSlot(1);
+    const base = (ang0 === null || ang0 === undefined) ? (-Math.PI / 2) : ang0;
+    const key = (evolution && evolution.el === el) ? evolution.key : null;
+    const evo = key ? EVOLUTIONS[key] : null;
+    const snap = {
+        pierce: perks.pierce || 0, explode: perks.explode || 0, chill: perks.chill || 0,
+        burn: perks.burn || 0, bounce: perks.bounce || 0
+    };
+    const speed = ELEMENT_BULLET_SPEED * (evo && evo.speedMul ? evo.speedMul : 1);
+    const spread = 0.14;
+    for (let i = 0; i < n; i++) {
+        const a = base + (i - (n - 1) / 2) * spread;
+        bullets.push({
+            x: player.x + Math.cos(a) * 40,
+            y: player.y + Math.sin(a) * 40,
+            vx: Math.cos(a) * speed,
+            vy: Math.sin(a) * speed,
+            radius: evo && evo.radius ? evo.radius : (isCombo ? 18 : 12),
+            damage: dmg * (isTap ? 3 : 1) * (isCombo ? 2.5 : 1),
+            piercing: snap.pierce + (evo && evo.pierce ? evo.pierce : 0),
+            element: el,
+            skillType: 'element',
+            canSplit: false,
+            hitZombies: [],
+            combo: !!isCombo,
+            comboKey: comboKey || null,
+            tapEffect: isCombo ? 'combo' : 'none',
+            perkSnapshot: snap,
+            evo: key,
+            color: evo ? evo.color : null
+        });
+    }
+}
+
 function shootElement(el) {
     if (!el || el === '物理' || el === 'normal') el = activeElement;
     if (!el || el === '物理' || el === 'normal') el = '火';
     AudioSystem.playShoot();
-    const ang = aimAngleForSlot(1);                       // 打「离墙最近」的可射击怪
-    const dir = (ang === null || ang === undefined) ? (-Math.PI / 2) : ang;   // 无目标时竖直向上
-    const gunLength = 40;
-    const lvl = elementLevels[el] || 1;
-    // v2.2 P4：局外元素树的「元素攻击」以固定值进入分子（elemAtkFlat）
-    let perShot = (ELEMENT_AUTO_DPS + autoDpsBonus + (elemAtkFlat[el] || 0) + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
-    if (Date.now() < synergyUntil) perShot *= (SYNERGY_DMG_MUL + synergyDmgBonus);   // 相生连携增益
-    bullets.push({
-        x: player.x + Math.cos(dir) * gunLength,
-        y: player.y + Math.sin(dir) * gunLength,
-        vx: Math.cos(dir) * ELEMENT_BULLET_SPEED,
-        vy: Math.sin(dir) * ELEMENT_BULLET_SPEED,
-        radius: 11,
-        damage: perShot,
-        piercing: 0,
-        element: el,
-        skillType: 'element',        // 新统一类型：不触发任何旧属性分支（爆炸/闪电/滚木/AOE 等）
-        canSplit: false,
-        hitZombies: []
-    });
+    spawnBulletFan(el, elementPerShot(el), false, false, null);
 }
-
 // ===== v2.3 A+B 轻量版 =====
 
 // 点击单发伤害 = 3 发等效（含连携加成）
@@ -5289,28 +5341,8 @@ function tapBaseDamage(el) {
 
 // 点击补射：强化弹（3 发等效）；相生窗口内为「合击弹」（×2.5 + 80px 范围）
 function castElementSkill(el, isCombo, prevEl) {
-    const ang = aimAngleForSlot(1);
-    const dir = (ang === null || ang === undefined) ? (-Math.PI / 2) : ang;
-    let dmg = tapBaseDamage(el);
-    if (isCombo) dmg *= 2.5;
-    bullets.push({
-        x: player.x + Math.cos(dir) * 40,
-        y: player.y + Math.sin(dir) * 40,
-        vx: Math.cos(dir) * ELEMENT_BULLET_SPEED,
-        vy: Math.sin(dir) * ELEMENT_BULLET_SPEED,
-        radius: isCombo ? 18 : 14,
-        damage: dmg,
-        piercing: 0,
-        element: el,
-        skillType: 'element',
-        canSplit: false,
-        hitZombies: [],
-        combo: !!isCombo,
-        comboKey: isCombo ? (prevEl + '生' + el) : null,
-        tapEffect: isCombo ? 'combo' : 'none'
-    });
+    spawnBulletFan(el, elementPerShot(el), true, isCombo, isCombo ? (prevEl + '生' + el) : null);
 }
-
 // ===== v2.4 反馈与轮转 =====
 function vibrate(type) {
     try { if (wx.vibrateShort) wx.vibrateShort({ type: type || 'light' }); } catch (e) {}
@@ -5362,6 +5394,51 @@ function tryCastElement(el, isCombo, prevEl) {
     elementTapReadyAt = now + ELEMENT_TAP_CD;
     castElementSkill(el, isCombo, prevEl);
     return true;
+}
+
+// v2.5：词条与进化的命中特效
+function applyPerkHit(bullet, zombie) {
+    const ps = bullet.perkSnapshot || {};
+    const evo = bullet.evo ? EVOLUTIONS[bullet.evo] : null;
+    const now = Date.now();
+    if (ps.chill || (evo && evo.freezeMs)) {
+        const ms = 800 + (ps.chill || 0) * 400;
+        zombie.slowUntil = Math.max(zombie.slowUntil || 0, now + ms);
+        if (evo && evo.freezeMs) zombie.frozenUntil = Math.max(zombie.frozenUntil || 0, now + evo.freezeMs);
+    }
+    if (ps.burn || (evo && evo.burn)) {
+        zombie.burningUntil = Math.max(zombie.burningUntil || 0, now + 2000);
+        zombie.burnDmg = Math.max(zombie.burnDmg || 0, bullet.damage * 0.08 * Math.max(1, ps.burn || 0));
+    }
+    const R = (ps.explode ? 40 + ps.explode * 10 : 0) || (evo && evo.explodeR ? evo.explodeR : 0);
+    if (R > 0) {
+        for (const z of zombies.slice()) {
+            if (z === zombie) continue;
+            if (Math.hypot(z.x - bullet.x, z.y - bullet.y) <= R) damageZombie(z, bullet.damage * 0.4, false, bullet.element);
+        }
+        createExplosion(bullet.x, bullet.y, R);
+    }
+    if (ps.bounce) {
+        let src = zombie, hit = [zombie];
+        for (let c = 0; c < ps.bounce; c++) {
+            let best = null, bd = 160;
+            for (const z of zombies) {
+                if (hit.indexOf(z) >= 0 || z.health <= 0) continue;
+                const d = Math.hypot(src.x - z.x, src.y - z.y);
+                if (d < bd) { bd = d; best = z; }
+            }
+            if (!best) break;
+            damageZombie(best, bullet.damage * 0.5, false, bullet.element);
+            hit.push(best); src = best;
+        }
+    }
+    if (evo && evo.slowR) {
+        for (const z of zombies.slice()) {
+            if (Math.hypot(z.x - bullet.x, z.y - bullet.y) <= evo.slowR) {
+                z.slowUntil = Math.max(z.slowUntil || 0, now + evo.slowMs);
+            }
+        }
+    }
 }
 
 // 合击命中：80px 范围伤害 + 青色飘字
@@ -5578,6 +5655,7 @@ function updateBullets() {
                 damageZombie(zombie, damage, isCrit, bullet.element);
                 checkCombos(zombie, bullet.element);
                 if (bullet.tapEffect) applyTapHitEffect(bullet, zombie);   // v2.3 点击技能命中特效
+                if (bullet.perkSnapshot) applyPerkHit(bullet, zombie);            // v2.5 词条/进化命中特效
 
                 // 电磁脉冲：主目标也被麻痹
                 if (bullet.skillType === 'lightning') {
@@ -6367,7 +6445,8 @@ function updateOrbs() {
         const orb = expOrbs[i];
         const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
         
-        if (dist > 5) {
+        // v2.5 M1：只在 200px 内磁吸——走位过去才吃得到，走位有收益
+        if (dist > 5 && dist < 200) {
             const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
             orb.x += Math.cos(angle) * 12;
             orb.y += Math.sin(angle) * 12;
@@ -6557,39 +6636,36 @@ function levelUp() {
 // ① 元素精通 ② 相生连携 ③ 克制增幅 ④ 通用属性
 function showUpgradePanel() {
     gameState = 'upgrade';
-
     const cards = [];
     const _unlocked = getStageUnlockedElements(currentStage);
+    const _el = (_unlocked.indexOf(activeElement) >= 0) ? activeElement : (_unlocked[0] || '火');
 
-    // ① 元素精通：每个已解锁元素一张，提升 elementLevels（驱动 elementLvMul）
-    for (const el of _unlocked) {
-        const lv = elementLevels[el] || 1;
-        if (lv >= ELEM_MASTERY_MAX) continue;
-        cards.push({
-            kind: 'elem', el: el, type: 'element',
-            name: el + '·精通 ' + lv + '→' + (lv + 1),
-            icon: el, color: WUXING_COLORS[el],
-            desc: el + ' 元素伤害 +15%'
-        });
+    // ① 当前元素精通
+    const lv = elementLevels[_el] || 1;
+    if (lv < ELEM_MASTERY_MAX) {
+        cards.push({ kind: 'elem', el: _el, type: 'element', name: _el + '·精通 ' + lv + '→' + (lv + 1),
+                     icon: _el, color: WUXING_COLORS[_el], desc: _el + ' 元素伤害 +15%' });
     }
-    // ② 相生连携：延长连携时长 / 提高连携增伤
-    if (synergyDurBonus < 4000 || synergyDmgBonus < 0.40) {
-        cards.push({
-            kind: 'synergy', type: 'synergy', name: '相生连携', icon: '生', color: '#50dcff',
-            desc: '连携 +1s、增伤 +10%'
-        });
+    // ② 词条（6 种，各 3 级）
+    for (const k in PERK_DEFS) {
+        const p = PERK_DEFS[k], l = perks[k] || 0;
+        if (l >= 3) continue;
+        cards.push({ kind: 'perk', perk: k, type: 'perk', name: p.name + ' ' + l + '→' + (l + 1),
+                     icon: p.icon, color: '#9fb4cc', desc: p.desc });
     }
-    // ③ 克制增幅：2.5 → 3.5
-    if (restraintMult < RESTRAINT_MAX - 1e-6) {
-        cards.push({
-            kind: 'restraint', type: 'restraint',
-            name: '克制 ' + restraintMult.toFixed(1) + '→' + (restraintMult + 0.1).toFixed(1),
-            icon: '克', color: '#ff5a5f',
-            desc: '克制倍率 +0.1'
-        });
+    // ③ 进化（3 级词条 × 当前元素，一局一次）
+    if (!evolution) {
+        for (const k in PERK_DEFS) {
+            if ((perks[k] || 0) >= 3 && EVOLUTIONS[k + '_' + _el]) {
+                const ev = EVOLUTIONS[k + '_' + _el];
+                cards.push({ kind: 'evolve', perk: k, el: _el, type: 'evolve',
+                             name: '进化·' + ev.name, icon: '进', color: ev.color,
+                             desc: '绑定「' + _el + '」：' + ev.name });
+            }
+        }
     }
-    // ④ 通用属性（城墙 = player.health，本作唯一失败条件）
-    cards.push({ kind: 'general', sub: 'wall',   type: 'general', name: '城墙加固', icon: '墙', color: '#c8915a', desc: '上限 +120 并回满' });
+    // ④ 通用保底卡
+    cards.push({ kind: 'general', sub: 'wall', type: 'general', name: '城墙加固', icon: '墙', color: '#c8915a', desc: '上限 +120 并回满' });
     cards.push({ kind: 'general', sub: 'repair', type: 'general', name: '紧急抢修', icon: '修', color: '#8fd3a0', desc: '恢复 25% 城墙生命' });
     if (autoDpsBonus < 200) {
         cards.push({ kind: 'general', sub: 'power', type: 'general', name: '炮台校准', icon: '炮', color: '#9fb4cc', desc: '炮台基础伤害 +20' });
@@ -6598,15 +6674,13 @@ function showUpgradePanel() {
     upgradeOptions = isSkillLab ? cards : weightedPick3(cards);
     selectedUpgrade = -1;
 }
-
 // 三选一权重：元素精通 1.4（成长主线）/ 克制增幅 1.2 / 相生连携 0.9 / 通用属性 0.7
 function upgradeCardWeight(card) {
-    if (card.kind === 'elem') return 1.4;
-    if (card.kind === 'restraint') return 1.2;
-    if (card.kind === 'synergy') return 0.9;
+    if (card.kind === 'evolve') return 2.0;
+    if (card.kind === 'perk') return 1.3;
+    if (card.kind === 'elem') return 1.2;
     return 0.7;
 }
-
 function weightedPick3(cards) {
     const pool = cards.slice();
     const out = [];
@@ -6631,6 +6705,13 @@ function applyUpgrade(upgrade) {
         if (upgrade.kind === 'elem') {
             const el = upgrade.el;
             elementLevels[el] = Math.min(ELEM_MASTERY_MAX, (elementLevels[el] || 1) + 1);
+        } else if (upgrade.kind === 'perk') {
+            const k = upgrade.perk;
+            perks[k] = Math.min(3, (perks[k] || 0) + 1);
+        } else if (upgrade.kind === 'evolve') {
+            const key = upgrade.perk + '_' + upgrade.el;
+            const ev = EVOLUTIONS[key];
+            if (ev) evolution = { perk: upgrade.perk, el: upgrade.el, key: key, name: ev.name };
         } else if (upgrade.kind === 'synergy') {
             synergyDurBonus = Math.min(4000, synergyDurBonus + 1000);
             synergyDmgBonus = Math.min(0.40, Math.round((synergyDmgBonus + 0.10) * 100) / 100);
@@ -6653,11 +6734,8 @@ function applyUpgrade(upgrade) {
     lastTime = Date.now();
     justGotBomb = false;
     bombFull = false;
-
-    // 连锁升级：经验溢出跨多级时，选完继续弹下一级三选一
     if (player.exp >= player.expToLevel && player.level < MAX_LEVEL) levelUp();
 }
-
 // 使用炸弹
 function useBomb() {
     if (bombCount <= 0 || bombCooldown > 0 || !gameRunning) return;
@@ -6846,6 +6924,8 @@ function startGame() {
     lastActiveElement = activeElement;
     elementTapReadyAt = 0;
     elementCharge = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+    perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
+    evolution = null;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -14684,6 +14764,17 @@ wx.onTouchStart((e) => {
 
 // 触摸移动处理（拖动滚动）
 wx.onTouchMove((e) => {
+    // v2.5 M1：战斗内拖动 = 角色左右走位（坞区域不触发，避免切元素时误移动）
+    if (gameState === 'playing' && !gamePaused && e.touches && e.touches.length) {
+        const _mt = e.touches[0];
+        const _mx = _mt.clientX !== undefined ? _mt.clientX : _mt.x;
+        const _my = _mt.clientY !== undefined ? _mt.clientY : _mt.y;
+        if (_my < DOCK_TOP - 10) {
+            const _minX = 44, _maxX = screenWidth - 44;
+            player.x = Math.max(_minX, Math.min(_maxX, _mx));
+        }
+        return;
+    }
     if (gameState !== 'mainMenu') return;
 
     // 内嵌小游戏（忍者切水果）：滑动切割
