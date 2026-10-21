@@ -251,9 +251,10 @@ let moveUntil = 0;          // 移动状态截止时间（移动时射速 ×0.5�
 // ===== v2.9：坦克物理移动（手指只给目标点，有加速/惯性/最高速）=====
 let playerVX = 0;                 // 当前横向速度 px/s
 let playerMoveTargetX = null;     // 手指给出的目标 x
-const PLAYER_MOVE_SPEED = 400;    // 最高速 px/s（约 2.4 秒横穿全屏）
-const PLAYER_MOVE_ACCEL = 2000;   // 加速度 px/s²
-const PLAYER_MOVE_SMOOTH = 10;    // 目标跟随强度（越大越跟手）
+// v2.9.1：跟手性上调（SMOOTH 10→16、SPEED 400→480、ACCEL 2000→3000）
+const PLAYER_MOVE_SPEED = 480;    // 最高速 px/s（约 0.65 秒横穿全屏）
+const PLAYER_MOVE_ACCEL = 3000;   // 加速度 px/s²（起步约 0.16 秒到最高速）
+const PLAYER_MOVE_SMOOTH = 16;    // 目标跟随强度（越大越跟手）
 
 // ===== v2.8 C：投掷怪（威胁锁定玩家）=====
 let enemyShots = [];              // 敌方投掷物
