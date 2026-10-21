@@ -215,6 +215,19 @@ const ELEMENT_BULLET_SPEED = 10;                                       // 五行
 const ELEMENT_AUTO_FIRE_RATE = 220;                                     // 炮台节奏保持原样（不降频）
 const ELEMENT_TAP_CD = 1200;                                            // 点击补射：共享 1.2s CD
 let elementTapReadyAt = 0;                                              // 下次可补射的时间戳
+
+// ===== v2.4 五行轮转 =====
+let elementCharge = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };   // 各元素「印」（克制击杀积累）
+const CHARGE_MAX = 30;                                                  // 单元素印记上限
+let comboCount = 0, comboLastAt = 0;                                    // 连杀
+const COMBO_WINDOW = 12000;                                             // 12s 无击杀断连
+let chainCount = 0, chainLastAt = 0;                                    // 相生链（引爆累计）
+const CHAIN_WINDOW = 6000;                                              // 6s 内继续引爆才算接链
+let hitStopUntil = 0;                                                   // 顿帧
+let shakeUntil = 0, shakeMag = 0;                                       // 震屏
+let slowUntil = 0;                                                      // 慢动作
+let flashUntil = 0, flashColor = '#ffffff';                             // 全屏闪光
+let _detonating = false;                                                // 引爆中（防止二次积印）
 let   elementLevels      = { '金':1, '木':1, '水':1, '火':1, '土':1 };  // 元素熟练度（P4 局外养成接入，默认 lv1）
 function elementLvMul(el) { return Math.pow(1.15, (elementLevels[el] || 1) - 1); } // LvMul = 1.15^(lv-1)
 // 相生映射：A 生 B（水生木 / 木生火 / 火生土 / 土生金 / 金生水）
@@ -2889,6 +2902,15 @@ function drawElementDock() {
             ctx.lineWidth = 2;
             ctx.stroke();
         }
+        // v2.4：五行印记数（左上角，克制击杀积累）
+        const _cg = chargeOf(e);
+        if (_cg > 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.font = 'bold ' + (iconSize * 0.3) + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(_cg, ix - half + iconSize * 0.16, iy - half + iconSize * 0.16);
+        }
+
         // 汉字（印章内反白）
         ctx.font = 'bold ' + (iconSize * 0.56) + 'px "STKaiti","KaiTi","SimHei",sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -3874,7 +3896,7 @@ function drawDamageNumbers() {
         ctx.globalAlpha = alpha;
         if (dn.isCrit) {
             // 暴击：仅放大加粗 + 深色描边强化视觉冲击；颜色仍随元素，不使用红色
-            ctx.font = 'bold 26px Arial';
+            ctx.font = 'bold 34px Arial';   // v2.4：暴击数字再放大一档
             ctx.lineJoin = 'round';
             ctx.lineWidth = 4;
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
@@ -4051,6 +4073,19 @@ function drawUI() {
     
     // ========== 技能栏（底部） ==========
     drawElementDock();   // P1：底部五行坞替代旧 15 技能栏（战斗释放由 P2 接入）
+
+    // v2.4：连杀倍率 HUD
+    if (comboCount > 0) {
+        ctx.save();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 20px sans-serif';
+        ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = 4;
+        ctx.fillStyle = '#ffd23a';
+        const _txt = '×' + comboMul().toFixed(2) + '  连杀 ' + comboCount;
+        ctx.strokeText(_txt, screenWidth / 2, DOCK_TOP - 78);
+        ctx.fillText(_txt, screenWidth / 2, DOCK_TOP - 78);
+        ctx.restore();
+    }
 
     // P5.3：相生连携首次引导横幅（第 13 关起、每局首次触发后显示 4s）
     if (Date.now() < synergyHintUntil) {
@@ -5276,6 +5311,50 @@ function castElementSkill(el, isCombo, prevEl) {
     });
 }
 
+// ===== v2.4 反馈与轮转 =====
+function vibrate(type) {
+    try { if (wx.vibrateShort) wx.vibrateShort({ type: type || 'light' }); } catch (e) {}
+}
+function addShake(mag, ms) {
+    shakeMag = Math.max(shakeMag, mag);
+    shakeUntil = Math.max(shakeUntil, Date.now() + (ms || 180));
+}
+function comboMul() {
+    return 1 + Math.min(1, comboCount * 0.06);     // 连杀 17 层封顶 ×2.0
+}
+function chargeOf(el) { return elementCharge[el] || 0; }
+
+// 相生切换：引爆上一元素的全部「印」
+function detonateCharge(el) {
+    const n = elementCharge[el] || 0;
+    if (n <= 0) { chainCount = 0; return; }
+    elementCharge[el] = 0;
+    const dmg = tapBaseDamage(el) * n * 0.8;
+    _detonating = true;
+    for (const z of zombies.slice()) damageZombie(z, dmg, false, el);
+    _detonating = false;
+    const now = Date.now();
+    chainCount = (now - chainLastAt < CHAIN_WINDOW) ? chainCount + 1 : 1;
+    chainLastAt = now;
+    addShake(6, 200); vibrate('medium');
+    bombExplosionEffects.push({ x: screenWidth / 2, y: screenHeight * 0.5, radius: 0, life: 420, maxRadius: Math.max(screenWidth, screenHeight) * 0.8 });
+    damageNumbers.push({ x: screenWidth / 2, y: screenHeight * 0.46, text: el + '印引爆 ×' + n, life: 1000, vy: -1.2, color: WUXING_COLORS[el], isCrit: true });
+    if (chainCount >= 5) triggerRotation(el);
+}
+
+// 五连轮转：全屏清场 + 慢动作 + 白闪
+function triggerRotation(el) {
+    chainCount = 0;
+    const dmg = tapBaseDamage(el) * 3;
+    _detonating = true;
+    for (const z of zombies.slice()) damageZombie(z, dmg, false, el);
+    _detonating = false;
+    slowUntil = Date.now() + 500;
+    flashUntil = Date.now() + 260; flashColor = WUXING_COLORS[el] || '#ffffff';
+    addShake(14, 320); vibrate('heavy');
+    damageNumbers.push({ x: screenWidth / 2, y: screenHeight * 0.38, text: '五行轮转', life: 1400, vy: -0.8, color: '#ffffff', isCrit: true });
+}
+
 // 点击补射入口（共享 1.2s CD）
 function tryCastElement(el, isCombo, prevEl) {
     const now = Date.now();
@@ -5630,6 +5709,7 @@ function damageZombie(zombie, damage, isCrit, element) {
     // v2.2：克制时附加多目标等效（金穿透 / 火范围），对齐 sim_v22 的 AOE 系数
     if (_eb > 2.0 && ELEMENT_AOE[element]) damage *= ELEMENT_AOE[element];
     if (zombie.vulnUntil > now) damage *= (zombie.vulnMul || 1);  // 破甲：爆炸后敌人受伤增加
+    damage *= comboMul();                                        // v2.4 连杀倍率（克制击杀积累）
     zombie.health -= damage;
 
     // 伤害数字：暴击必显；普通伤害按僵尸节流（同僵尸 120ms 内只显示一次），避免多重/范围伤害导致数字爆炸
@@ -5661,6 +5741,20 @@ function damageZombie(zombie, damage, isCrit, element) {
     
     if (zombie.health <= 0) {
         player.kills++;
+        // v2.4：克制击杀 → 该元素积印 + 连杀；错配击杀 → 断连
+        if (!_detonating) {
+            if (_eb > 2.0) {
+                elementCharge[element] = Math.min(CHARGE_MAX, (elementCharge[element] || 0) + 1);
+                comboCount++;
+                comboLastAt = now;
+                if (comboCount === 5 || comboCount === 10 || comboCount === 20) {
+                    damageNumbers.push({ x: player.x, y: player.y - 110, text: comboCount >= 20 ? '超神' : (comboCount >= 10 ? '十杀' : '五杀'), life: 900, vy: -1.2, color: '#ffd23a', isCrit: true });
+                    addShake(4, 160); vibrate('light');
+                }
+            } else if (_eb < 1.0) {
+                comboCount = 0;
+            }
+        }
         addDailyTaskProgress('kill');
 
         // 吞噬万物（天赋）：击杀回血
@@ -6751,6 +6845,11 @@ function startGame() {
     synergyHintDone = false;
     lastActiveElement = activeElement;
     elementTapReadyAt = 0;
+    elementCharge = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+    comboCount = 0; comboLastAt = 0;
+    chainCount = 0; chainLastAt = 0;
+    hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
+    flashUntil = 0; _detonating = false;
 
     // 清空对象
     bullets = [];
@@ -6877,6 +6976,10 @@ function zombieShootable(z) {
 
 // ==================== 游戏更新 ====================
 function update(dt) {
+    // v2.4：顿帧（命中/暴击瞬间冻结，制造打击感）
+    if (Date.now() < hitStopUntil) return;
+    // 连杀窗口衰减
+    if (comboCount > 0 && Date.now() - comboLastAt > COMBO_WINDOW) comboCount = 0;
     // 通关条件：消灭全部 20 波敌人即胜利（20 波均已生成、场上僵尸清空、且同波错峰队列也空）
     if (!isSkillLab && wavesSpawned >= WAVE_COUNT && zombies.length === 0 && pendingSpawns.length === 0) {
         victory();
@@ -14032,7 +14135,8 @@ function handleMainMenuTouch(x, y) {
 // ==================== 游戏循环 ====================
 function gameLoop() {
     const now = Date.now();
-    const dt = Math.min(now - lastTime, 50);
+    let dt = Math.min(now - lastTime, 50);
+    if (Date.now() < slowUntil) dt *= 0.3;          // v2.4：轮转慢动作
     
     ctx.clearRect(0, 0, screenWidth, screenHeight);
     
@@ -14086,6 +14190,11 @@ function gameLoop() {
             update(dt);
         }
         
+        ctx.save();
+        if (Date.now() < shakeUntil) {
+            const _sm = shakeMag * Math.max(0, (shakeUntil - Date.now()) / 200);
+            ctx.translate((Math.random() - 0.5) * _sm, (Math.random() - 0.5) * _sm);
+        }
         drawBackground();
         drawFieldBorders();       // 战场左右透明边界（敌人身体边缘不可越界，视觉提示）
         drawOrbs();
@@ -14120,6 +14229,16 @@ function gameLoop() {
 
         if (gamePaused) {
             drawPauseModal();
+        }
+        ctx.restore();
+        // v2.4：轮转全屏闪光
+        if (Date.now() < flashUntil) {
+            const _fa = Math.max(0, (flashUntil - Date.now()) / 260);
+            ctx.save();
+            ctx.globalAlpha = _fa * 0.55;
+            ctx.fillStyle = flashColor;
+            ctx.fillRect(0, 0, screenWidth, screenHeight);
+            ctx.restore();
         }
     } else if (gameState === 'upgrade') {
         drawBackground();
@@ -14385,6 +14504,7 @@ wx.onTouchStart((e) => {
                         AudioSystem.playSynergy && AudioSystem.playSynergy();
                     }
                     const _prevEl = activeElement;
+                    if (_isCombo) detonateCharge(_prevEl);   // v2.4：相生切换 → 引爆上一元素的「印」
                     lastActiveElement = activeElement;
                     activeElement = dockE;
                     // v2.3：点击即释放该元素技能（每元素独立 CD）；相生窗口内先触发合击
