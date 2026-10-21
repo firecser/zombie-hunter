@@ -254,7 +254,7 @@ let playerMoveTargetX = null;     // 手指给出的目标 x
 // v2.9.1：跟手性上调（SMOOTH 10→16、SPEED 400→480、ACCEL 2000→3000）
 const PLAYER_MOVE_SPEED = 480;    // 最高速 px/s（约 0.65 秒横穿全屏）
 const PLAYER_MOVE_ACCEL = 3000;   // 加速度 px/s²（起步约 0.16 秒到最高速）
-const PLAYER_MOVE_SMOOTH = 16;    // 目标跟随强度（越大越跟手）
+const PLAYER_MOVE_SMOOTH = 22;    // 目标跟随强度（越大越跟手；v2.9.2: 16→22）
 
 // ===== v2.8 C：投掷怪（威胁锁定玩家）=====
 let enemyShots = [];              // 敌方投掷物
