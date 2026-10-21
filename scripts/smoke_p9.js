@@ -52,7 +52,9 @@ const sandbox = {
     module: { exports: {} }, require: () => ({}), globalThis: null,
     // M1 走位：源码级断言（拖动移动 + 经验球磁吸半径）
     __hasMove: /v2\.5 M1：战斗内拖动/.test(src) && /player\.x = Math\.max\(_minX/.test(src),
-    __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 70;/.test(src)
+    __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 70;/.test(src),
+    __hasMoveCost: /_fireGap = ELEMENT_AUTO_FIRE_RATE \* \(_moving \? 2 : 1\)/.test(src)
+        && /moveUntil = Date\.now\(\) \+ 150/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -189,6 +191,34 @@ const driver = `
 
     ok('掉落物：统一下落 / 半径70 / 漏球返50% / 金币墙线自动收');
   } catch(e){ fail('掉落物', e); }
+
+  // ---------- 6c) B：移动降射速接线 ----------
+  try {
+    if (!__hasMoveCost) throw new Error('缺少移动降射速逻辑');
+    ok('B：移动时射速 ×0.5（含 150ms 移动判定）');
+  } catch(e){ fail('移动降射速', e); }
+
+  // ---------- 6d) D：元素灵脉 ----------
+  try {
+    resetAll();
+    activeElement = '火';
+    elementCharge['火'] = 0;
+    leyNextAt = Date.now() + 999999;       // 先关掉随机生成
+    leyLines = [{ x: player.x, y: player.y, r: LEY_RADIUS, until: Date.now() + 5000, nextTick: 0, born: Date.now() }];
+    updateLeyLines(0.016);
+    if (elementCharge['火'] !== 1) throw new Error('站在灵脉内应 +1 火印, 实=' + elementCharge['火']);
+
+    elementCharge['火'] = 0;
+    leyLines = [{ x: player.x + 200, y: player.y, r: LEY_RADIUS, until: Date.now() + 5000, nextTick: 0, born: Date.now() }];
+    updateLeyLines(0.016);
+    if (elementCharge['火'] !== 0) throw new Error('灵脉外不应充印');
+
+    // 生成：到期且未满上限
+    leyLines = []; leyNextAt = 0;
+    updateLeyLines(0.016);
+    if (leyLines.length !== 1) throw new Error('到期应生成灵脉, 实=' + leyLines.length);
+    ok('D：灵脉内 +1 印 / 外不充 / 到期生成');
+  } catch(e){ fail('元素灵脉', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

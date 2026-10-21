@@ -245,6 +245,15 @@ const ORB_MAGNET_R = 70;
 const ORB_FALL_SPEED = 1.4;   // px/帧 ≈84px/s：从 y=400 落到墙线约 1.9s，留出反应时间
 const ORB_REFUND = 0.5;       // 漏掉返还比例（保「每波≈1级」的节奏契约）
 
+// ===== v2.7（B+D）走位代价与收益 =====
+let moveUntil = 0;          // 移动状态截止时间（B：移动时射速 ×0.5）
+let leyLines = [];          // 元素灵脉（D）
+let leyNextAt = 0;          // 下一次生成时间
+const LEY_INTERVAL = 9000;  // 生成间隔
+const LEY_LIFE = 6000;      // 存在时长
+const LEY_RADIUS = 52;      // 判定半径
+const LEY_MAX = 2;          // 同屏上限
+
 const EVOLUTIONS = {
     'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
     'pierce_金':    { name: '穿甲激光', color: '#ffd23a', radius: 10, pierce: 8, speedMul: 1.5 },
@@ -3896,8 +3905,8 @@ function drawOrbs() {
         ctx.textBaseline = 'middle';
         ctx.fillText('¥', orb.x, orb.y + 1);
     }
+    drawLeyLines();
 }
-
 // 绘制粒子
 function drawParticles() {
     for (const p of particles) {
@@ -4101,6 +4110,16 @@ function drawUI() {
     
     // ========== 技能栏（底部） ==========
     drawElementDock();   // P1：底部五行坞替代旧 15 技能栏（战斗释放由 P2 接入）
+
+    // v2.7 B：移动中提示（让"射速减半"可感知）
+    if (Date.now() < moveUntil) {
+        ctx.save();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillStyle = 'rgba(180, 200, 220, 0.85)';
+        ctx.fillText('移动中 · 射速 ↓', screenWidth / 2, DOCK_TOP - 100);
+        ctx.restore();
+    }
 
     // v2.4：连杀倍率 HUD
     if (comboCount > 0) {
@@ -6448,6 +6467,66 @@ function updateParticles() {
 }
 
 // 更新掉落物
+// 灵脉绘制：金色光圈 + 剩余时间收缩环
+function drawLeyLines() {
+    const now = Date.now();
+    for (const L of leyLines) {
+        const left = Math.max(0, L.until - now);
+        const pulse = 0.55 + 0.45 * Math.sin(now / 160);
+        const col = WUXING_COLORS[activeElement] || '#ffd23a';
+        ctx.save();
+        ctx.globalAlpha = 0.22 + 0.12 * pulse;
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(L.x, L.y, L.r, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(L.x, L.y, L.r, 0, Math.PI * 2); ctx.stroke();
+        // 剩余时间收缩环
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(L.x, L.y, L.r - 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (left / LEY_LIFE), false);
+        ctx.stroke();
+        // 中心「灵」字
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 18px "STKaiti","KaiTi","SimHei",sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('灵', L.x, L.y);
+        ctx.restore();
+    }
+}
+
+// ===== v2.7 D：元素灵脉 =====
+// 场上随机刷新光圈，站进去 → 当前元素每秒 +1 印、并维持连杀窗口
+function updateLeyLines(dt) {
+    const now = Date.now();
+    // 生成
+    if (now >= leyNextAt && leyLines.length < LEY_MAX) {
+        leyNextAt = now + LEY_INTERVAL;
+        leyLines.push({
+            x: 70 + Math.random() * (screenWidth - 140),
+            y: screenHeight * 0.52,
+            r: LEY_RADIUS,
+            until: now + LEY_LIFE,
+            nextTick: 0,
+            born: now
+        });
+    }
+    // 结算
+    for (let i = leyLines.length - 1; i >= 0; i--) {
+        const L = leyLines[i];
+        if (now >= L.until) { leyLines.splice(i, 1); continue; }
+        const inside = Math.hypot(player.x - L.x, player.y - L.y) <= L.r;
+        if (inside && now >= L.nextTick) {
+            L.nextTick = now + 1000;
+            elementCharge[activeElement] = Math.min(CHARGE_MAX, (elementCharge[activeElement] || 0) + 1);
+            comboLastAt = now;                      // 站在灵脉里不断连杀
+            addParticle({ x: L.x, y: L.y, vx: 0, vy: -1.6, radius: 3, life: 320, color: WUXING_COLORS[activeElement] });
+        }
+    }
+}
+
 function updateOrbs() {
     // v2.6（A 案）：所有掉落物统一「竖直下落」
     //   · 经验球：贴身/磁吸拾取；漏过墙线消失，但返还 50% 经验（防升级节奏崩）
@@ -6947,6 +7026,7 @@ function startGame() {
     elementCharge = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
     perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
     evolution = null;
+    moveUntil = 0; leyLines = []; leyNextAt = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -7100,10 +7180,15 @@ function update(dt) {
     const hasShootable = zombies.some(zombieShootable);
     const _unlockedEls = getStageUnlockedElements(currentStage);
     const _fireEl = (_unlockedEls.indexOf(activeElement) >= 0) ? activeElement : (_unlockedEls[0] || '火');
-    if (hasShootable && now - player.lastShot > ELEMENT_AUTO_FIRE_RATE) {
+    // v2.7 B：移动时射速减半（移动有机会成本）
+    const _moving = Date.now() < moveUntil;
+    const _fireGap = ELEMENT_AUTO_FIRE_RATE * (_moving ? 2 : 1);
+    if (hasShootable && now - player.lastShot > _fireGap) {
         shootElement(_fireEl);
         player.lastShot = now;
     }
+
+    updateLeyLines(dt);   // v2.7 D：元素灵脉
 
     // （旧）死亡射线（天赋）等旧技能特效：v2.2 已彻底停用（旧天赋系统将在 P4 整体删除）
 
@@ -14793,6 +14878,7 @@ wx.onTouchMove((e) => {
         if (_my < DOCK_TOP - 10) {
             const _minX = 44, _maxX = screenWidth - 44;
             player.x = Math.max(_minX, Math.min(_maxX, _mx));
+            moveUntil = Date.now() + 150;   // v2.7 B：标记移动中（射速减半）
         }
         return;
     }
