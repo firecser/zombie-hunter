@@ -151,6 +151,27 @@ const driver = `
     ok('词条命中：爆裂范围伤 + 霜冻减速');
   } catch(e){ fail('词条命中', e); }
 
+  // ---------- 6b) 经验球可达性：远的向下漂移 / 近的磁吸 ----------
+  try {
+    resetAll(); expOrbs.length = 0; goldOrbs.length = 0;
+    player.exp = 0; player.expToLevel = 999999;
+    const far = { x: 80, y: 200, radius: 4, exp: 1 };
+    expOrbs.push(far);
+    const y0 = far.y;
+    updateOrbs();
+    if (!(far.y > y0)) throw new Error('远处经验球未向下漂移（会永远吃不到）');
+
+    const near = { x: player.x + 30, y: player.y - 60, radius: 4, exp: 1 };
+    expOrbs.length = 0; expOrbs.push(near);
+    const d0 = Math.hypot(near.x - player.x, near.y - player.y);
+    updateOrbs();
+    if (expOrbs.length === 1) {
+      const d1 = Math.hypot(near.x - player.x, near.y - player.y);
+      if (!(d1 < d0)) throw new Error('近处经验球未被磁吸');
+    }
+    ok('经验球可达性：远处下漂 / 近处磁吸');
+  } catch(e){ fail('经验球可达性', e); }
+
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');

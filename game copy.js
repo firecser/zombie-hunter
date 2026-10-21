@@ -6445,7 +6445,11 @@ function updateOrbs() {
         const orb = expOrbs[i];
         const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
         
-        // v2.5 M1：只在 200px 内磁吸——走位过去才吃得到，走位有收益
+        // v2.5.1：不在磁吸范围时，经验球缓慢向下漂移到角色高度
+        // （炮台 y 固定在城墙线，怪死在 y≈300~500，垂直距离本身就可能 >200，否则永远吃不到）
+        if (dist >= 200 && orb.y < player.y - 16) orb.y += 3.2;
+
+        // v2.5 M1：进入 200px 才磁吸——走位过去才吃得到，走位有收益
         if (dist > 5 && dist < 200) {
             const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
             orb.x += Math.cos(angle) * 12;
