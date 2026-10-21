@@ -37,6 +37,8 @@
   - 验证 `smoke_p4.js` 8项PASS。
 - ✅ P5 关卡元素对齐（已完成）：第1章改为**五行教学章**——新增 `buildTeachingWaveElements(lv)`（仅 lv≤6）→ `stage.waveElements`（20波）→ `spawnWave` 按波投放。L1 前10波金(火克)/后10波火(水克)、L2 土(木克)、L3 水(土克)、L4-6 木(金克)；第7关起 null 走章节元素。**不变量**：每关每波怪的克制元素必须已解锁（`smoke_p5.js` 全60关逐波校验）。
 - ✅ P5b 死代码清理（-10540字符）：逐块删 `CREATURE_VISUAL`/`drawSkillUI`/`shootBase`/`shootAttribute`/`shootWood`，**每块删后跑全量冒烟**。保留 `getBulletElement`(spawnSplitBullets 用)/`pendingWoodLogs`+`updateLogs`(update 调用)/`*Mods`(getPlayerDpsIndex 读)/`SKILL_DEFS`(存档兼容)。
+- ✅ P7 / v2.3 操作层（2026-10-21，已完成）：点击元素=释放该元素战术技能，独立 CD（火/金/木/水 2.5s、土 6s）；火爆炸+点燃/金穿透3/木连锁2/水范围减速/土城墙50%减伤3s；相生顺序点击先触发**五元素合击**（藤蔓定身/燎原燃烧/熔岩减速/金锐破甲/寒潮冰缓）；炮台降频 220→**600ms**；坞加 CD 遮罩+相生目标 ▲。`smoke_p7.js` 4项PASS。
+  - **DPS 结构变了**：挂机 1.67 发/s（原 4.55 的 37%）、单元素 2.87（63%）、五元素轮点 7.67（169%）→ **P6c 需按新结构重扫**。
 - ✅ P6b 审计修复（`a43e069`，已完成）：① **击杀金币×20**（40/60/100/200/600）→ 60关收入 158.8万 / 满树 180.9万 = **87.8%**；② **删失效耦合** `getPlayerDpsIndex`/`getPickProgress`/`getDmgCouple`，`healthMult = stage.healthMult`；③ 补相生首次引导（第13关起每局一次，坞上方4s横幅）；④ **修局内增益跨局残留**（`restraintMult`/`synergyDurBonus`/`synergyDmgBonus`/`autoDpsBonus` 在 `startGame` 归零，与 elementLevels 同类 bug）。
 - ✅ P6 真实数值校准（方案A，已完成）：新建 `scripts/sim_v22_real.js` 复刻线上出怪表。**原曲线 1.6^w 与 v2.2 亚线性力量差 2 个数量级**（波20=471万血/604只、单关25分钟）→ 改为 **g=1.25 / 体型血 90·85·360·1800·9000 / BOSS 波次13·17·20 / 出怪间隔1100ms / 第1章×0.75 / 水·土 E_BASE 170**。结果：单关 **5.4分钟**；错配 143–181s 崩、克制零养成过前中期、**L60 终章零养成崩246s、养成后满血清**。**待真机验收**（时长/切换手感/终章门槛/同屏密度）。
 

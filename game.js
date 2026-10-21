@@ -210,6 +210,13 @@ const ELEMENT_FIRE_HZ    = 1000 / ELEMENT_FIRE_RATE;                   // ≈4.5
 // 注意：updateBullets() 是按「像素/帧」推进（bullet.x += bullet.vx），与 player.bulletSpeed 同单位！
 // 切勿写成 640（px/s）——那样子弹一帧就飞出屏幕被回收，表现为「完全不发射」。
 const ELEMENT_BULLET_SPEED = 10;                                       // 五行子弹速度（px/帧，≈600px/s）
+
+// ===== v2.3 操作层：点击释放元素技能 =====
+// 自动炮台降频做保底；主要输出来自玩家点击（每元素独立 CD）
+const ELEMENT_AUTO_FIRE_RATE = 600;                                     // 炮台降频（原 220ms）
+const ELEMENT_TAP_CD = { '金': 2500, '木': 2500, '水': 2500, '火': 2500, '土': 6000 };
+let elementTapReadyAt = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+let tapShieldUntil = 0;                                                 // 土·护盾：城墙 50% 减伤 3s
 let   elementLevels      = { '金':1, '木':1, '水':1, '火':1, '土':1 };  // 元素熟练度（P4 局外养成接入，默认 lv1）
 function elementLvMul(el) { return Math.pow(1.15, (elementLevels[el] || 1) - 1); } // LvMul = 1.15^(lv-1)
 // 相生映射：A 生 B（水生木 / 木生火 / 火生土 / 土生金 / 金生水）
@@ -2892,6 +2899,28 @@ function drawElementDock() {
         ctx.strokeText(e, ix, iy + iconSize * 0.02);
         ctx.fillStyle = '#fff';
         ctx.fillText(e, ix, iy + iconSize * 0.02);
+        // v2.3：技能 CD 遮罩（底部按剩余比例覆盖）
+        const _cdLeft = (elementTapReadyAt[e] || 0) - now;
+        if (_cdLeft > 0) {
+            const _ratio = Math.min(1, _cdLeft / (ELEMENT_TAP_CD[e] || 2500));
+            ctx.fillStyle = 'rgba(6, 14, 24, 0.62)';
+            const _mh = iconSize * _ratio;
+            roundRect(ctx, ix - half, iy + half - _mh, iconSize, _mh, 6);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(220, 235, 255, 0.85)';
+            ctx.font = 'bold ' + (iconSize * 0.3) + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText((_cdLeft / 1000).toFixed(1), ix, iy);
+        }
+        // v2.3：相生目标指示（当前元素的下一环，青色箭头）
+        if (e !== activeElement && ELEMENT_SHENG[activeElement] === e) {
+            const _ap = 0.55 + 0.45 * Math.sin(now / 180);
+            ctx.fillStyle = 'rgba(80,220,255,' + _ap.toFixed(2) + ')';
+            ctx.font = 'bold ' + (iconSize * 0.34) + 'px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('▲', ix, iy - half - iconSize * 0.22);
+        }
+
         // 选中态（金边 + 外发光环）
         if (e === activeElement) {
             ctx.strokeStyle = (typeof ROYALE !== 'undefined' && ROYALE.gold) ? ROYALE.gold : '#ffd23a';
@@ -5191,6 +5220,122 @@ function shootElement(el) {
     });
 }
 
+// ===== v2.3 点击技能 =====
+
+// 点击单发基础伤害 = 3 发等效（含连携加成）
+function tapBaseDamage(el) {
+    const lvl = elementLevels[el] || 1;
+    let per = (ELEMENT_AUTO_DPS + autoDpsBonus + (elemAtkFlat[el] || 0) + ELEMENT_BASE_DPS[el] * Math.pow(1.15, lvl - 1)) / ELEMENT_FIRE_HZ;
+    if (Date.now() < synergyUntil) per *= (SYNERGY_DMG_MUL + synergyDmgBonus);
+    return per * 3;
+}
+
+// 点击释放：土 = 城墙护盾（不发射）；其余 = 战术弹
+function castElementSkill(el) {
+    if (el === '土') {
+        tapShieldUntil = Date.now() + 3000;
+        createExplosion(player.x, player.y - 40, 70);
+        damageNumbers.push({ x: player.x, y: player.y - 80, text: '护盾', life: 900, vy: -1.6, color: '#c8915a', isCrit: false });
+        return;
+    }
+    const ang = aimAngleForSlot(1);
+    const dir = (ang === null || ang === undefined) ? (-Math.PI / 2) : ang;
+    bullets.push({
+        x: player.x + Math.cos(dir) * 40,
+        y: player.y + Math.sin(dir) * 40,
+        vx: Math.cos(dir) * ELEMENT_BULLET_SPEED,
+        vy: Math.sin(dir) * ELEMENT_BULLET_SPEED,
+        radius: 16,
+        damage: tapBaseDamage(el),
+        piercing: (el === '金') ? 2 : 0,                 // 金：再穿 2 个
+        element: el,
+        skillType: 'element',
+        canSplit: false,
+        hitZombies: [],
+        tapEffect: (el === '火') ? 'explode' : (el === '水') ? 'slow' : (el === '木') ? 'chain' : 'none'
+    });
+}
+
+// 点击释放入口：独立 CD 门控 → 合击（若相生）→ 元素技能
+function tryCastElement(el, isCombo, prevEl) {
+    const now = Date.now();
+    if (now < (elementTapReadyAt[el] || 0)) return false;          // 该元素仍在 CD
+    elementTapReadyAt[el] = now + (ELEMENT_TAP_CD[el] || 2500);
+    if (isCombo) castCombo(prevEl, el);
+    castElementSkill(el);
+    return true;
+}
+
+// 相生合击：五种各有独立状态与文案
+const COMBO_DEF = {
+    '水生木': { name: '藤蔓', color: '#46d35a', status: 'bind' },
+    '木生火': { name: '燎原', color: '#ff6a14', status: 'burn' },
+    '火生土': { name: '熔岩', color: '#c8915a', status: 'slow' },
+    '土生金': { name: '金锐', color: '#ffd23a', status: 'vuln' },
+    '金生水': { name: '寒潮', color: '#37c6ff', status: 'chill' }
+};
+function castCombo(fromEl, toEl) {
+    const key = fromEl + '生' + toEl;
+    const def = COMBO_DEF[key];
+    if (!def) return;
+    const now = Date.now();
+    const dmg = tapBaseDamage(toEl) * 2.5;
+    for (const z of zombies.slice()) {
+        damageZombie(z, dmg, false, toEl);
+        if (def.status === 'bind') {
+            z.frozenUntil = Math.max(z.frozenUntil || 0, now + 1000);
+        } else if (def.status === 'burn') {
+            z.burningUntil = Math.max(z.burningUntil || 0, now + 3000);
+            z.burnDmg = Math.max(z.burnDmg || 0, dmg * 0.08);
+        } else if (def.status === 'slow') {
+            z.slowUntil = Math.max(z.slowUntil || 0, now + 2000);
+        } else if (def.status === 'vuln') {
+            z.vulnUntil = Math.max(z.vulnUntil || 0, now + 3000);
+            z.vulnMul = Math.max(z.vulnMul || 1, 1.3);
+        } else if (def.status === 'chill') {
+            z.slowUntil = Math.max(z.slowUntil || 0, now + 3000);
+            z.frozenUntil = Math.max(z.frozenUntil || 0, now + 500);
+        }
+    }
+    bombExplosionEffects.push({ x: screenWidth / 2, y: screenHeight * 0.5, radius: 0, life: 500, maxRadius: Math.max(screenWidth, screenHeight) });
+    damageNumbers.push({ x: screenWidth / 2, y: screenHeight * 0.42, text: key + ' · ' + def.name, life: 1200, vy: -1.2, color: def.color, isCrit: true });
+    if (AudioSystem.playExplosion) AudioSystem.playExplosion();
+}
+
+// 点击技能命中特效
+function applyTapHitEffect(bullet, zombie) {
+    const now = Date.now();
+    const el = bullet.element;
+    if (bullet.tapEffect === 'explode') {
+        const R = 70;
+        for (const z of zombies.slice()) {
+            if (z === zombie) continue;
+            if (Math.hypot(z.x - bullet.x, z.y - bullet.y) <= R) damageZombie(z, bullet.damage * 0.7, false, el);
+        }
+        zombie.burningUntil = Math.max(zombie.burningUntil || 0, now + 3000);
+        zombie.burnDmg = Math.max(zombie.burnDmg || 0, bullet.damage * 0.12);
+        createExplosion(bullet.x, bullet.y, R);
+    } else if (bullet.tapEffect === 'slow') {
+        const R = 55;
+        for (const z of zombies.slice()) {
+            if (Math.hypot(z.x - bullet.x, z.y - bullet.y) <= R) z.slowUntil = Math.max(z.slowUntil || 0, now + 2000);
+        }
+    } else if (bullet.tapEffect === 'chain') {
+        let src = zombie, hit = [zombie];
+        for (let c = 0; c < 2; c++) {
+            let best = null, bd = 170;
+            for (const z of zombies) {
+                if (hit.indexOf(z) >= 0 || z.health <= 0) continue;
+                const d = Math.hypot(src.x - z.x, src.y - z.y);
+                if (d < bd) { bd = d; best = z; }
+            }
+            if (!best) break;
+            damageZombie(best, bullet.damage * 0.6, false, el);
+            hit.push(best); src = best;
+        }
+    }
+}
+
 // 属性技能（爆炸/干冰/闪电链/滚木）：按自身 cd 独立释放；吃本树分支、完全不吃火力强化射速
 
 // 滚木（木属性树）：从城墙底部竖直向上释放，碾压路径上的敌人
@@ -5389,6 +5534,7 @@ function updateBullets() {
 
                 damageZombie(zombie, damage, isCrit, bullet.element);
                 checkCombos(zombie, bullet.element);
+                if (bullet.tapEffect) applyTapHitEffect(bullet, zombie);   // v2.3 点击技能命中特效
 
                 // 电磁脉冲：主目标也被麻痹
                 if (bullet.skillType === 'lightning') {
@@ -5968,6 +6114,7 @@ function updateZombies(dt) {
             damage *= (1 - getShieldReduce());
             // v2.2 P4：元素树「坚守」城墙减伤（wallDefPct，上限 30%）
             damage *= (1 - wallDefPct);
+            if (Date.now() < tapShieldUntil) damage *= 0.5;   // v2.3 土·护盾：50% 减伤 3s
 
             player.health -= damage * 0.015;
             player.hurtTime = now;
@@ -6640,6 +6787,8 @@ function startGame() {
     synergyHintUntil = 0;
     synergyHintDone = false;
     lastActiveElement = activeElement;
+    elementTapReadyAt = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
+    tapShieldUntil = 0;
 
     // 清空对象
     bullets = [];
@@ -6785,7 +6934,7 @@ function update(dt) {
     const hasShootable = zombies.some(zombieShootable);
     const _unlockedEls = getStageUnlockedElements(currentStage);
     const _fireEl = (_unlockedEls.indexOf(activeElement) >= 0) ? activeElement : (_unlockedEls[0] || '火');
-    if (hasShootable && now - player.lastShot > ELEMENT_FIRE_RATE) {
+    if (hasShootable && now - player.lastShot > ELEMENT_AUTO_FIRE_RATE) {
         shootElement(_fireEl);
         player.lastShot = now;
     }
@@ -14262,18 +14411,22 @@ wx.onTouchStart((e) => {
             if (dockE) {
                 const unlocked = getStageUnlockedElements(currentStage);
                 if (unlocked.indexOf(dockE) >= 0) {
-                    // 相生连携：切到「被上个元素所生」的元素（水生木/木生火/火生土/土生金/金生水）→ 短时增益
-                    if (ELEMENT_SHENG[lastActiveElement] === dockE) {
-                        synergyUntil = Date.now() + SYNERGY_DURATION + synergyDurBonus;
-                        // P5.3：第 13 关起首次触发时给一次文字引导（每局一次，教玩家「刻意凑相生」）
+                    const _nowT = Date.now();
+                    const _isCombo = (ELEMENT_SHENG[lastActiveElement] === dockE);
+                    if (_isCombo) {
+                        synergyUntil = _nowT + SYNERGY_DURATION + synergyDurBonus;
+                        // P5.3：第 13 关起首次触发时给一次文字引导（每局一次）
                         if (currentStage >= 13 && !synergyHintDone) {
                             synergyHintDone = true;
-                            synergyHintUntil = Date.now() + 4000;
+                            synergyHintUntil = _nowT + 4000;
                         }
                         AudioSystem.playSynergy && AudioSystem.playSynergy();
                     }
+                    const _prevEl = activeElement;
                     lastActiveElement = activeElement;
                     activeElement = dockE;
+                    // v2.3：点击即释放该元素技能（每元素独立 CD）；相生窗口内先触发合击
+                    tryCastElement(dockE, _isCombo, _prevEl);
                 }
                 return;
             }
