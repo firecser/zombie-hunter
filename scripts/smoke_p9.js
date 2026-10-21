@@ -52,7 +52,7 @@ const sandbox = {
     module: { exports: {} }, require: () => ({}), globalThis: null,
     // M1 走位：源码级断言（拖动移动 + 经验球磁吸半径）
     __hasMove: /v2\.5 M1：战斗内拖动/.test(src) && /player\.x = Math\.max\(_minX/.test(src),
-    __hasMagnet: /dist > 5 && dist < 200/.test(src)
+    __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 110;/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -169,14 +169,21 @@ const driver = `
       const d1 = Math.hypot(near.x - player.x, near.y - player.y);
       if (!(d1 < d0)) throw new Error('近处经验球未被磁吸');
     }
-    ok('经验球可达性：远处下漂 / 近处磁吸');
+    // 中距离（150px）不应被磁吸——证明半径确实缩小了
+    const mid = { x: player.x + 150, y: player.y - 20, radius: 4, exp: 1 };
+    expOrbs.length = 0; expOrbs.push(mid);
+    const mx0 = mid.x;
+    updateOrbs();
+    if (expOrbs.length === 1 && Math.abs(mid.x - mx0) > 1) throw new Error('150px 处不应被磁吸（半径应≈110）');
+
+    ok('经验球可达性：远处下漂 / 近处磁吸 / 150px 不强吸（半径 110）');
   } catch(e){ fail('经验球可达性', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');
-    if (!__hasMagnet) throw new Error('经验球未改为 200px 磁吸');
-    ok('走位：拖动静默移动角色 + 经验球 200px 磁吸');
+    if (!__hasMagnet) throw new Error('经验球未改为常量磁吸半径');
+    ok('走位：拖动移动角色 + 经验球 110px 磁吸');
   } catch(e){ fail('走位接线', e); }
 
   console.log('\\n=== V25 SMOKE RESULT ===');

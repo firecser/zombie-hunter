@@ -240,6 +240,8 @@ const PERK_DEFS = {
 };
 let perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
 let evolution = null;   // { perk, el, key, name }
+// v2.5.2：经验球磁吸半径（200 → 110）。调小后必须靠走位靠近才能吃到，走位意义更大
+const ORB_MAGNET_R = 110;
 
 const EVOLUTIONS = {
     'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
@@ -6446,11 +6448,11 @@ function updateOrbs() {
         const dist = Math.hypot(player.x - orb.x, player.y - orb.y);
         
         // v2.5.1：不在磁吸范围时，经验球缓慢向下漂移到角色高度
-        // （炮台 y 固定在城墙线，怪死在 y≈300~500，垂直距离本身就可能 >200，否则永远吃不到）
-        if (dist >= 200 && orb.y < player.y - 16) orb.y += 3.2;
+        // （炮台 y 固定在城墙线，怪死在 y≈300~500，垂直距离本身就可能超半径，否则永远吃不到）
+        if (dist >= ORB_MAGNET_R && orb.y < player.y - 16) orb.y += 3.2;
 
-        // v2.5 M1：进入 200px 才磁吸——走位过去才吃得到，走位有收益
-        if (dist > 5 && dist < 200) {
+        // v2.5 M1：进入磁吸半径才吸——走位过去才吃得到，走位有收益
+        if (dist > 5 && dist < ORB_MAGNET_R) {
             const angle = Math.atan2(player.y - orb.y, player.x - orb.x);
             orb.x += Math.cos(angle) * 12;
             orb.y += Math.sin(angle) * 12;
