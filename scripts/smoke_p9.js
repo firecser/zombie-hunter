@@ -54,7 +54,9 @@ const sandbox = {
     __hasMove: /v2\.5 M1：战斗内拖动/.test(src) && /player\.x = Math\.max\(_minX/.test(src),
     __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 70;/.test(src),
     __hasMoveCost: /_fireGap = ELEMENT_AUTO_FIRE_RATE \* \(_moving \? 2 : 1\)/.test(src)
-        && /moveUntil = Date\.now\(\) \+ 150/.test(src)
+        && /moveUntil = Date\.now\(\) \+ 150/.test(src),
+    __hasLey: /leyLines|updateLeyLines|drawLeyLines/.test(src),
+    __hasStunFire: /now >= playerStunUntil/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -198,27 +200,43 @@ const driver = `
     ok('B：移动时射速 ×0.5（含 150ms 移动判定）');
   } catch(e){ fail('移动降射速', e); }
 
-  // ---------- 6d) D：元素灵脉 ----------
+  // ---------- 6d) C：投掷怪 ----------
   try {
-    resetAll();
-    activeElement = '火';
-    elementCharge['火'] = 0;
-    leyNextAt = Date.now() + 999999;       // 先关掉随机生成
-    leyLines = [{ x: player.x, y: player.y, r: LEY_RADIUS, until: Date.now() + 5000, nextTick: 0, born: Date.now() }];
-    updateLeyLines(0.016);
-    if (elementCharge['火'] !== 1) throw new Error('站在灵脉内应 +1 火印, 实=' + elementCharge['火']);
+    resetAll(); zombies.length = 0; enemyShots.length = 0;
+    nextThrowerAt = 0; playerStunUntil = 0;
 
-    elementCharge['火'] = 0;
-    leyLines = [{ x: player.x + 200, y: player.y, r: LEY_RADIUS, until: Date.now() + 5000, nextTick: 0, born: Date.now() }];
-    updateLeyLines(0.016);
-    if (elementCharge['火'] !== 0) throw new Error('灵脉外不应充印');
+    // 指派投掷者
+    const z = zk(120, 300); zombies.push(z);
+    updateThrowers(Date.now());
+    if (!z.thrower) throw new Error('应指派一只投掷者');
 
-    // 生成：到期且未满上限
-    leyLines = []; leyNextAt = 0;
-    updateLeyLines(0.016);
-    if (leyLines.length !== 1) throw new Error('到期应生成灵脉, 实=' + leyLines.length);
-    ok('D：灵脉内 +1 印 / 外不充 / 到期生成');
-  } catch(e){ fail('元素灵脉', e); }
+    // 到点投掷，锁定玩家当前位置
+    z.throwAt = 0;
+    updateEnemyShots(Date.now());
+    if (enemyShots.length !== 1) throw new Error('投掷者应生成投掷物, 实=' + enemyShots.length);
+    if (Math.abs(enemyShots[0].tx - player.x) > 0.01) throw new Error('落点应锁定玩家 x');
+
+    // 命中：玩家在落点内 → 眩晕
+    const now = Date.now();
+    enemyShots = [{ x0: player.x, y0: player.y - 50, x: player.x, y: player.y, tx: player.x, ty: player.y, born: now - 900, landAt: now - 10, r: THROW_RADIUS }];
+    updateEnemyShots(now);
+    if (!(playerStunUntil > now)) throw new Error('命中应造成眩晕');
+
+    // 未命中：玩家远离落点 → 不眩晕
+    playerStunUntil = 0;
+    enemyShots = [{ x0: 20, y0: 200, x: 20, y: 200, tx: 20, ty: 200, born: now - 900, landAt: now - 10, r: THROW_RADIUS }];
+    updateEnemyShots(now);
+    if (playerStunUntil !== 0) throw new Error('远离落点不应眩晕');
+
+    ok('C：指派投掷者 / 锁定玩家 / 命中眩晕 / 远离不中');
+  } catch(e){ fail('投掷怪', e); }
+
+  // ---------- 6e) 灵脉已移除 + 眩晕停火接线 ----------
+  try {
+    if (__hasLey) throw new Error('灵脉代码未清除');
+    if (!__hasStunFire) throw new Error('眩晕未接入停火判定');
+    ok('灵脉已移除 / 眩晕期间停火');
+  } catch(e){ fail('灵脉清理', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

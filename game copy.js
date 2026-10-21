@@ -245,14 +245,17 @@ const ORB_MAGNET_R = 70;
 const ORB_FALL_SPEED = 1.4;   // px/帧 ≈84px/s：从 y=400 落到墙线约 1.9s，留出反应时间
 const ORB_REFUND = 0.5;       // 漏掉返还比例（保「每波≈1级」的节奏契约）
 
-// ===== v2.7（B+D）走位代价与收益 =====
-let moveUntil = 0;          // 移动状态截止时间（B：移动时射速 ×0.5）
-let leyLines = [];          // 元素灵脉（D）
-let leyNextAt = 0;          // 下一次生成时间
-const LEY_INTERVAL = 9000;  // 生成间隔
-const LEY_LIFE = 6000;      // 存在时长
-const LEY_RADIUS = 52;      // 判定半径
-const LEY_MAX = 2;          // 同屏上限
+// ===== v2.7 B：移动代价 =====
+let moveUntil = 0;          // 移动状态截止时间（移动时射速 ×0.5）
+
+// ===== v2.8 C：投掷怪（威胁锁定玩家）=====
+let enemyShots = [];              // 敌方投掷物
+let nextThrowerAt = 0;            // 下一次指派投掷者
+const THROWER_INTERVAL = 7000;    // 每 7s 指派一只
+const THROW_AIM_TIME = 800;       // 预警时长（落点圈）
+const THROW_RADIUS = 48;          // 落点判定半径
+const THROW_CD = 5500;            // 同一只投掷者的间隔
+let playerStunUntil = 0;          // 被命中后的眩晕（炮台停火）
 
 const EVOLUTIONS = {
     'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
@@ -3905,7 +3908,7 @@ function drawOrbs() {
         ctx.textBaseline = 'middle';
         ctx.fillText('¥', orb.x, orb.y + 1);
     }
-    drawLeyLines();
+    drawEnemyShots();
 }
 // 绘制粒子
 function drawParticles() {
@@ -6468,61 +6471,84 @@ function updateParticles() {
 
 // 更新掉落物
 // 灵脉绘制：金色光圈 + 剩余时间收缩环
-function drawLeyLines() {
+// 投掷物绘制：落点预警圈 + 飞行物
+function drawEnemyShots() {
     const now = Date.now();
-    for (const L of leyLines) {
-        const left = Math.max(0, L.until - now);
-        const pulse = 0.55 + 0.45 * Math.sin(now / 160);
-        const col = WUXING_COLORS[activeElement] || '#ffd23a';
+    // 投掷者标记（红色闪烁「投」）
+    for (const z of zombies) {
+        if (!z.thrower || z.health <= 0) continue;
+        const blink = 0.5 + 0.5 * Math.sin(now / 120);
         ctx.save();
-        ctx.globalAlpha = 0.22 + 0.12 * pulse;
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.arc(L.x, L.y, L.r, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.arc(L.x, L.y, L.r, 0, Math.PI * 2); ctx.stroke();
-        // 剩余时间收缩环
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(L.x, L.y, L.r - 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (left / LEY_LIFE), false);
-        ctx.stroke();
-        // 中心「灵」字
-        ctx.globalAlpha = 0.9;
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px "STKaiti","KaiTi","SimHei",sans-serif';
+        ctx.globalAlpha = 0.65 + 0.35 * blink;
+        ctx.fillStyle = '#ff5a3c';
+        ctx.font = 'bold 16px "STKaiti","KaiTi","SimHei",sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('灵', L.x, L.y);
+        ctx.fillText('投', z.x, z.y - z.radius - 14);
+        ctx.restore();
+    }
+    for (const shot of enemyShots) {
+        const p = Math.min(1, (now - shot.born) / THROW_AIM_TIME);
+        const rr = shot.r * (0.5 + 0.5 * p);
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 90, 60, 0.16)';
+        ctx.beginPath(); ctx.arc(shot.tx, shot.ty, rr, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 90, 60, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(shot.tx, shot.ty, rr, 0, Math.PI * 2); ctx.stroke();
+        // 飞行物
+        ctx.fillStyle = '#ff6a14';
+        ctx.beginPath(); ctx.arc(shot.x, shot.y, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#ffd0a0';
+        ctx.lineWidth = 2;
+        ctx.stroke();
         ctx.restore();
     }
 }
-
-// ===== v2.7 D：元素灵脉 =====
-// 场上随机刷新光圈，站进去 → 当前元素每秒 +1 印、并维持连杀窗口
-function updateLeyLines(dt) {
-    const now = Date.now();
-    // 生成
-    if (now >= leyNextAt && leyLines.length < LEY_MAX) {
-        leyNextAt = now + LEY_INTERVAL;
-        leyLines.push({
-            x: 70 + Math.random() * (screenWidth - 140),
-            y: screenHeight * 0.52,
-            r: LEY_RADIUS,
-            until: now + LEY_LIFE,
-            nextTick: 0,
-            born: now
-        });
+// ===== v2.8 C：投掷怪 =====
+// 每 7s 指派一只未贴墙的怪成为投掷者；它锁定「玩家当前位置」抛掷，落点预警 0.8s
+// 命中判定：玩家在落点半径 48 内 → 眩晕 0.7s（炮台停火）+ 击退震动
+function updateThrowers(now) {
+    if (now < nextThrowerAt) return;
+    nextThrowerAt = now + THROWER_INTERVAL;
+    const cands = [];
+    for (const z of zombies) {
+        if (!z.thrower && z.health > 0 && z.y > 40 && z.y < WALL_Y - 140) cands.push(z);
     }
-    // 结算
-    for (let i = leyLines.length - 1; i >= 0; i--) {
-        const L = leyLines[i];
-        if (now >= L.until) { leyLines.splice(i, 1); continue; }
-        const inside = Math.hypot(player.x - L.x, player.y - L.y) <= L.r;
-        if (inside && now >= L.nextTick) {
-            L.nextTick = now + 1000;
-            elementCharge[activeElement] = Math.min(CHARGE_MAX, (elementCharge[activeElement] || 0) + 1);
-            comboLastAt = now;                      // 站在灵脉里不断连杀
-            addParticle({ x: L.x, y: L.y, vx: 0, vy: -1.6, radius: 3, life: 320, color: WUXING_COLORS[activeElement] });
+    if (!cands.length) return;
+    const z = cands[Math.floor(Math.random() * cands.length)];
+    z.thrower = true;
+    z.throwAt = now + 900;
+}
+
+function updateEnemyShots(now) {
+    // 投掷者到点 → 生成投掷物（锁定玩家当前位置）
+    for (const z of zombies) {
+        if (!z.thrower || z.health <= 0) continue;
+        if (now >= (z.throwAt || 0)) {
+            z.throwAt = now + THROW_CD;
+            enemyShots.push({
+                x0: z.x, y0: z.y, x: z.x, y: z.y,
+                tx: player.x, ty: player.y,
+                born: now, landAt: now + THROW_AIM_TIME,
+                r: THROW_RADIUS
+            });
+        }
+    }
+    // 飞行与落地结算
+    for (let i = enemyShots.length - 1; i >= 0; i--) {
+        const shot = enemyShots[i];
+        const p = Math.min(1, (now - shot.born) / THROW_AIM_TIME);
+        shot.x = shot.x0 + (shot.tx - shot.x0) * p;
+        shot.y = shot.y0 + (shot.ty - shot.y0) * p;
+        if (now >= shot.landAt) {
+            if (Math.hypot(player.x - shot.tx, player.y - shot.ty) <= shot.r) {
+                playerStunUntil = now + 700;
+                addShake(8, 220);
+                vibrate('medium');
+                damageNumbers.push({ x: player.x, y: player.y - 90, text: '眩晕', life: 800, vy: -1.4, color: '#ff8a5a', isCrit: true });
+            }
+            createExplosion(shot.tx, shot.ty, shot.r);
+            enemyShots.splice(i, 1);
         }
     }
 }
@@ -7026,7 +7052,8 @@ function startGame() {
     elementCharge = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 };
     perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
     evolution = null;
-    moveUntil = 0; leyLines = []; leyNextAt = 0;
+    moveUntil = 0;
+    enemyShots = []; nextThrowerAt = 0; playerStunUntil = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -7183,12 +7210,13 @@ function update(dt) {
     // v2.7 B：移动时射速减半（移动有机会成本）
     const _moving = Date.now() < moveUntil;
     const _fireGap = ELEMENT_AUTO_FIRE_RATE * (_moving ? 2 : 1);
-    if (hasShootable && now - player.lastShot > _fireGap) {
+    if (hasShootable && now >= playerStunUntil && now - player.lastShot > _fireGap) {
         shootElement(_fireEl);
         player.lastShot = now;
     }
 
-    updateLeyLines(dt);   // v2.7 D：元素灵脉
+    updateThrowers(now);        // v2.8 C：指派投掷者
+    updateEnemyShots(now);      // v2.8 C：投掷物飞行与命中
 
     // （旧）死亡射线（天赋）等旧技能特效：v2.2 已彻底停用（旧天赋系统将在 P4 整体删除）
 
