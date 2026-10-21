@@ -248,6 +248,13 @@ const ORB_REFUND = 0.5;       // 漏掉返还比例（保「每波≈1级」的�
 // ===== v2.7 B：移动代价 =====
 let moveUntil = 0;          // 移动状态截止时间（移动时射速 ×0.5）
 
+// ===== v2.9：坦克物理移动（手指只给目标点，有加速/惯性/最高速）=====
+let playerVX = 0;                 // 当前横向速度 px/s
+let playerMoveTargetX = null;     // 手指给出的目标 x
+const PLAYER_MOVE_SPEED = 400;    // 最高速 px/s（约 2.4 秒横穿全屏）
+const PLAYER_MOVE_ACCEL = 2000;   // 加速度 px/s²
+const PLAYER_MOVE_SMOOTH = 10;    // 目标跟随强度（越大越跟手）
+
 // ===== v2.8 C：投掷怪（威胁锁定玩家）=====
 let enemyShots = [];              // 敌方投掷物
 let nextThrowerAt = 0;            // 下一次指派投掷者
@@ -6504,6 +6511,36 @@ function drawEnemyShots() {
         ctx.restore();
     }
 }
+// ===== v2.9：坦克物理移动 =====
+// 手指只设定目标点；实际位移由「加速度 + 最高速 + 到位吸附」驱动，避免瞬移
+function updatePlayerMove(dt) {
+    const dts = Math.min(0.05, dt / 1000);
+    const minX = 44, maxX = screenWidth - 44;
+    const target = (playerMoveTargetX === null || playerMoveTargetX === undefined) ? player.x : playerMoveTargetX;
+
+    // 期望速度：与目标距离成正比，并限速
+    let desired = (target - player.x) * PLAYER_MOVE_SMOOTH;
+    if (desired > PLAYER_MOVE_SPEED) desired = PLAYER_MOVE_SPEED;
+    if (desired < -PLAYER_MOVE_SPEED) desired = -PLAYER_MOVE_SPEED;
+
+    // 速度按加速度逼近
+    const acc = PLAYER_MOVE_ACCEL * dts;
+    if (playerVX < desired) playerVX = Math.min(desired, playerVX + acc);
+    else playerVX = Math.max(desired, playerVX - acc);
+
+    player.x += playerVX * dts;
+
+    // 边界
+    if (player.x < minX) { player.x = minX; playerVX = 0; playerMoveTargetX = minX; }
+    if (player.x > maxX) { player.x = maxX; playerVX = 0; playerMoveTargetX = maxX; }
+
+    // 到位吸附（消除细微抖动）
+    if (Math.abs(target - player.x) < 2 && Math.abs(playerVX) < 25) {
+        player.x = target;
+        playerVX = 0;
+    }
+}
+
 // ===== v2.8 C：投掷怪 =====
 // 每 7s 指派一只未贴墙的怪成为投掷者；它锁定「玩家当前位置」抛掷，落点预警 0.8s
 // 命中判定：玩家在落点半径 48 内 → 眩晕 0.7s（炮台停火）+ 击退震动
@@ -7053,6 +7090,7 @@ function startGame() {
     perks = { multishot: 0, pierce: 0, explode: 0, chill: 0, burn: 0, bounce: 0 };
     evolution = null;
     moveUntil = 0;
+    playerVX = 0; playerMoveTargetX = player.x;
     enemyShots = []; nextThrowerAt = 0; playerStunUntil = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
@@ -7188,6 +7226,7 @@ function update(dt) {
     if (Date.now() < hitStopUntil) return;
     // 连杀窗口衰减
     if (comboCount > 0 && Date.now() - comboLastAt > COMBO_WINDOW) comboCount = 0;
+    updatePlayerMove(dt);   // v2.9：物理移动（先移动，子弹起点才正确）
     // 通关条件：消灭全部 20 波敌人即胜利（20 波均已生成、场上僵尸清空、且同波错峰队列也空）
     if (!isSkillLab && wavesSpawned >= WAVE_COUNT && zombies.length === 0 && pendingSpawns.length === 0) {
         victory();
@@ -14905,7 +14944,7 @@ wx.onTouchMove((e) => {
         const _my = _mt.clientY !== undefined ? _mt.clientY : _mt.y;
         if (_my < DOCK_TOP - 10) {
             const _minX = 44, _maxX = screenWidth - 44;
-            player.x = Math.max(_minX, Math.min(_maxX, _mx));
+            playerMoveTargetX = Math.max(_minX, Math.min(_maxX, _mx));   // v2.9：只设目标，不瞬移
             moveUntil = Date.now() + 150;   // v2.7 B：标记移动中（射速减半）
         }
         return;

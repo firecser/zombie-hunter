@@ -51,7 +51,7 @@ const sandbox = {
     requestAnimationFrame: () => 0, cancelAnimationFrame: () => {},
     module: { exports: {} }, require: () => ({}), globalThis: null,
     // M1 走位：源码级断言（拖动移动 + 经验球磁吸半径）
-    __hasMove: /v2\.5 M1：战斗内拖动/.test(src) && /player\.x = Math\.max\(_minX/.test(src),
+    __hasMove: /v2\.5 M1：战斗内拖动/.test(src) && /playerMoveTargetX = Math\.max\(_minX/.test(src),
     __hasMagnet: /dist > 5 && dist < ORB_MAGNET_R/.test(src) && /const ORB_MAGNET_R = 70;/.test(src),
     __hasMoveCost: /_fireGap = ELEMENT_AUTO_FIRE_RATE \* \(_moving \? 2 : 1\)/.test(src)
         && /moveUntil = Date\.now\(\) \+ 150/.test(src),
@@ -237,6 +237,25 @@ const driver = `
     if (!__hasStunFire) throw new Error('眩晕未接入停火判定');
     ok('灵脉已移除 / 眩晕期间停火');
   } catch(e){ fail('灵脉清理', e); }
+
+  // ---------- 6f) 坦克物理移动：不瞬移 + 有加速 + 边界 ----------
+  try {
+    resetAll();
+    player.x = 195; playerVX = 0; playerMoveTargetX = 300;
+    updatePlayerMove(16);
+    const moved = player.x - 195;
+    if (moved <= 0) throw new Error('应向目标移动');
+    if (moved > 30) throw new Error('单帧位移过大（疑似瞬移）: ' + moved.toFixed(1));
+    for (let i = 0; i < 180; i++) updatePlayerMove(16);
+    if (Math.abs(player.x - 300) > 3) throw new Error('应平滑到达目标, 实=' + player.x.toFixed(1));
+
+    // 边界
+    player.x = 195; playerVX = 0; playerMoveTargetX = 9999;
+    for (let i = 0; i < 300; i++) updatePlayerMove(16);
+    if (player.x > screenWidth - 43) throw new Error('越过右边界: ' + player.x.toFixed(1));
+
+    ok('物理移动：单帧位移 ' + moved.toFixed(1) + 'px（不瞬移）+ 平滑到位 + 边界夹紧');
+  } catch(e){ fail('物理移动', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
