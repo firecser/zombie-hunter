@@ -649,7 +649,7 @@ const WAVE_COUNT = 20;
 const EXP_BASE = 2;           // 经验/升级基准：wave i 经验 = EXP_BASE*i，cost(L→L+1) = EXP_BASE*L（保持「每波刚好升1级」耦合）；v1.1.6 由3降为2：缓解 lv5 前怪量过密、打不过
 const WAVE_INITIAL_DELAY = 1500;   // 第一波出现前的初始延迟(ms)
 const WAVE_JITTER = 120;           // 出怪抖动(ms)，避免机械等距
-const WAVE_SPAWN_GAP = 1100;   // 每只怪最小出怪间隔(ms)：v2.2 P6(A) 由 900 放宽，给「读色换元素」留反应时间
+const WAVE_SPAWN_GAP = 300;    // P9e-6：1100 → 300ms。数量提上来后必须允许更密的节奏，否则屏幕会空
 const WAVE_GAP = 1200;         // 波与波之间的缓冲空当(ms)：让玩家逐波清，而非连绵不绝堆墙
 let WAVE_INTERVAL = 800;           // 每怪平均出怪间隔(ms)，由 buildWavePlan 取 max(WAVE_SPAWN_GAP, 原估算)
 const MONSTER_DENSITY = 1.5;   // 怪物密度：每波怪物数量约 ×1.5（更多可击目标、更多升级素材）；
@@ -662,19 +662,24 @@ function buildWavePlan() {
     //   新曲线：波20 ≈ 4.3 万、总只数 ≈ 300、单关 ≈ 5.3 分钟。
     // 体型档（zombieTypes）：normal=90 / tank=360 / giant=1800 / BOSS=9000（比例 1:4:20:100）
     // BOSS 仅在预算 ≥9000 的波出现：w13 / w17 / w20。
-    const UNIT = 90;                       // 最小体型粒度（= normal 血量）
+    // P9e-6：每波固定 36 只（此前按血量贪心只排出 4–10 只，屏幕长期只有 2–3 只怪）
+    // 总血曲线不变，改为「单只血量按预算缩放」→ 同屏密度可控、难度曲线不变。
+    const UNITS_PER_WAVE = 36;
+    const PATTERN = ['normal', 'normal', 'normal', 'tank', 'normal', 'fast', 'normal', 'tank', 'normal', 'normal'];
+    const BASE_HP = { normal: 90, fast: 85, tank: 360, giant: 1800, boss: 9000 };
     const BOSS_WAVES = [13, 17, 20];
     for (let i = 1; i <= WAVE_COUNT; i++) {
         const targetHP = 624 * Math.pow(1.25, i - 1);
         const isBoss = (BOSS_WAVES.indexOf(i) >= 0) && (targetHP >= 9000);
-        let hp = Math.round(targetHP / UNIT) * UNIT;
         const comp = [];
-        if (isBoss) { comp.push('boss'); hp -= 9000; }
-        for (const [t, h] of [['giant', 1800], ['tank', 360], ['normal', 90]]) {
-            while (hp >= h) { comp.push(t); hp -= h; }
-        }
-        while (hp > 0) { comp.push('normal'); hp -= UNIT; }
-        plan.push({ i, comp, boss: isBoss });
+        if (isBoss) comp.push('boss');
+        const n = isBoss ? UNITS_PER_WAVE - 6 : UNITS_PER_WAVE;
+        for (let k = 0; k < n; k++) comp.push(PATTERN[k % PATTERN.length]);
+        let sumHP = 0;
+        for (const t of comp) { if (t !== 'boss') sumHP += BASE_HP[t]; }
+        const restTarget = Math.max(30, targetHP - (isBoss ? BASE_HP.boss : 0));
+        const hpScale = restTarget / Math.max(1, sumHP);
+        plan.push({ i, comp, boss: isBoss, hpScale });
     }
     // 排时间轴：每只怪之间留固定下限间隔（WAVE_SPAWN_GAP），波间叠缓冲（WAVE_GAP），逐波清。
     const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
@@ -1964,11 +1969,11 @@ const zombieTypes = {
     // v2.2 P6(A)：体型血按「每关~5分钟 + 克制可清」重定标（原 312/1560/7800/39000 需 8667~43333 DPS，玩家上限仅 3876）
     // v2.2 P6 审计 BUG-A 修复：怪量 1663→159 后击杀金币需 ×20，否则单关收入 1,269 而满树需 181 万
     // P9e-1 移速提速（px/帧）：原 0.5/1.2/0.35/0.28/0.25 只有 15–72px/s，玩家 480px/s 快 16 倍
-    normal: { health: 90,   speed: 1.7,  damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 40 },
-    fast:   { health: 85,   speed: 2.7,  damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 60 },
-    tank:   { health: 360,  speed: 1.1,  damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 100 },
-    giant:  { health: 1800, speed: 0.9,  damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 200 },
-    boss:   { health: 9000, speed: 0.75, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 600 }
+    normal: { health: 90,   speed: 1.7,  damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 26 },
+    fast:   { health: 85,   speed: 2.7,  damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 38 },
+    tank:   { health: 360,  speed: 1.1,  damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 64 },
+    giant:  { health: 1800, speed: 0.9,  damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 128 },
+    boss:   { health: 9000, speed: 0.75, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 384 }
 };
 
 // ==================== 升级选项（v2.2 P3：4 类卡，不再由 SKILL_DEFS 派生）====================
@@ -6508,12 +6513,21 @@ function drawEnemyShots() {
         ctx.strokeStyle = 'rgba(255, 90, 60, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(shot.tx, shot.ty, rr, 0, Math.PI * 2); ctx.stroke();
-        // 飞行物
-        ctx.fillStyle = '#ff6a14';
-        ctx.beginPath(); ctx.arc(shot.x, shot.y, 7, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#ffd0a0';
-        ctx.lineWidth = 2;
+        // 飞行物：旋转菱形 + 深红描边（P9e-6：原来是橙色圆点，会被误认成金币/经验球）
+        ctx.save();
+        ctx.translate(shot.x, shot.y);
+        ctx.rotate((now / 90) % (Math.PI * 2));
+        ctx.fillStyle = '#ff2d20';
+        ctx.strokeStyle = '#2a0000';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 10); ctx.lineTo(-10, 0);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = '#ffe1dc';
+        ctx.lineWidth = 1;
         ctx.stroke();
+        ctx.restore();
         ctx.restore();
     }
 }
@@ -6704,7 +6718,8 @@ function spawnWave(w, stage) {
             creature: type === 'boss' ? stage.bossCreature : stage.creature,
             stage: stage,
             wave: w.i,
-            expVal: expVal
+            expVal: expVal,
+            hpScale: w.hpScale || 1
         });
     }
 }
@@ -6746,8 +6761,8 @@ function updatePendingSpawns() {
             creature: p.creature || 'seal',
             radius: template.radius,
             speed: p._adTemp ? p._adTemp.speed : (template.speed * stage.speedMult),
-            health: template.health * healthMult,
-            maxHealth: template.health * healthMult,
+            health: template.health * healthMult * (p.hpScale || 1),
+            maxHealth: template.health * healthMult * (p.hpScale || 1),
             damage: template.damage * damageMult,
             color: template.color,
             exp: p.expVal,   // v1.1.73：每波总经验=EXP_BASE×波次、按怪数均分（见 spawnWave），与怪量/密度解耦
