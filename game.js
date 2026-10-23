@@ -313,6 +313,9 @@ function getCounterHintElements() {
 //   · 天赋解锁章节（2/4/6/8/10）首关给「喘息」×0.85——玩家能力跃升时难度回落，与能力交替上升；
 //   · 每章末关为 Boss 高潮 ×1.12。
 const TALENT_CHAPTERS = [2, 4, 6, 8, 10];
+// P9e-4：章节 HP 倍率。新机制让熟练玩家 DPS 达新手 6.5×、满配 21×，
+// 若只按旧的 1.03^章 递增，中后期会被全线碾压。此表把「成长压力」放回关卡侧。
+const CHAPTER_HP = [1, 1.15, 1.35, 1.7, 2.1, 2.6, 3.2, 4.0, 5.4, 7.2];
 function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function _round2(v) { return Math.round(v * 100) / 100; }
 
@@ -351,7 +354,8 @@ function buildStages() {
         const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
         const climax = (lvInCh === 6) ? 1.05 : 1;
         // v2.2 P6(A)：第 1 章为教学章（五行初识），整体再降 25%，确保零养成也能过
-        const D = base * within * breather * climax * (ch === 1 ? 0.75 : 1);
+        // v2.5 P9e-4：再乘章节 HP 倍率，抵消词条/弹道带来的 DPS 膨胀
+        const D = base * within * breather * climax * (ch === 1 ? 0.75 : 1) * CHAPTER_HP[ch - 1];
 
         const healthMult = _round2(D);
         const damageMult = _round2(_clamp(D * 0.62, 0.6, 2.6));

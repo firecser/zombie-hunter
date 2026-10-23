@@ -37,6 +37,8 @@ const MISMATCH_MULT = 0.2;
 
 // ---- 关卡基线（复刻 buildStages）----
 const TALENT_CHAPTERS = [2, 4, 6, 8, 10];
+// P9e-4：章节 HP 倍率（补偿新机制带来的 6.5×/21× DPS 成长）
+const CHAPTER_HP = [1, 1.15, 1.35, 1.7, 2.1, 2.6, 3.2, 4.0, 5.4, 7.2];
 const r2 = v => Math.round(v * 100) / 100;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function stageOf(lv) {
@@ -45,7 +47,7 @@ function stageOf(lv) {
     const within = 1 + 0.025 * (lvInCh - 1);
     const breather = (TALENT_CHAPTERS.includes(ch) && lvInCh === 1) ? 0.85 : 1;
     const climax = (lvInCh === 6) ? 1.05 : 1;
-    const D = base * within * breather * climax * (ch === 1 ? 0.75 : 1);   // 第1章教学再降 25%
+    const D = base * within * breather * climax * (ch === 1 ? 0.75 : 1) * CHAPTER_HP[ch - 1];   // 第1章教学再降 25%
     return { lv, ch, lvInCh, healthMult: r2(D), damageMult: r2(clamp(D * 0.62, 0.6, 2.6)) };
 }
 
@@ -105,11 +107,24 @@ function dpsFor(st, activeEl, elLv, atkFlat) {
     return base;                                                                          // 中性
 }
 
+// ---- P9e-3：玩家画像（把弹道 / 词条 / 连杀 / 引爆折算成 DPS 系数）----
+const PROFILES = {
+    novice:  { label: '新手', elLv: 1, bullets: 1, perkMul: 1.00, combo: 0,  detonate: 0.00 },
+    skilled: { label: '熟练', elLv: 5, bullets: 3, perkMul: 1.35, combo: 8,  detonate: 0.10 },
+    maxed:   { label: '满配', elLv: 9, bullets: 6, perkMul: 1.60, combo: 17, detonate: 0.12 }
+};
+// 0.98 = 眩晕停火（0.7s / 约 7s 一次）的期望损失
+function profileMul(p) {
+    if (!p) return 1;
+    const comboMul = 1 + Math.min(1, p.combo * 0.06);
+    return p.bullets * p.perkMul * comboMul * (1 + p.detonate) * 0.98;
+}
+
 // ---- 主模拟 ----
 function run(lv, opts) {
     const st = stageOf(lv);
     const mode = opts.mode || 'counter';
-    const elLvAll = opts.elLv || 1;
+    const elLvAll = opts.profile ? opts.profile.elLv : (opts.elLv || 1);
     const atkFlat = opts.atkFlat || 0;
     const wallMax = WALL_BASE + (opts.wallHp || 0);
     let wall = wallMax;
@@ -151,7 +166,7 @@ function run(lv, opts) {
                 const activeEl = (mode === 'counter') ? RESTRAIN[el] : el;
                 wdps += (hpByEl[el] / totalHP) * dpsFor(el, activeEl, elLvAll, atkFlat);
             }
-            curDPS = wdps;
+            curDPS = wdps * profileMul(opts.profile);
         }
 
         const net = curR - curDPS;
@@ -203,3 +218,15 @@ for (const T of TIERS) {
 }
 
 console.log('\n说明：墙血 2000，未计木连携回血 / 土减伤 / 炸弹；真实局内会略宽松。');
+
+// =========== P9e-3：三档玩家画像（克制操作 × 新机制系数） ===========
+console.log('\n\n=========== P9e-3 玩家画像（克制操作）===========');
+for (const T of TIERS) {
+    console.log(`\n—— ${T.name}（healthMult=${stageOf(T.lv).healthMult}）——`);
+    for (const k in PROFILES) {
+        const p = PROFILES[k];
+        const r = run(T.lv, { mode: 'counter', profile: p });
+        const mul = profileMul(p).toFixed(2);
+        console.log(`  ${p.label}（弹道${p.bullets}×词条${p.perkMul}×连杀${p.combo}）系数 ${mul} → ${fmt(r)}`);
+    }
+}
