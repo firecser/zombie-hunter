@@ -20,6 +20,10 @@ const TYPE = {
     giant:  { hp: 1800, dmg: 35 },
     boss:   { hp: 9000, dmg: 50 }
 };
+// P9e-1：移速（px/帧）。注意 updateZombies 是「每帧加一次」，不是每秒
+const SPEED = { normal: 1.7, fast: 2.7, tank: 1.1, giant: 0.9, boss: 0.75 };
+const FPS = 60;
+const FIELD_PX = 600;          // 出生到城墙的竖直距离
 const WAVE_GROWTH = 1.25;      // P6(A)：1.6 → 1.25
 const UNIT = 90;               // 最小体型粒度
 const BOSS_WAVES = [13, 17, 20];
@@ -171,6 +175,12 @@ function fmt(r) {
 
 console.log('=========== v2.2 P6 真实数值校准（真实出怪表 + 真实血量） ===========');
 console.log('波1 总血=624  BOSS 波次=13/17/20  波20≈624×1.25^19≈4.3万\n');
+console.log('移速（px/帧 → px/s → 横穿 ' + FIELD_PX + 'px 耗时）：');
+for (const k in SPEED) {
+    const pxs = SPEED[k] * FPS;
+    console.log('  ' + k + ': ' + SPEED[k] + ' → ' + pxs + 'px/s → ' + (FIELD_PX / pxs).toFixed(1) + 's');
+}
+console.log('  （玩家 480px/s，普通怪速度差 ' + (480 / (SPEED.normal * FPS)).toFixed(1) + ' 倍）\n');
 
 const TIERS = [
     { lv: 1,  name: 'L1  教学·金→火' },

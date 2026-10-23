@@ -1959,11 +1959,12 @@ const zombieTypes = {
     // 击杀金币仅作战斗手感，量级已压低，使「直线型通关奖励」成为金币获取的主导直线
     // v2.2 P6(A)：体型血按「每关~5分钟 + 克制可清」重定标（原 312/1560/7800/39000 需 8667~43333 DPS，玩家上限仅 3876）
     // v2.2 P6 审计 BUG-A 修复：怪量 1663→159 后击杀金币需 ×20，否则单关收入 1,269 而满树需 181 万
-    normal: { health: 90,   speed: 0.5, damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 40 },
-    fast:   { health: 85,   speed: 1.2, damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 60 },
-    tank:   { health: 360,  speed: 0.35, damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 100 },
-    giant:  { health: 1800, speed: 0.28, damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 200 },
-    boss:   { health: 9000, speed: 0.25, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 600 }
+    // P9e-1 移速提速（px/帧）：原 0.5/1.2/0.35/0.28/0.25 只有 15–72px/s，玩家 480px/s 快 16 倍
+    normal: { health: 90,   speed: 1.7,  damage: 10, radius: 22, color: '#6b8ca3', exp: 1, gold: 40 },
+    fast:   { health: 85,   speed: 2.7,  damage: 8,  radius: 18, color: '#8b7ca3', exp: 1, gold: 60 },
+    tank:   { health: 360,  speed: 1.1,  damage: 20, radius: 30, color: '#5a6a8a', exp: 2, gold: 100 },
+    giant:  { health: 1800, speed: 0.9,  damage: 35, radius: 45, color: '#7a5a8a', exp: 5, gold: 200 },
+    boss:   { health: 9000, speed: 0.75, damage: 50, radius: 60, color: '#8b4a5a', exp: 12, gold: 600 }
 };
 
 // ==================== 升级选项（v2.2 P3：4 类卡，不再由 SKILL_DEFS 派生）====================
