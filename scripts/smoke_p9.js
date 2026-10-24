@@ -59,7 +59,8 @@ const sandbox = {
     __hasStunFire: /now >= playerStunUntil/.test(src),
     __hasBossHud: /function drawBossHud\(\)/.test(src) && /drawBossHud\(\);/.test(src),
     __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
-        && !/ctx\.rotate\(\(now \/ 90\)/.test(src)
+        && !/ctx\.rotate\(\(now \/ 90\)/.test(src),
+    __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -272,6 +273,20 @@ const driver = `
     if (!__hasSharpShot) throw new Error('投掷物未改为不旋转的尖锐菱形');
     ok('Boss 演出：击破慢动作 + 顶部血条接线 + 投掷物尖锐菱形（不旋转）');
   } catch(e){ fail('Boss 演出', e); }
+
+  // ---------- 6h) P8b：宝箱拾取 ----------
+  try {
+    resetAll();
+    activeElement = '火';
+    player.gold = 0; elementCharge['火'] = 0; autoDpsBonus = 0;
+    chests = [{ x: player.x, y: player.y, r: 18, born: Date.now() }];
+    updateChests(Date.now());
+    if (chests.length !== 0) throw new Error('贴身宝箱应被拾取');
+    const gained = player.gold > 0 || elementCharge['火'] > 0 || autoDpsBonus > 0;
+    if (!gained) throw new Error('宝箱未发放任何奖励');
+    if (!__hasChestSpawn) throw new Error('spawnWave 未接入宝箱掉落');
+    ok('宝箱：贴身拾取 + 三选一奖励（金币/印/炮台）+ 每波掉落接线');
+  } catch(e){ fail('宝箱', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

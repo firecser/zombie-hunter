@@ -270,6 +270,9 @@ let bossWarnUntil = 0;     // 「BOSS 来袭」横幅
 let bossKillUntil = 0;     // 「BOSS 击破」慢动作/闪白
 let bossKillName = '';
 
+// ===== P8b：波次宝箱 =====
+let chests = [];
+
 const EVOLUTIONS = {
     'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
     'pierce_金':    { name: '穿甲激光', color: '#ffd23a', radius: 10, pierce: 8, speedMul: 1.5 },
@@ -3932,6 +3935,7 @@ function drawOrbs() {
         ctx.fillText('¥', orb.x, orb.y + 1);
     }
     drawEnemyShots();
+    drawChests();
 }
 // 绘制粒子
 function drawParticles() {
@@ -6680,6 +6684,58 @@ function updateEnemyShots(now) {
     }
 }
 
+// ===== P8b：宝箱 =====
+// 磁吸（复用掉落半径）+ 贴身拾取；奖励三选一：金币 / 当前元素印 / 炮台伤害
+function updateChests(now) {
+    for (let i = chests.length - 1; i >= 0; i--) {
+        const c = chests[i];
+        const d = Math.hypot(player.x - c.x, player.y - c.y);
+        if (d > 5 && d < ORB_MAGNET_R) {
+            const a = Math.atan2(player.y - c.y, player.x - c.x);
+            c.x += Math.cos(a) * 10;
+            c.y += Math.sin(a) * 10;
+        }
+        if (d < player.radius + c.r) {
+            const roll = Math.random();
+            let txt;
+            if (roll < 0.60) {
+                player.gold += 120;
+                txt = '+120 金币';
+            } else if (roll < 0.85) {
+                elementCharge[activeElement] = Math.min(CHARGE_MAX, (elementCharge[activeElement] || 0) + 8);
+                txt = activeElement + '印 +8';
+            } else {
+                autoDpsBonus = Math.min(200, autoDpsBonus + 12);
+                txt = '炮台 +12';
+            }
+            damageNumbers.push({ x: c.x, y: c.y - 22, text: txt, life: 1000, vy: -1.4, color: '#ffd23a', isCrit: true });
+            AudioSystem.playPickup();
+            chests.splice(i, 1);
+        }
+    }
+}
+
+function drawChests() {
+    const now = Date.now();
+    for (const c of chests) {
+        const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+        ctx.save();
+        ctx.globalAlpha = 0.22 + 0.18 * pulse;
+        ctx.fillStyle = '#ffd23a';
+        ctx.beginPath(); ctx.arc(c.x, c.y, c.r * 1.9, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#c8912a';
+        roundRect(ctx, c.x - c.r, c.y - c.r * 0.65, c.r * 2, c.r * 1.3, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#7a4a10'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#ffe9a8';
+        ctx.fillRect(c.x - c.r, c.y - 2, c.r * 2, 4);
+        ctx.fillStyle = '#7a4a10';
+        ctx.beginPath(); ctx.arc(c.x, c.y, 3.2, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+}
+
 function updateOrbs() {
     // v2.6（A 案）：所有掉落物统一「竖直下落」
     //   · 经验球：贴身/磁吸拾取；漏过墙线消失，但返还 50% 经验（防升级节奏崩）
@@ -6765,6 +6821,10 @@ function spawnZombies(dt) {
 
 function spawnWave(w, stage) {
     waveAlive[w.i] = w.comp.length;
+    // P8b：上一波已清空 → 掉一个宝箱（第 1 波不掉）
+    if (w.i > 1) {
+        chests.push({ x: 60 + Math.random() * (screenWidth - 120), y: screenHeight * 0.58, r: 18, born: Date.now() });
+    }
     // 同一波的所有怪均匀错峰入队：每只在 w.spawnAt + s*WAVE_INTERVAL ± 抖动 入场，
     // 铺满本波独占的时间段；下一波在末尾紧接，全程连绵不绝、不会一排同时出现。
     // 五行属性 / 怪物皮肤：由关卡（stage）统一指定。
@@ -7189,6 +7249,7 @@ function startGame() {
     playerVX = 0; playerMoveTargetX = player.x;
     enemyShots = []; nextThrowerAt = 0; playerStunUntil = 0;
     bossWarnUntil = 0; bossKillUntil = 0;
+    chests = [];
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -7353,6 +7414,7 @@ function update(dt) {
 
     updateThrowers(now);        // v2.8 C：指派投掷者
     updateEnemyShots(now);      // v2.8 C：投掷物飞行与命中
+    updateChests(now);          // P8b：宝箱磁吸与拾取
 
     // （旧）死亡射线（天赋）等旧技能特效：v2.2 已彻底停用（旧天赋系统将在 P4 整体删除）
 
