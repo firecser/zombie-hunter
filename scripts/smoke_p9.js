@@ -64,7 +64,7 @@ const sandbox = {
     __hasShotOrient: /ctx\.rotate\(Math\.atan2\(shot\.ty - shot\.y0/.test(src),
     __hasBounceFx: /createLightning\(src\.x, src\.y, best\.x, best\.y\)/.test(src),
     __hasBossScale: /bossScale = isBoss \? \(bossHP \/ BASE_HP\.boss\)/.test(src),
-    __hasBossDyn: /currentCounterDPS\(\) \* BOSS_TTK_SECONDS/.test(src) && /const BOSS_TTK_SECONDS   = 16;/.test(src)
+    __hasBossDyn: /currentCounterDPS\(\) \* BOSS_TTK_SECONDS/.test(src) && /const BOSS_TTK_SECONDS   = 10;/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -318,8 +318,20 @@ const driver = `
     if (!(d1 > 0)) throw new Error('DPS 估算应为正');
     if (!(d6 > d1 * 3)) throw new Error('满弹道 DPS 应远高于单弹道');
     if (!__hasBossDyn) throw new Error('BOSS 未接入动态血量');
-    ok('BOSS 动态血量：单弹道 ' + Math.round(d1) + ' DPS → 满弹道 ' + Math.round(d6) + ' DPS（×16s 定血）');
+    ok('BOSS 动态血量：单弹道 ' + Math.round(d1) + ' DPS → 满弹道 ' + Math.round(d6) + ' DPS（×10s 定血）');
   } catch(e){ fail('BOSS 动态血量', e); }
+
+  // ---------- 6k) v2.12.1：BOSS 残血处决 ----------
+  try {
+    resetAll(); comboCount = 0;
+    const b = zk(200, 300, '火'); b.type = 'boss'; b.maxHealth = 1000; b.health = 200;   // 20%
+    zombies.push(b);
+    const h0 = b.health;
+    damageZombie(b, 100, false, '水');            // 水克火：100×2.5×AOE1.0×处决1.5 = 375
+    const dealt = h0 - b.health;
+    if (Math.abs(dealt - 375) > 1) throw new Error('残血处决伤害应 375, 实=' + dealt.toFixed(1));
+    ok('BOSS 残血处决：<30% 血量时 ×1.5（实伤 ' + dealt.toFixed(0) + '）');
+  } catch(e){ fail('残血处决', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

@@ -207,7 +207,7 @@ const ELEMENT_BASE_DPS   = { '金':300, '火':240, '木':180, '土':170, '水':1
 const ELEMENT_AOE        = { '金':1.4, '火':1.6, '木':1.0, '土':1.0, '水':1.0 }; // 多目标等效（克制时生效）
 const ELEMENT_FIRE_RATE  = 220;                                        // 炮台射速（ms）
 const ELEMENT_FIRE_HZ    = 1000 / ELEMENT_FIRE_RATE;                   // ≈4.55 发/s
-const BOSS_TTK_SECONDS   = 16;                                         // v2.12：BOSS 目标击杀时长（秒），用于动态血量
+const BOSS_TTK_SECONDS   = 10;                                         // v2.12.1：16→10（BOSS 走到墙约 13.5s，保证贴墙前能打完）
 // 注意：updateBullets() 是按「像素/帧」推进（bullet.x += bullet.vx），与 player.bulletSpeed 同单位！
 // 切勿写成 640（px/s）——那样子弹一帧就飞出屏幕被回收，表现为「完全不发射」。
 const ELEMENT_BULLET_SPEED = 10;                                       // 五行子弹速度（px/帧，≈600px/s）
@@ -5932,6 +5932,10 @@ function damageZombie(zombie, damage, isCrit, element) {
     if (_eb > 2.0 && ELEMENT_AOE[element]) damage *= ELEMENT_AOE[element];
     if (zombie.vulnUntil > now) damage *= (zombie.vulnMul || 1);  // 破甲：爆炸后敌人受伤增加
     damage *= comboMul();                                        // v2.4 连杀倍率（克制击杀积累）
+    // v2.12.1：BOSS 残血处决——血量低于 30% 时受到 1.5× 伤害，缩短「贴墙磨血」的尾巴
+    if (zombie.type === 'boss' && zombie.health > 0 && zombie.health / Math.max(1, zombie.maxHealth) < 0.30) {
+        damage *= 1.5;
+    }
     zombie.health -= damage;
 
     // 伤害数字：暴击必显；普通伤害按僵尸节流（同僵尸 120ms 内只显示一次），避免多重/范围伤害导致数字爆炸
