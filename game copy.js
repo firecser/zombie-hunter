@@ -92,6 +92,14 @@ let leaksThisLevel = 0;                // 本局漏怪数（0 漏 = 无伤）
 let wallCrackUntil = 0;                // 破损红闪
 let flawlessClear = false;             // 本局是否无伤通关
 
+// ===== v2.14 IAA：情境化广告点「盾兵援军」=====
+// 参考《赵云与阿斗》：怪压到尽头时，场上出现可点的「盾兵」，看广告后把怪推回去。
+// 不做弹窗、不打断战斗——广告是「场上的援军」，不是「UI 里的按钮」。
+const SHIELD_AD_MAX = 2;               // 每局最多 2 次
+let shieldAdUsed = 0;                  // 已使用次数
+let shieldSoldier = null;              // { x, y, until } 场上的盾兵
+let shieldPushUntil = 0;               // 推退动画窗口（表现用）
+
 const WALL_MAX_HEALTH = 2000;         // v1.1.74(M5)：城墙基础血量由 800 提到 2000，匹配开局 DPS≈52/s、单小怪约10伤的清场节奏（容错更合理，仍靠城墙天赋拉开上限）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
@@ -4086,6 +4094,75 @@ function drawBombExplosions() {
 }
 
 // 绘制UI
+// ===== v2.14 IAA：盾兵援军 =====
+// 看完广告：盾兵冲锋 → 贴墙的怪整体后退 180px + 修 1 格 + 1.5s 无敌
+function grantShieldReinforcement(sol) {
+    const now = Date.now();
+    shieldAdUsed++;
+    shieldSoldier = null;
+    shieldPushUntil = now + 420;
+
+    // 修 1 格（不超过上限）
+    wallLives = Math.min(wallLivesMax, wallLives + 1);
+
+    // 推退：屏幕下半段的怪整体上移
+    for (const z of zombies) {
+        if (z.y > WALL_Y - 320) z.y -= 180;
+        if (z.y < -60) z.y = -60;
+    }
+    invincibleUntil = Math.max(invincibleUntil, now + 1500);
+
+    addShake(12, 320);
+    vibrate('heavy');
+    AudioSystem.playExplosion();
+    damageNumbers.push({ x: sol.x, y: sol.y - 26, text: '援军已至', life: 1200, vy: -1.2, color: '#ffd23a', isCrit: true });
+    for (let i = 0; i < 18; i++) {
+        const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 5;
+        addParticle({ x: sol.x, y: sol.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, radius: 3 + Math.random() * 3, life: 420, color: i % 2 ? '#ffd23a' : '#fff2c0' });
+    }
+    bombExplosionEffects.push({ x: sol.x, y: sol.y, radius: 0, life: 380, maxRadius: 140 });
+}
+
+function drawShieldSoldier() {
+    if (!shieldSoldier) return;
+    const now = Date.now();
+    if (now >= shieldSoldier.until) { shieldSoldier = null; return; }
+    const left = shieldSoldier.until - now;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+    const fade = left < 1200 ? Math.max(0.25, left / 1200) : 1;
+    const { x, y } = shieldSoldier;
+
+    ctx.save();
+    ctx.globalAlpha = fade;
+    // 光圈
+    ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.45 + 0.35 * pulse) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 30 + 4 * pulse, 0, Math.PI * 2); ctx.stroke();
+    // 盾牌
+    ctx.fillStyle = '#2f6f4f';
+    ctx.strokeStyle = '#ffd23a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 20);
+    ctx.lineTo(x + 15, y - 12);
+    ctx.lineTo(x + 13, y + 8);
+    ctx.lineTo(x, y + 20);
+    ctx.lineTo(x - 13, y + 8);
+    ctx.lineTo(x - 15, y - 12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // 盾面「援」
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 15px "STKaiti","KaiTi","SimHei",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('援', x, y - 1);
+    // 上方提示
+    ctx.fillStyle = 'rgba(255, 235, 160, 0.95)';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('点我·看广告', x, y - 34);
+    ctx.restore();
+}
+
 // ===== v2.10 P8c：Boss 演出 HUD =====
 function drawBossHud() {
     const now = Date.now();
@@ -4141,6 +4218,7 @@ function drawBossHud() {
 
 function drawUI() {
     drawBossHud();
+    drawShieldSoldier();
     const stage = getCurrentStage();
 
     // ========== 顶部信息栏 ==========
@@ -6437,6 +6515,10 @@ function updateZombies(dt) {
                 }
                 zombie.health = 0;
                 _leakedOut.push(zombie);
+                // v2.14：破格后，在破口位置出现「盾兵援军」（仅当还有广告次数）
+                if (shieldAdUsed < SHIELD_AD_MAX && wallLives > 0) {
+                    shieldSoldier = { x: Math.max(50, Math.min(screenWidth - 50, zombie.x)), y: WALL_Y - 34, until: now + 6500 };
+                }
                 if (wallLives <= 0) { gameOver(); }
             }
             continue;
@@ -7362,6 +7444,7 @@ function startGame() {
     wallLivesMax = WALL_LIVES_BASE;
     wallLives = wallLivesMax;
     leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
+    shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -15012,6 +15095,14 @@ wx.onTouchStart((e) => {
             }
         } else {
             // 五行坞点击（P2：选中元素 = 立即切换炮台发射属性；相生连携在此激活）
+            // v2.14：先判定「盾兵援军」（场上单位，优先于五行坞）
+            if (shieldSoldier && Date.now() < shieldSoldier.until &&
+                Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 46) {
+                const _sol = shieldSoldier;
+                showRewardedAd(() => grantShieldReinforcement(_sol));
+                return;
+            }
+
             const dockE = hitElementDock(x, y);
             if (dockE) {
                 const unlocked = getStageUnlockedElements(currentStage);

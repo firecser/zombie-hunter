@@ -61,6 +61,7 @@ const sandbox = {
     __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
         && !/ctx\.rotate\(\(now \/ 90\)/.test(src),
     __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src),
+    __hasShield: /const SHIELD_AD_MAX = 2;/.test(src) && /function grantShieldReinforcement/.test(src) && /function drawShieldSoldier/.test(src) && /grantShieldReinforcement\(_sol\)/.test(src),
     __hasWallLives: /const WALL_LIVES_BASE = 3;/.test(src) && /wallLives = wallLivesMax;/.test(src) && /roundRect\(ctx, sx - 2, y - 2, segW \+ 4/.test(src),
     __hasShotOrient: /ctx\.rotate\(Math\.atan2\(shot\.ty - shot\.y0/.test(src),
     __hasBounceFx: /createLightning\(src\.x, src\.y, best\.x, best\.y\)/.test(src),
@@ -359,6 +360,21 @@ const driver = `
     if (!__hasWallLives) throw new Error('护城值未接入 HUD/重置');
     ok('护城值：普通怪 -1 / BOSS -2 / 漏过即移除 / HUD 接线');
   } catch(e){ fail('护城值', e); }
+
+  // ---------- 6m) v2.14：盾兵援军（情境化广告点） ----------
+  try {
+    resetAll(); zombies.length = 0;
+    wallLives = 2; wallLivesMax = 3; shieldAdUsed = 0; invincibleUntil = 0;
+    const nearWall = zk(200, 0, '金'); nearWall.speed = 0; nearWall.y = WALL_Y - 40;
+    zombies.push(nearWall);
+    grantShieldReinforcement({ x: 200, y: WALL_Y - 34 });
+    if (wallLives !== 3) throw new Error('援军应修复 1 格, 实=' + wallLives);
+    if (!(nearWall.y < WALL_Y - 40)) throw new Error('贴墙怪应被推退');
+    if (!(invincibleUntil > Date.now())) throw new Error('援军后应有短暂无敌');
+    if (shieldAdUsed !== 1) throw new Error('广告次数应 +1');
+    if (!__hasShield) throw new Error('盾兵未接入点击/绘制');
+    ok('盾兵援军：修 1 格 + 推退 + 1.5s 无敌 + 次数计数');
+  } catch(e){ fail('盾兵援军', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
