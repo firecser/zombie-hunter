@@ -85,24 +85,24 @@ const driver = `
   try {
     const zGold = zk('金');
     if (getElementBonus(zGold, '火') !== 2.5) throw new Error('克制应 2.5, 实=' + getElementBonus(zGold, '火'));
-    if (getElementBonus(zGold, '金') !== 0.2) throw new Error('错配应 0.2, 实=' + getElementBonus(zGold, '金'));
-    if (getElementBonus(zGold, '水') !== 1.0) throw new Error('中性应 1.0, 实=' + getElementBonus(zGold, '水'));
+    if (getElementBonus(zGold, '金') !== 0.15) throw new Error('错配应 0.15, 实=' + getElementBonus(zGold, '金'));
+    if (getElementBonus(zGold, '水') !== 0.55) throw new Error('中性应 0.55, 实=' + getElementBonus(zGold, '水'));
     const zWater = zk('水');
     if (getElementBonus(zWater, '土') !== 2.5) throw new Error('水怪应被土克制');
-    if (getElementBonus(zWater, '水') !== 0.2) throw new Error('水怪错配水应 0.2');
+    if (getElementBonus(zWater, '水') !== 0.15) throw new Error('水怪错配水应 0.15');
     const zNormal = zk('normal');
-    if (getElementBonus(zNormal, '火') !== 1.0) throw new Error('无属性怪应中性');
-    ok('三态倍率：克制2.5 / 错配0.2 / 中性1.0 / normal=1.0');
+    if (getElementBonus(zNormal, '火') !== 1.0) throw new Error('无属性怪应中性 1.0');
+    ok('三态倍率：克制2.5 / 错配0.15 / 中性0.55 / normal=1.0');
   } catch(e){ fail('三态倍率', e); }
 
   // ---------- 2) 双系取「各系最差」 ----------
   try {
     const zDual = zk('normal', ['金','水']);
     // 火 vs 金 = 2.5（克制）；火 vs 水 = 1.0（中性）→ 取最差 1.0
-    if (getElementBonus(zDual, '火') !== 1.0) throw new Error('双系 火应取最差 1.0, 实=' + getElementBonus(zDual, '火'));
+    if (getElementBonus(zDual, '火') !== 0.55) throw new Error('双系 火应取最差 0.55, 实=' + getElementBonus(zDual, '火'));
     // 金 vs 金 = 0.2（错配）；金 vs 水 = 1.0 → 0.2
-    if (getElementBonus(zDual, '金') !== 0.2) throw new Error('双系 金应取最差 0.2, 实=' + getElementBonus(zDual, '金'));
-    ok('双系相生怪取最差克制 (火→1.0, 金→0.2)');
+    if (getElementBonus(zDual, '金') !== 0.15) throw new Error('双系 金应取最差 0.15, 实=' + getElementBonus(zDual, '金'));
+    ok('双系相生怪取最差克制 (火→0.55, 金→0.15)');
   } catch(e){ fail('双系取最差', e); }
 
   // ---------- 3) shootElement 子弹与数值 ----------
@@ -130,12 +130,12 @@ const driver = `
     const dealt = before - z.health;
     const exp = 100 * 2.5 * 1.6;   // 400
     if (!near(dealt, exp, 0.5)) throw new Error('克制火伤害应为 ' + exp + ', 实=' + dealt.toFixed(2));
-    // 错配（金打金）：100 × 0.2 = 20，无 AOE
+    // 错配（金打金）：100 × 0.15 = 15，无 AOE
     const z2 = zk('金');
     const b2 = z2.health;
     damageZombie(z2, 100, false, '金');
-    if (!near(b2 - z2.health, 20, 0.5)) throw new Error('错配伤害应为 20, 实=' + (b2 - z2.health).toFixed(2));
-    ok('damageZombie 端到端：克制火=400 / 错配金=20');
+    if (!near(b2 - z2.health, 15, 0.5)) throw new Error('错配伤害应为 15, 实=' + (b2 - z2.health).toFixed(2));
+    ok('damageZombie 端到端：克制火=400 / 错配金=15');
   } catch(e){ fail('damageZombie 端到端', e); }
 
   // ---------- 5) 相生连携 ×1.2 ----------

@@ -60,7 +60,10 @@ const sandbox = {
     __hasBossHud: /function drawBossHud\(\)/.test(src) && /drawBossHud\(\);/.test(src),
     __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
         && !/ctx\.rotate\(\(now \/ 90\)/.test(src),
-    __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src)
+    __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src),
+    __hasShotOrient: /ctx\.rotate\(Math\.atan2\(shot\.ty - shot\.y0/.test(src),
+    __hasBounceFx: /createLightning\(src\.x, src\.y, best\.x, best\.y\)/.test(src),
+    __hasBossScale: /bossScale = isBoss \? \(bossHP \/ BASE_HP\.boss\)/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -287,6 +290,20 @@ const driver = `
     if (!__hasChestSpawn) throw new Error('spawnWave 未接入宝箱掉落');
     ok('宝箱：贴身拾取 + 三选一奖励（金币/印/炮台）+ 每波掉落接线');
   } catch(e){ fail('宝箱', e); }
+
+  // ---------- 6i) v2.11：特效/朝向/克制倍率/BOSS 血量 ----------
+  try {
+    // 中性伤害 0.55、错配 0.15
+    const zNeutral = zk(200, 300, '金');
+    if (Math.abs(getElementBonus(zNeutral, '木') - 0.55) > 1e-6) throw new Error('中性倍率应为 0.55');
+    if (Math.abs(getElementBonus(zNeutral, '金') - 0.15) > 1e-6) throw new Error('错配倍率应为 0.15');
+    if (Math.abs(getElementBonus(zNeutral, '火') - 2.5) > 1e-6) throw new Error('克制应 2.5');
+
+    if (!__hasShotOrient) throw new Error('投掷物未按弹着点定向');
+    if (!__hasBounceFx) throw new Error('弹射缺少连线特效');
+    if (!__hasBossScale) throw new Error('BOSS 未使用独立血量份额');
+    ok('v2.11：中性0.55/错配0.15 + 投掷物定向 + 弹射连线 + BOSS 独立血量');
+  } catch(e){ fail('v2.11 修复', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

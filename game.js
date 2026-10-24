@@ -685,9 +685,13 @@ function buildWavePlan() {
         for (let k = 0; k < n; k++) comp.push(PATTERN[k % PATTERN.length]);
         let sumHP = 0;
         for (const t of comp) { if (t !== 'boss') sumHP += BASE_HP[t]; }
-        const restTarget = Math.max(30, targetHP - (isBoss ? BASE_HP.boss : 0));
+        // v2.11：BOSS 拿独立的 55% 预算（上限 9000）；此前 BOSS 也乘 hpScale，
+        // 而 BOSS 波的小怪分不到血 → hpScale 极小 → 首个 BOSS 被压成纸糊。
+        const bossHP = isBoss ? Math.min(BASE_HP.boss, targetHP * 0.55) : 0;
+        const restTarget = Math.max(60, targetHP - bossHP);
         const hpScale = restTarget / Math.max(1, sumHP);
-        plan.push({ i, comp, boss: isBoss, hpScale });
+        const bossScale = isBoss ? (bossHP / BASE_HP.boss) : 1;
+        plan.push({ i, comp, boss: isBoss, hpScale, bossScale });
     }
     // 排时间轴：每只怪之间留固定下限间隔（WAVE_SPAWN_GAP），波间叠缓冲（WAVE_GAP），逐波清。
     const totalCount = plan.reduce((s, w) => s + w.comp.length, 0);
@@ -2399,7 +2403,8 @@ function getElementBonus(zombie, element) {
         const counter = ELEMENT_COUNTER[zEl];   // 克制 zEl 的玩家元素
         let m = 1.0;
         if (element === counter) m = restraintMult;   // 克制（可被三选一「克制增幅」提升）
-        else if (element === zEl) m = 0.2;       // 错配（同元素）
+        else if (element === zEl) m = 0.15;      // 错配（同元素）——v2.11：0.2→0.15
+        else m = 0.55;                           // 中性（不克制也不同）——v2.11：1.0→0.55，读错色要明显变弱
         worst = Math.min(worst, m);
     }
     return (worst === Infinity) ? 1 : worst;
@@ -5521,6 +5526,21 @@ function applyPerkHit(bullet, zombie) {
         zombie.burningUntil = Math.max(zombie.burningUntil || 0, now + 2000);
         zombie.burnDmg = Math.max(zombie.burnDmg || 0, bullet.damage * 0.08 * Math.max(1, ps.burn || 0));
     }
+    // v2.11：各词条补齐命中特效（此前只有爆裂有表现，弹射/穿透/霜冻/灼烧「触发了也看不出来」）
+    if (ps.pierce > 0) {
+        bombExplosionEffects.push({ x: bullet.x, y: bullet.y, radius: 0, life: 180, maxRadius: 30 + ps.pierce * 6 });
+    }
+    if (ps.chill > 0 || (evo && evo.freezeMs)) {
+        for (let i = 0; i < 3; i++) {
+            addParticle({ x: zombie.x, y: zombie.y, vx: (Math.random() - 0.5) * 4, vy: -1 - Math.random() * 2, radius: 3, life: 300, color: '#37c6ff' });
+        }
+    }
+    if (ps.burn > 0 || (evo && evo.burn)) {
+        for (let i = 0; i < 3; i++) {
+            addParticle({ x: zombie.x, y: zombie.y, vx: (Math.random() - 0.5) * 4, vy: -1.5 - Math.random() * 2, radius: 3, life: 320, color: '#ff6a14' });
+        }
+    }
+
     const R = (ps.explode ? 40 + ps.explode * 10 : 0) || (evo && evo.explodeR ? evo.explodeR : 0);
     if (R > 0) {
         for (const z of zombies.slice()) {
@@ -5539,7 +5559,9 @@ function applyPerkHit(bullet, zombie) {
                 if (d < bd) { bd = d; best = z; }
             }
             if (!best) break;
+            createLightning(src.x, src.y, best.x, best.y);   // v2.11：弹射连线，明确「跳过去了」
             damageZombie(best, bullet.damage * 0.5, false, bullet.element);
+            addParticle({ x: best.x, y: best.y, vx: 0, vy: -2, radius: 4, life: 260, color: '#9ef0b0' });
             hit.push(best); src = best;
         }
     }
@@ -6586,11 +6608,12 @@ function drawEnemyShots() {
         ctx.strokeStyle = 'rgba(255, 90, 60, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(shot.tx, shot.ty, rr, 0, Math.PI * 2); ctx.stroke();
-        // 飞行物：尖锐菱形（不旋转）+ 深红描边
+        // 飞行物：尖锐菱形，尖端朝向弹着点（不自转）
         // P9e-6：原来是橙色圆点，会被误认成金币/经验球
-        // v2.10：取消旋转（转起来反而像可拾取物），并把菱形拉长压窄，尖锐度更高
+        // v2.11：菱形按飞行方向定向，锐角指向落点
         ctx.save();
         ctx.translate(shot.x, shot.y);
+        ctx.rotate(Math.atan2(shot.ty - shot.y0, shot.tx - shot.x0) + Math.PI / 2);
         ctx.fillStyle = '#ff2d20';
         ctx.strokeStyle = '#2a0000';
         ctx.lineWidth = 2.5;
@@ -6849,7 +6872,8 @@ function spawnWave(w, stage) {
             stage: stage,
             wave: w.i,
             expVal: expVal,
-            hpScale: w.hpScale || 1
+            hpScale: w.hpScale || 1,
+            bossScale: w.bossScale || 1
         });
     }
 }
@@ -6891,8 +6915,8 @@ function updatePendingSpawns() {
             creature: p.creature || 'seal',
             radius: template.radius,
             speed: p._adTemp ? p._adTemp.speed : (template.speed * stage.speedMult),
-            health: template.health * healthMult * (p.hpScale || 1),
-            maxHealth: template.health * healthMult * (p.hpScale || 1),
+            health: template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1)),
+            maxHealth: template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1)),
             damage: template.damage * damageMult,
             color: template.color,
             exp: p.expVal,   // v1.1.73：每波总经验=EXP_BASE×波次、按怪数均分（见 spawnWave），与怪量/密度解耦

@@ -51,3 +51,19 @@ const GOLD = {}; for (const k in sb.__Z) GOLD[k] = sb.__Z[k].gold;
 let g = 0;
 for (const w of P) for (const t of w.comp) g += GOLD[t] || 0;
 console.log('当前单关击杀金币 =', g, '| 旧值 25380 | 倍数 =', (g / 25380).toFixed(2));
+
+// BOSS 血量（L1 / L60）
+for (const lv of [1, 30, 60]) {
+    const st = sb.__ST[lv - 1];
+    const rows = P.filter(w => w.boss).map(w =>
+        `w${w.i}: ${Math.round(9000 * st.healthMult * w.bossScale)}HP (scale ${w.bossScale.toFixed(2)})`);
+    console.log('L' + lv + ' BOSS → ' + rows.join(' | '));
+}
+// 各关元素与每关总血（查「土属性血厚」是否异常）
+for (let lv = 1; lv <= 12; lv++) {
+    const st = sb.__ST[lv - 1];
+    const el = (st.elements && st.elements.length) ? st.elements.join('+') : st.element;
+    let total = 0;
+    for (const w of P) { for (const t of w.comp) total += (t === 'boss' ? 9000 * w.bossScale : (sb.__Z[t].health * w.hpScale)); }
+    console.log('L' + lv, '元素=' + el, '单关总血=' + Math.round(total * st.healthMult));
+}

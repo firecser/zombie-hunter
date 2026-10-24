@@ -33,7 +33,8 @@ const E_BASE = { '金': 300, '火': 240, '木': 180, '土': 170, '水': 170 };
 const AOE = { '金': 1.4, '火': 1.6, '木': 1.0, '土': 1.0, '水': 1.0 };
 const AUTO_DPS = 40;
 const RESTRAINT_MULT = 2.5;
-const MISMATCH_MULT = 0.2;
+const MISMATCH_MULT = 0.15;   // v2.11：0.2→0.15
+const NEUTRAL_MULT  = 0.55;   // v2.11：中性由 1.0 降到 0.55
 
 // ---- 关卡基线（复刻 buildStages）----
 const TALENT_CHAPTERS = [2, 4, 6, 8, 10];
@@ -104,7 +105,7 @@ function dpsFor(st, activeEl, elLv, atkFlat) {
     const base = AUTO_DPS + atkFlat + E_BASE[activeEl] * Math.pow(1.15, elLv - 1);
     if (activeEl === RESTRAIN[st]) return base * RESTRAINT_MULT * (AOE[activeEl] || 1);  // 克制
     if (activeEl === st) return base * MISMATCH_MULT;                                     // 错配
-    return base;                                                                          // 中性
+    return base * NEUTRAL_MULT;                                                            // 中性（v2.11 下调）
 }
 
 // ---- P9e-3：玩家画像（把弹道 / 词条 / 连杀 / 引爆折算成 DPS 系数）----
