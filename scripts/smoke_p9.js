@@ -61,6 +61,7 @@ const sandbox = {
     __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
         && !/ctx\.rotate\(\(now \/ 90\)/.test(src),
     __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src),
+    __hasWallLives: /const WALL_LIVES_BASE = 3;/.test(src) && /wallLives = wallLivesMax;/.test(src) && /roundRect\(ctx, sx - 2, y - 2, segW \+ 4/.test(src),
     __hasShotOrient: /ctx\.rotate\(Math\.atan2\(shot\.ty - shot\.y0/.test(src),
     __hasBounceFx: /createLightning\(src\.x, src\.y, best\.x, best\.y\)/.test(src),
     __hasBossScale: /bossScale = isBoss \? \(bossHP \/ BASE_HP\.boss\)/.test(src),
@@ -332,6 +333,32 @@ const driver = `
     if (Math.abs(dealt - 375) > 1) throw new Error('残血处决伤害应 375, 实=' + dealt.toFixed(1));
     ok('BOSS 残血处决：<30% 血量时 ×1.5（实伤 ' + dealt.toFixed(0) + '）');
   } catch(e){ fail('残血处决', e); }
+
+  // ---------- 6l) v2.13：护城值（漏怪扣格） ----------
+  try {
+    resetAll(); zombies.length = 0;
+    wallLives = 3; leaksThisLevel = 0;
+    const z = zk(200, 0, '金');
+    z.speed = 0;                        // 站住（避免 y += undefined → NaN）
+    z.y = WALL_Y - z.radius + 2;        // 已贴墙
+    zombies.push(z);
+    updateZombies(16);
+    if (wallLives !== 2) throw new Error('普通怪漏过应扣 1 格, 实剩 ' + wallLives);
+    if (zombies.indexOf(z) >= 0) throw new Error('漏过的怪应被移除');
+    if (leaksThisLevel !== 1) throw new Error('漏怪计数应为 1');
+
+    // BOSS 漏过扣 2 格
+    zombies.length = 0; wallLives = 3;
+    const b = zk(200, 0, '金'); b.type = 'boss';
+    b.speed = 0;
+    b.y = WALL_Y - b.radius + 2;
+    zombies.push(b);
+    updateZombies(16);
+    if (wallLives !== 1) throw new Error('BOSS 漏过应扣 2 格, 实剩 ' + wallLives);
+
+    if (!__hasWallLives) throw new Error('护城值未接入 HUD/重置');
+    ok('护城值：普通怪 -1 / BOSS -2 / 漏过即移除 / HUD 接线');
+  } catch(e){ fail('护城值', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

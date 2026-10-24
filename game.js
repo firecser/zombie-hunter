@@ -84,6 +84,14 @@ const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
 // ② 城墙基础血量：v1.1.65 起基础值下调为 800（原 5000），让后期「堆怪啄墙」重新构成真实威胁，
 //    不再无限扛；旧 5000 的容错空间改由天赋树「城墙血量」百分比天赋恢复（见防御页 def_rampart/def_citadel）。
 //    城墙实际血量 = WALL_MAX_HEALTH × (1 + 天赋 wallHealthMul) + 天赋 healthBonus。
+// ===== v2.13 A 案：城墙改为「护城值」（漏怪即扣格，归零失败）=====
+const WALL_LIVES_BASE = 3;             // 基础护城格数
+let wallLives = WALL_LIVES_BASE;       // 当前格数
+let wallLivesMax = WALL_LIVES_BASE;    // 本局上限
+let leaksThisLevel = 0;                // 本局漏怪数（0 漏 = 无伤）
+let wallCrackUntil = 0;                // 破损红闪
+let flawlessClear = false;             // 本局是否无伤通关
+
 const WALL_MAX_HEALTH = 2000;         // v1.1.74(M5)：城墙基础血量由 800 提到 2000，匹配开局 DPS≈52/s、单小怪约10伤的清场节奏（容错更合理，仍靠城墙天赋拉开上限）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
@@ -2818,37 +2826,42 @@ function drawWall() {
 
 // 绘制城墙血条（比墙体略窄，整组下沿贴齐城墙下沿，绿色，只显示当前血量数字）
 function drawWallHealthBar() {
-    const w = (WALL_X1 - WALL_X0) * 0.84;          // 比墙体略窄
-    const x = (WALL_X0 + WALL_X1) / 2 - w / 2;
-    const h = 9;
-    const wallBottom = WALL_Y + WALL_HEIGHT;
-    const y = wallBottom - h - 6;                  // 血条整组下沿贴齐城墙下沿（怪物在城墙上方，不再遮挡）
-
-    // 背板
-    ctx.fillStyle = 'rgba(8, 20, 36, 0.82)';
-    roundRect(ctx, x - 3, y - 2, w + 6, h + 8, 6);
-    ctx.fill();
-    ctx.strokeStyle = ROYALE.gold;
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, x - 3, y - 2, w + 6, h + 8, 6);
-    ctx.stroke();
-
-    // 底槽
-    ctx.fillStyle = 'rgba(40, 60, 80, 0.9)';
-    ctx.fillRect(x, y, w, h);
-
-    // 填充（绿色）
-    const pct = Math.max(0, Math.min(1, player.health / player.maxHealth));
-    ctx.fillStyle = '#3fcf5b';
-    ctx.fillRect(x, y, w * pct, h);
-
-    // 文案：只显示当前血量数字
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(Math.max(0, Math.ceil(player.health))), x + w / 2, y + h / 2);
-    ctx.textBaseline = 'alphabetic';
+    // v2.13：护城值改为分段显示（3 格），破一格暗一格
+    const n = Math.max(1, wallLivesMax);
+    const segW = 30, gap = 7, h = 10;
+    const totalW = n * segW + (n - 1) * gap;
+    const x0 = (WALL_X0 + WALL_X1) / 2 - totalW / 2;
+    const y = WALL_Y + WALL_HEIGHT - h - 7;
+    const now = Date.now();
+    for (let i = 0; i < n; i++) {
+        const sx = x0 + i * (segW + gap);
+        ctx.fillStyle = 'rgba(8, 20, 36, 0.85)';
+        roundRect(ctx, sx - 2, y - 2, segW + 4, h + 4, 4);
+        ctx.fill();
+        const alive = i < wallLives;
+        if (alive) {
+            ctx.fillStyle = '#3fcf5b';
+            roundRect(ctx, sx, y, segW, h, 3);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(160, 255, 180, 0.85)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = 'rgba(50, 64, 80, 0.85)';
+            roundRect(ctx, sx, y, segW, h, 3);
+            ctx.fill();
+        }
+    }
+    // 破损红闪
+    if (now < wallCrackUntil) {
+        const a = (wallCrackUntil - now) / 320;
+        ctx.save();
+        ctx.globalAlpha = a * 0.5;
+        ctx.fillStyle = '#ff3d2e';
+        roundRect(ctx, x0 - 3, y - 3, totalW + 6, h + 6, 5);
+        ctx.fill();
+        ctx.restore();
+    }
 }
 
 // 战场左右透明边界（敌人身体边缘不可越界）：仅作视觉提示，逻辑钳制见 clampZombieToField()。
@@ -4905,6 +4918,13 @@ function drawVictory() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`🏆 第${currentStage}关 完成！`, screenWidth / 2, modalY + 62);
+    if (flawlessClear) {
+        ctx.fillStyle = '#ffd23a';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText('✦ 无伤通关  +200 金币', screenWidth / 2, modalY + 104);
+        ctx.fillStyle = '#cfd8e3';
+        ctx.font = '13px Arial';
+    }
     ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 84);
     ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 106);
     
@@ -6336,6 +6356,7 @@ function clampZombieToField(z) {
 function updateZombies(dt) {
     const now = Date.now();
     const _reflectTargets = [];   // 护盾反弹目标（循环外统一结算）
+    const _leakedOut = [];        // v2.13：漏怪统一在循环后移除
     for (const zombie of zombies) {
         // 冰冻 / 减速 / 眩晕（Phase2 硬控）
         let sp = zombie.speed;
@@ -6392,6 +6413,36 @@ function updateZombies(dt) {
             // 钉在墙顶（紧贴，避免穿透）
             zombie.y = WALL_Y - zombie.radius;
 
+            // ===== v2.13 A 案：漏怪 → 扣护城格 → 怪物消失（不再无限啄墙）=====
+            if (!zombie._leaked) {
+                zombie._leaked = true;
+                const _cost = (zombie.type === 'boss') ? 2 : 1;
+                leaksThisLevel++;
+                wallCrackUntil = now + 320;
+                addShake(10, 260);
+                vibrate('heavy');
+                AudioSystem.playHurt();
+                damageNumbers.push({
+                    x: zombie.x, y: WALL_Y - 42, text: '城墙 -' + _cost,
+                    life: 900, vy: -1.4, color: '#ff3d2e', isCrit: true
+                });
+                if (wallLives - _cost <= 0 && talentMods.immortalCharges > 0) {
+                    // 不朽之身：消耗 1 次复活，保 1 格 + 10s 无敌
+                    talentMods.immortalCharges--;
+                    wallLives = 1;
+                    invincibleUntil = now + IMMORTAL_INVINCIBLE_TIME;
+                    hitEffects.push({ x: (WALL_X0 + WALL_X1) / 2, y: WALL_Y, type: 'revive', life: 700, maxLife: 700, rot: 0 });
+                } else {
+                    wallLives = Math.max(0, wallLives - _cost);
+                }
+                zombie.health = 0;
+                _leakedOut.push(zombie);
+                if (wallLives <= 0) { gameOver(); }
+            }
+            continue;
+
+            // ↓↓↓ v2.13 起以下「啄墙扣血」逻辑不再可达（保留注释以便回溯）
+
             // 不朽之身无敌期：完全免伤
             if (now < invincibleUntil) continue;
 
@@ -6444,6 +6495,11 @@ function updateZombies(dt) {
     }
 
     // 护盾反弹结算（循环外，避免遍历中 splice 导致跳杀）
+    // v2.13：移除已漏怪（不结算击杀奖励）
+    if (_leakedOut.length) {
+        for (const z of _leakedOut) onZombieRemoved(z);
+        zombies = zombies.filter(z => _leakedOut.indexOf(z) < 0);
+    }
     for (const rt of _reflectTargets) damageZombie(rt.z, rt.dmg, false, '物理');
 
     // 灼烧 DOT（油渍 / 爆炸引燃）：节流 500ms 结算一次；逆序遍历，damageZombie 内 splice 安全
@@ -7179,6 +7235,13 @@ function victory() {
     player.gold = goldAtStageStart + player.gold + getStageGoldReward(currentStage);
     stageGoldEarned = player.gold - goldAtStageStart;   // 本次获得（击杀金币 + 通关奖励）
     
+    // v2.13：0 漏通关奖励
+    flawlessClear = (leaksThisLevel === 0);
+    if (flawlessClear) {
+        player.gold += 200;
+        stageGoldEarned += 200;
+    }
+
     saveProgress();
     savePlayerData();  // 保存玩家数据
     AudioSystem.stopBGM();
@@ -7296,6 +7359,9 @@ function startGame() {
     enemyShots = []; nextThrowerAt = 0; playerStunUntil = 0;
     bossWarnUntil = 0; bossKillUntil = 0;
     chests = [];
+    wallLivesMax = WALL_LIVES_BASE;
+    wallLives = wallLivesMax;
+    leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
