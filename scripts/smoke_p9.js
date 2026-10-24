@@ -61,6 +61,13 @@ const sandbox = {
     __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
         && !/ctx\.rotate\(\(now \/ 90\)/.test(src),
     __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src),
+    __hasReviveOrder: (() => {
+        const start = src.indexOf('wx.onTouchStart');
+        const branch = src.indexOf("} else if (gameState === 'playing') {", start);
+        const revive = src.indexOf('复活窗口必须最先判定', branch);
+        const pause = src.indexOf('if (gamePaused) {', branch);
+        return branch > 0 && revive > branch && pause > revive;
+    })(),
     __hasRevive: /function grantRevive/.test(src) && /function drawReviveOffer/.test(src) && /grantRevive\(\)/.test(src),
     __hasShield: /const SHIELD_AD_MAX = 2;/.test(src) && /function grantShieldReinforcement/.test(src) && /function drawShieldSoldier/.test(src) && /grantShieldReinforcement\(_sol\)/.test(src),
     __hasWallLives: /const WALL_LIVES_BASE = 3;/.test(src) && /wallLives = wallLivesMax;/.test(src) && /roundRect\(ctx, sx - 2, y - 2, segW \+ 4/.test(src),
@@ -397,6 +404,12 @@ const driver = `
     if (!__hasRevive) throw new Error('复活未接入绘制/点击');
     ok('守将复活：归零进窗口 / 回 2 格 / 无敌 / 每局一次');
   } catch(e){ fail('守将复活', e); }
+
+  // ---------- 6o) v2.15.1：复活按钮可点（触摸顺序） ----------
+  try {
+    if (!__hasReviveOrder) throw new Error('复活判定必须在「暂停弹窗」分支之前，否则永远点不到');
+    ok('复活触摸顺序：复活判定先于暂停弹窗');
+  } catch(e){ fail('复活触摸顺序', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

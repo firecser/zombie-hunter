@@ -15142,6 +15142,20 @@ wx.onTouchStart((e) => {
             }
         });
     } else if (gameState === 'playing') {
+        // v2.15.1：复活窗口必须最先判定——归零时 gamePaused=true，
+        // 否则点击会被下面的「暂停弹窗」分支吃掉，守将永远点不到。
+        if (Date.now() < reviveOfferUntil) {
+            const _cy = screenHeight * 0.62;
+            if (Math.hypot(x - screenWidth / 2, y - _cy) <= 78) {
+                showRewardedAd(() => grantRevive());
+            } else if (y > _cy + 96 && y < _cy + 126) {   // 「放弃」文字区（避开复活按钮下沿）
+                reviveOfferUntil = 0;
+                gamePaused = false;
+                gameOver();
+            }
+            return;
+        }
+
         // 清除可能存在的关卡拖动状态（从主菜单进入战斗后，定时器可能还在运行）
         if (levelLongPressTimer) {
             clearTimeout(levelLongPressTimer);
@@ -15201,19 +15215,6 @@ wx.onTouchStart((e) => {
             }
         } else {
             // 五行坞点击（P2：选中元素 = 立即切换炮台发射属性；相生连携在此激活）
-            // v2.15：复活窗口优先——点守将看广告，点「放弃」直接结束
-            if (Date.now() < reviveOfferUntil) {
-                const _cy = screenHeight * 0.62;
-                if (Math.hypot(x - screenWidth / 2, y - _cy) <= 70) {
-                    showRewardedAd(() => grantRevive());
-                } else if (y > _cy + 70 && y < _cy + 108) {
-                    reviveOfferUntil = 0;
-                    gamePaused = false;
-                    gameOver();
-                }
-                return;
-            }
-
             // v2.14：先判定「盾兵援军」（场上单位，优先于五行坞）
             if (shieldSoldier && Date.now() < shieldSoldier.until &&
                 Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 46) {
