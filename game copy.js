@@ -99,6 +99,7 @@ const SHIELD_AD_MAX = 2;               // 每局最多 2 次
 let shieldAdUsed = 0;                  // 已使用次数
 let shieldSoldier = null;              // { x, y, until } 场上的盾兵
 let shieldPushUntil = 0;               // 推退动画窗口（表现用）
+let shieldWallUntil = 0;               // v2.16：盾墙持续（此期间怪不能越过 WALL_Y-150）
 
 // ===== v2.15 IAA：失败复活（守将）=====
 let reviveUsed = false;        // 每局 1 次
@@ -4130,60 +4131,42 @@ function grantRevive() {
 
 function drawReviveOffer() {
     if (Date.now() >= reviveOfferUntil) return;
-    const cx = screenWidth / 2, cy = screenHeight * 0.62;
+    const cx = screenWidth / 2, cy = screenHeight * 0.60;
     const now = Date.now();
-    const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+    const pulse = 0.5 + 0.5 * Math.sin(now / 160);
 
     ctx.save();
-    // 压暗战场（但不全黑，保留"废墟"氛围）
-    ctx.fillStyle = 'rgba(6, 10, 18, 0.72)';
+    // 压暗背景（更暗，减少战场干扰）
+    ctx.fillStyle = 'rgba(4, 8, 14, 0.86)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
-    // 守将：披风剪影 + 盾
-    ctx.globalAlpha = 0.95;
-    ctx.fillStyle = '#2b3550';
-    ctx.beginPath(); ctx.arc(cx, cy - 26, 16, 0, Math.PI * 2); ctx.fill();            // 头
-    ctx.beginPath();
-    ctx.moveTo(cx - 24, cy + 36); ctx.lineTo(cx - 14, cy - 12);
-    ctx.lineTo(cx + 14, cy - 12); ctx.lineTo(cx + 24, cy + 36);
-    ctx.closePath(); ctx.fill();                                                       // 身
-    ctx.fillStyle = '#3d7a5a';
-    ctx.strokeStyle = '#ffd23a'; ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(cx + 26, cy - 20); ctx.lineTo(cx + 44, cy - 12);
-    ctx.lineTo(cx + 42, cy + 8); ctx.lineTo(cx + 26, cy + 18);
-    ctx.lineTo(cx + 10, cy + 8); ctx.lineTo(cx + 8, cy - 12);
-    ctx.closePath(); ctx.fill(); ctx.stroke();                                         // 盾
-
-    // 光圈
-    ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.4 + 0.4 * pulse) + ')';
+    // 一个「守」字：足够简单，也足够有辨识度
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.5 + 0.35 * pulse) + ')';
     ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(cx, cy, 62 + 5 * pulse, 0, Math.PI * 2); ctx.stroke();
-
-    // 标题
-    ctx.globalAlpha = 1;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.beginPath(); ctx.arc(cx, cy, 54, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#ffd23a';
-    ctx.font = 'bold 24px "STKaiti","KaiTi","SimHei",sans-serif';
-    ctx.fillText('城墙已破', cx, cy - 96);
+    ctx.font = 'bold 52px "STKaiti","KaiTi","SimHei",sans-serif';
+    ctx.fillText('守', cx, cy + 2);
+
+    // 标题（只留一行）
     ctx.fillStyle = '#e6eef8';
-    ctx.font = '14px sans-serif';
-    ctx.fillText('守将尚在，可再战一次', cx, cy - 70);
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('城墙已破', cx, cy - 84);
 
-    // 召唤按钮
-    ctx.fillStyle = 'rgba(255, 210, 74, 0.16)';
-    roundRect(ctx, cx - 84, cy + 54, 168, 34, 17); ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.6 + 0.4 * pulse) + ')';
-    ctx.lineWidth = 2;
-    roundRect(ctx, cx - 84, cy + 54, 168, 34, 17); ctx.stroke();
-    ctx.fillStyle = '#ffe9a8';
-    ctx.font = 'bold 15px sans-serif';
-    ctx.fillText('点守将 · 看广告复活', cx, cy + 71);
+    // 唯一的按钮
+    const bw = 196, bh = 44, by = cy + 66;
+    ctx.fillStyle = '#ffd23a';
+    roundRect(ctx, cx - bw / 2, by, bw, bh, 22); ctx.fill();
+    ctx.fillStyle = '#1a1408';
+    ctx.font = 'bold 17px sans-serif';
+    ctx.fillText('看广告 · 复活', cx, by + bh / 2 + 1);
 
-    // 放弃
-    ctx.fillStyle = 'rgba(200, 210, 225, 0.75)';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('放弃本局', cx, cy + 106);
+    // 放弃：小字，不抢视线
+    ctx.fillStyle = 'rgba(190, 200, 214, 0.7)';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('放弃本局', cx, cy + 132);
     ctx.restore();
 }
 
@@ -4195,20 +4178,17 @@ function grantShieldReinforcement(sol) {
     shieldSoldier = null;
     shieldPushUntil = now + 420;
 
-    // 修 1 格（不超过上限）
-    wallLives = Math.min(wallLivesMax, wallLives + 1);
-
-    // 推退：屏幕下半段的怪整体上移
+    // v2.16：盾兵职责 = 推退 + 盾墙（不再修墙，避免和「守将复活」混淆）
     for (const z of zombies) {
-        if (z.y > WALL_Y - 320) z.y -= 180;
+        if (z.y > WALL_Y - 340) z.y -= 220;
         if (z.y < -60) z.y = -60;
     }
-    invincibleUntil = Math.max(invincibleUntil, now + 1500);
+    shieldWallUntil = now + 4000;
 
     addShake(12, 320);
     vibrate('heavy');
     AudioSystem.playExplosion();
-    damageNumbers.push({ x: sol.x, y: sol.y - 26, text: '援军已至', life: 1200, vy: -1.2, color: '#ffd23a', isCrit: true });
+    damageNumbers.push({ x: sol.x, y: sol.y - 26, text: '盾墙 4 秒', life: 1200, vy: -1.2, color: '#ffd23a', isCrit: true });
     for (let i = 0; i < 18; i++) {
         const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 5;
         addParticle({ x: sol.x, y: sol.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, radius: 3 + Math.random() * 3, life: 420, color: i % 2 ? '#ffd23a' : '#fff2c0' });
@@ -4216,7 +4196,28 @@ function grantShieldReinforcement(sol) {
     bombExplosionEffects.push({ x: sol.x, y: sol.y, radius: 0, life: 380, maxRadius: 140 });
 }
 
+function drawShieldWall() {
+    if (Date.now() >= shieldWallUntil) return;
+    const y = WALL_Y - 150;
+    const left = Math.max(0, (shieldWallUntil - Date.now()) / 4000);
+    ctx.save();
+    ctx.globalAlpha = 0.28 + 0.22 * left;
+    const g = ctx.createLinearGradient(0, y - 18, 0, y + 6);
+    g.addColorStop(0, 'rgba(255, 210, 74, 0)');
+    g.addColorStop(0.6, 'rgba(255, 210, 74, 0.5)');
+    g.addColorStop(1, 'rgba(255, 210, 74, 0.85)');
+    ctx.fillStyle = g;
+    ctx.fillRect(WALL_X0, y - 18, WALL_X1 - WALL_X0, 24);
+    // 顶线
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = 'rgba(255, 235, 160, 0.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(WALL_X0, y + 4); ctx.lineTo(WALL_X1, y + 4); ctx.stroke();
+    ctx.restore();
+}
+
 function drawShieldSoldier() {
+    drawShieldWall();
     if (!shieldSoldier) return;
     const now = Date.now();
     if (now >= shieldSoldier.until) { shieldSoldier = null; return; }
@@ -6559,6 +6560,12 @@ function updateZombies(dt) {
         // 竖直向下坠落（城墙玩法：敌人不再朝坦克 homing，改为竖直下落）
         zombie.y += sp;
 
+        // v2.16：盾墙期间，怪被挡在墙前 150px
+        if (Date.now() < shieldWallUntil) {
+            const _limit = WALL_Y - 150;
+            if (zombie.y > _limit) zombie.y = _limit;
+        }
+
         // 战场边界钳制：以身体边缘为基准，被击退也不越出左右屏幕边缘（保持可被瞄准）
         clampZombieToField(zombie);
 
@@ -7564,7 +7571,7 @@ function startGame() {
     wallLives = wallLivesMax;
     leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
-    reviveUsed = false; reviveOfferUntil = 0;
+    reviveUsed = false; reviveOfferUntil = 0; shieldWallUntil = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -15165,10 +15172,12 @@ wx.onTouchStart((e) => {
         // v2.15.1：复活窗口必须最先判定——归零时 gamePaused=true，
         // 否则点击会被下面的「暂停弹窗」分支吃掉，守将永远点不到。
         if (Date.now() < reviveOfferUntil) {
-            const _cy = screenHeight * 0.62;
-            if (Math.hypot(x - screenWidth / 2, y - _cy) <= 78) {
+            const _cx = screenWidth / 2, _cy = screenHeight * 0.60;
+            const _inBtn = (x > _cx - 106 && x < _cx + 106 && y > _cy + 60 && y < _cy + 116);
+            const _onKeeper = Math.hypot(x - _cx, y - _cy) <= 62;
+            if (_inBtn || _onKeeper) {
                 showRewardedAd(() => grantRevive());
-            } else if (y > _cy + 96 && y < _cy + 126) {   // 「放弃」文字区（避开复活按钮下沿）
+            } else if (y > _cy + 120 && y < _cy + 146) {
                 reviveOfferUntil = 0;
                 gamePaused = false;
                 gameOver();

@@ -91,6 +91,9 @@ const driver = `
     evolution = null; bullets.length = 0; zombies.length = 0;
     autoDpsBonus = 0; synergyDmgBonus = 0; synergyUntil = 0; player.level = 1; player.exp = 0; player.expToLevel = 999999;
     talentMods.expMult = 1; talentMods.goldMult = 1;
+    shieldWallUntil = 0; shieldSoldier = null; shieldAdUsed = 0;
+    reviveUsed = false; reviveOfferUntil = 0; invincibleUntil = 0;
+    wallLives = 3; leaksThisLevel = 0;
   }
   function zk(x,y,el){ return { x:x, y:y, radius:22, element:el||'金', elements:null, health:1e9, maxHealth:1e9,
                                frozenUntil:0, slowUntil:0, burningUntil:0, vulnUntil:0, vulnMul:1, burnDmg:0,
@@ -372,16 +375,24 @@ const driver = `
   // ---------- 6m) v2.14：盾兵援军（情境化广告点） ----------
   try {
     resetAll(); zombies.length = 0;
-    wallLives = 2; wallLivesMax = 3; shieldAdUsed = 0; invincibleUntil = 0;
+    wallLives = 2; wallLivesMax = 3; shieldAdUsed = 0; shieldWallUntil = 0;
     const nearWall = zk(200, 0, '金'); nearWall.speed = 0; nearWall.y = WALL_Y - 40;
     zombies.push(nearWall);
-    grantShieldReinforcement({ x: 200, y: WALL_Y - 34 });
-    if (wallLives !== 3) throw new Error('援军应修复 1 格, 实=' + wallLives);
+    grantShieldReinforcement({ x: 200, y: WALL_Y - 64 });
+    if (wallLives !== 2) throw new Error('盾兵不应修墙（修墙是守将职责）, 实=' + wallLives);
     if (!(nearWall.y < WALL_Y - 40)) throw new Error('贴墙怪应被推退');
-    if (!(invincibleUntil > Date.now())) throw new Error('援军后应有短暂无敌');
+    if (!(shieldWallUntil > Date.now())) throw new Error('应生成盾墙');
     if (shieldAdUsed !== 1) throw new Error('广告次数应 +1');
+
+    // 盾墙期间怪不能越过 WALL_Y-150
+    const z2 = zk(200, 0, '金'); z2.speed = 0; z2.y = WALL_Y - 100;
+    zombies.length = 0; zombies.push(z2);
+    updateZombies(16);
+    if (z2.y > WALL_Y - 149) throw new Error('盾墙期间怪应被挡在 WALL_Y-150, 实 y=' + z2.y);
+    if (wallLives !== 2) throw new Error('盾墙期间不应掉格');
+
     if (!__hasShield) throw new Error('盾兵未接入点击/绘制');
-    ok('盾兵援军：修 1 格 + 推退 + 1.5s 无敌 + 次数计数');
+    ok('盾兵：推退 220px + 4s 盾墙（不修墙）');
   } catch(e){ fail('盾兵援军', e); }
 
   // ---------- 6n) v2.15：守将复活 ----------
