@@ -265,6 +265,11 @@ const THROW_RADIUS = 48;          // 落点判定半径
 const THROW_CD = 5500;            // 同一只投掷者的间隔
 let playerStunUntil = 0;          // 被命中后的眩晕（炮台停火）
 
+// ===== v2.10 P8c：Boss 演出 =====
+let bossWarnUntil = 0;     // 「BOSS 来袭」横幅
+let bossKillUntil = 0;     // 「BOSS 击破」慢动作/闪白
+let bossKillName = '';
+
 const EVOLUTIONS = {
     'multishot_火': { name: '火焰喷射', color: '#ff6a14', radius: 22, explodeR: 60, burn: true },
     'pierce_金':    { name: '穿甲激光', color: '#ffd23a', radius: 10, pierce: 8, speedMul: 1.5 },
@@ -4058,7 +4063,61 @@ function drawBombExplosions() {
 }
 
 // 绘制UI
+// ===== v2.10 P8c：Boss 演出 HUD =====
+function drawBossHud() {
+    const now = Date.now();
+
+    // ① 来袭警告
+    if (now < bossWarnUntil) {
+        const p = (bossWarnUntil - now) / 2500;
+        const pulse = 0.55 + 0.45 * Math.sin(now / 90);
+        ctx.save();
+        ctx.globalAlpha = 0.10 + 0.10 * pulse;
+        ctx.fillStyle = '#ff2d20';
+        ctx.fillRect(0, 0, screenWidth, screenHeight);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 34px "STKaiti","KaiTi","SimHei",sans-serif';
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 6;
+        ctx.fillStyle = '#ff4a3a';
+        const txt = 'BOSS 来袭';
+        ctx.strokeText(txt, screenWidth / 2, screenHeight * 0.30);
+        ctx.fillText(txt, screenWidth / 2, screenHeight * 0.30);
+        ctx.restore();
+    }
+
+    // ② 顶部血条（有 BOSS 存活时）
+    let boss = null;
+    for (const z of zombies) { if (z.type === 'boss' && z.health > 0) { boss = z; break; } }
+    if (!boss) return;
+    const w = screenWidth * 0.62, h = 12;
+    const x = (screenWidth - w) / 2, y = 62;
+    const ratio = Math.max(0, Math.min(1, boss.health / Math.max(1, boss.maxHealth)));
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,14,22,0.75)';
+    roundRect(ctx, x - 2, y - 2, w + 4, h + 4, 7);
+    ctx.fill();
+    ctx.fillStyle = '#3a0d0d';
+    roundRect(ctx, x, y, w, h, 6);
+    ctx.fill();
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, '#ff2d20');
+    grad.addColorStop(1, '#ff8a3a');
+    ctx.fillStyle = grad;
+    roundRect(ctx, x, y, Math.max(2, w * ratio), h, 6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, h, 6);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd9b0';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('BOSS  ' + Math.ceil(boss.health) + ' / ' + Math.ceil(boss.maxHealth), screenWidth / 2, y - 4);
+    ctx.restore();
+}
+
 function drawUI() {
+    drawBossHud();
     const stage = getCurrentStage();
 
     // ========== 顶部信息栏 ==========
@@ -5867,6 +5926,16 @@ function damageZombie(zombie, damage, isCrit, element) {
     
     if (zombie.health <= 0) {
         player.kills++;
+        // v2.10 P8c：BOSS 击破演出
+        if (zombie.type === 'boss') {
+            bossKillUntil = now + 1200;
+            slowUntil = now + 420;
+            flashUntil = now + 260; flashColor = '#ffd23a';
+            addShake(12, 420);
+            vibrate('heavy');
+            damageNumbers.push({ x: zombie.x, y: zombie.y - zombie.radius, text: 'BOSS 击破', life: 1400, vy: -1.0, color: '#ffd23a', isCrit: true });
+        }
+
         // v2.4：克制击杀 → 该元素积印 + 连杀；错配击杀 → 断连
         if (!_detonating) {
             if (_eb > 2.0) {
@@ -6513,15 +6582,16 @@ function drawEnemyShots() {
         ctx.strokeStyle = 'rgba(255, 90, 60, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(shot.tx, shot.ty, rr, 0, Math.PI * 2); ctx.stroke();
-        // 飞行物：旋转菱形 + 深红描边（P9e-6：原来是橙色圆点，会被误认成金币/经验球）
+        // 飞行物：尖锐菱形（不旋转）+ 深红描边
+        // P9e-6：原来是橙色圆点，会被误认成金币/经验球
+        // v2.10：取消旋转（转起来反而像可拾取物），并把菱形拉长压窄，尖锐度更高
         ctx.save();
         ctx.translate(shot.x, shot.y);
-        ctx.rotate((now / 90) % (Math.PI * 2));
         ctx.fillStyle = '#ff2d20';
         ctx.strokeStyle = '#2a0000';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 10); ctx.lineTo(-10, 0);
+        ctx.moveTo(0, -15); ctx.lineTo(6.5, 0); ctx.lineTo(0, 15); ctx.lineTo(-6.5, 0);
         ctx.closePath();
         ctx.fill(); ctx.stroke();
         ctx.strokeStyle = '#ffe1dc';
@@ -6777,6 +6847,11 @@ function updatePendingSpawns() {
             slowFactor: 0.5,
             isAdZombie: !!p._adTemp
         });
+        if (p.type === 'boss') {
+            bossWarnUntil = Date.now() + 2500;
+            addShake(6, 300);
+            vibrate('heavy');
+        }
         pendingSpawns.splice(i, 1);
     }
 }
@@ -7113,6 +7188,7 @@ function startGame() {
     moveUntil = 0;
     playerVX = 0; playerMoveTargetX = player.x;
     enemyShots = []; nextThrowerAt = 0; playerStunUntil = 0;
+    bossWarnUntil = 0; bossKillUntil = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;

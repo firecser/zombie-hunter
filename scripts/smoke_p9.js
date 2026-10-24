@@ -56,7 +56,10 @@ const sandbox = {
     __hasMoveCost: /_fireGap = ELEMENT_AUTO_FIRE_RATE \* \(_moving \? 2 : 1\)/.test(src)
         && /moveUntil = Date\.now\(\) \+ 150/.test(src),
     __hasLey: /leyLines|updateLeyLines|drawLeyLines/.test(src),
-    __hasStunFire: /now >= playerStunUntil/.test(src)
+    __hasStunFire: /now >= playerStunUntil/.test(src),
+    __hasBossHud: /function drawBossHud\(\)/.test(src) && /drawBossHud\(\);/.test(src),
+    __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
+        && !/ctx\.rotate\(\(now \/ 90\)/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -256,6 +259,19 @@ const driver = `
 
     ok('物理移动：单帧位移 ' + moved.toFixed(1) + 'px（不瞬移）+ 平滑到位 + 边界夹紧');
   } catch(e){ fail('物理移动', e); }
+
+  // ---------- 6g) v2.10：Boss 演出 + 投掷物外观 ----------
+  try {
+    resetAll();
+    const boss = zk(200, 300, '火'); boss.type = 'boss'; boss.health = 1; boss.maxHealth = 9000;
+    zombies.push(boss);
+    damageZombie(boss, 1e6, false, '水');
+    if (!(bossKillUntil > Date.now())) throw new Error('BOSS 击杀应触发击破演出');
+    if (!(slowUntil > Date.now())) throw new Error('BOSS 击破应有慢动作');
+    if (!__hasBossHud) throw new Error('drawUI 未接入 Boss HUD');
+    if (!__hasSharpShot) throw new Error('投掷物未改为不旋转的尖锐菱形');
+    ok('Boss 演出：击破慢动作 + 顶部血条接线 + 投掷物尖锐菱形（不旋转）');
+  } catch(e){ fail('Boss 演出', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
