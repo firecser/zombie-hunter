@@ -91,7 +91,7 @@ const driver = `
     evolution = null; bullets.length = 0; zombies.length = 0;
     autoDpsBonus = 0; synergyDmgBonus = 0; synergyUntil = 0; player.level = 1; player.exp = 0; player.expToLevel = 999999;
     talentMods.expMult = 1; talentMods.goldMult = 1;
-    shieldWallUntil = 0; shieldSoldier = null; shieldAdUsed = 0;
+    shieldWall = null; shieldSoldier = null; shieldAdUsed = 0;
     reviveUsed = false; reviveOfferUntil = 0; invincibleUntil = 0;
     wallLives = 3; leaksThisLevel = 0;
   }
@@ -375,24 +375,32 @@ const driver = `
   // ---------- 6m) v2.14：盾兵援军（情境化广告点） ----------
   try {
     resetAll(); zombies.length = 0;
-    wallLives = 2; wallLivesMax = 3; shieldAdUsed = 0; shieldWallUntil = 0;
+    wallLives = 2; wallLivesMax = 3; shieldAdUsed = 0; shieldWall = null;
     const nearWall = zk(200, 0, '金'); nearWall.speed = 0; nearWall.y = WALL_Y - 40;
     zombies.push(nearWall);
     grantShieldReinforcement({ x: 200, y: WALL_Y - 64 });
     if (wallLives !== 2) throw new Error('盾兵不应修墙（修墙是守将职责）, 实=' + wallLives);
     if (!(nearWall.y < WALL_Y - 40)) throw new Error('贴墙怪应被推退');
-    if (!(shieldWallUntil > Date.now())) throw new Error('应生成盾墙');
+    if (!shieldWall) throw new Error('应生成盾墙');
     if (shieldAdUsed !== 1) throw new Error('广告次数应 +1');
 
-    // 盾墙期间怪不能越过 WALL_Y-150
+    // v2.17：盾墙必须「逐步上升」——起点在墙底，终点在 WALL_Y-150
+    const _y0 = getShieldWallY(shieldWall.start + 0);
+    const _y1 = getShieldWallY(shieldWall.start + 450);
+    const _y2 = getShieldWallY(shieldWall.start + 900);
+    if (!(_y0 > _y1 && _y1 > _y2)) throw new Error('盾墙应逐步上升: ' + [_y0, _y1, _y2].join(' > '));
+    if (Math.abs(_y2 - (WALL_Y - 150)) > 1) throw new Error('盾墙终点应为 WALL_Y-150, 实=' + _y2);
+
+    // 升满后：怪被顶到墙外
+    shieldWall.start = Date.now() - 2000;
     const z2 = zk(200, 0, '金'); z2.speed = 0; z2.y = WALL_Y - 100;
     zombies.length = 0; zombies.push(z2);
     updateZombies(16);
-    if (z2.y > WALL_Y - 149) throw new Error('盾墙期间怪应被挡在 WALL_Y-150, 实 y=' + z2.y);
+    if (z2.y > WALL_Y - 170) throw new Error('盾墙升满后怪应被顶到 WALL_Y-176, 实 y=' + z2.y);
     if (wallLives !== 2) throw new Error('盾墙期间不应掉格');
 
     if (!__hasShield) throw new Error('盾兵未接入点击/绘制');
-    ok('盾兵：推退 220px + 4s 盾墙（不修墙）');
+    ok('盾兵：推退 220px + 盾墙从墙底升起(WALL_Y+20 → WALL_Y-150) + 顶怪');
   } catch(e){ fail('盾兵援军', e); }
 
   // ---------- 6n) v2.15：守将复活 ----------

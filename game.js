@@ -99,7 +99,8 @@ const SHIELD_AD_MAX = 2;               // 每局最多 2 次
 let shieldAdUsed = 0;                  // 已使用次数
 let shieldSoldier = null;              // { x, y, until } 场上的盾兵
 let shieldPushUntil = 0;               // 推退动画窗口（表现用）
-let shieldWallUntil = 0;               // v2.16：盾墙持续（此期间怪不能越过 WALL_Y-150）
+// v2.17：盾墙改为「从墙底升起 → 逐步上推 → 停留 → 消散」的过程动画
+let shieldWall = null;   // { start, fromY, toY, riseMs, until }
 
 // ===== v2.15 IAA：失败复活（守将）=====
 let reviveUsed = false;        // 每局 1 次
@@ -4143,9 +4144,17 @@ function drawReviveOffer() {
     // 一个「守」字：足够简单，也足够有辨识度
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.5 + 0.35 * pulse) + ')';
-    ctx.lineWidth = 3;
+    // 底圈（暗）
+    ctx.strokeStyle = 'rgba(255, 210, 74, 0.22)';
+    ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(cx, cy, 54, 0, Math.PI * 2); ctx.stroke();
+    // v2.17：倒计时读条（随剩余时间收缩）
+    const _ratio = Math.max(0, (reviveOfferUntil - now) / REVIVE_OFFER_MS);
+    ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.75 + 0.25 * pulse) + ')';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 54, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * _ratio, false);
+    ctx.stroke();
     ctx.fillStyle = '#ffd23a';
     ctx.font = 'bold 52px "STKaiti","KaiTi","SimHei",sans-serif';
     ctx.fillText('守', cx, cy + 2);
@@ -4183,7 +4192,7 @@ function grantShieldReinforcement(sol) {
         if (z.y > WALL_Y - 340) z.y -= 220;
         if (z.y < -60) z.y = -60;
     }
-    shieldWallUntil = now + 4000;
+    shieldWall = { start: now, fromY: WALL_Y + 20, toY: WALL_Y - 150, riseMs: 900, until: now + 4200 };
 
     addShake(12, 320);
     vibrate('heavy');
@@ -4196,23 +4205,41 @@ function grantShieldReinforcement(sol) {
     bombExplosionEffects.push({ x: sol.x, y: sol.y, radius: 0, life: 380, maxRadius: 140 });
 }
 
+// 当前盾墙高度（null = 不存在）
+function getShieldWallY(now) {
+    if (!shieldWall) return null;
+    if (now >= shieldWall.until) { shieldWall = null; return null; }
+    const p = Math.min(1, (now - shieldWall.start) / shieldWall.riseMs);
+    return shieldWall.fromY + (shieldWall.toY - shieldWall.fromY) * p;
+}
+
 function drawShieldWall() {
-    if (Date.now() >= shieldWallUntil) return;
-    const y = WALL_Y - 150;
-    const left = Math.max(0, (shieldWallUntil - Date.now()) / 4000);
+    const now = Date.now();
+    const y = getShieldWallY(now);
+    if (y === null) return;
+    const left = Math.max(0, (shieldWall.until - now) / 1000);
+    const rising = (now - shieldWall.start) < shieldWall.riseMs;
+    const fade = rising ? 1 : Math.min(1, left / 0.9);   // 最后 0.9s 淡出
     ctx.save();
-    ctx.globalAlpha = 0.28 + 0.22 * left;
-    const g = ctx.createLinearGradient(0, y - 18, 0, y + 6);
-    g.addColorStop(0, 'rgba(255, 210, 74, 0)');
-    g.addColorStop(0.6, 'rgba(255, 210, 74, 0.5)');
-    g.addColorStop(1, 'rgba(255, 210, 74, 0.85)');
+    // 墙体：从墙底到当前高度的一条金色光带（有厚度，能看出"升起来"）
+    const topY = y - 10;
+    const g = ctx.createLinearGradient(0, topY, 0, y + 26);
+    g.addColorStop(0, 'rgba(255, 235, 160, ' + (0.55 * fade) + ')');
+    g.addColorStop(0.45, 'rgba(255, 210, 74, ' + (0.34 * fade) + ')');
+    g.addColorStop(1, 'rgba(255, 210, 74, 0)');
     ctx.fillStyle = g;
-    ctx.fillRect(WALL_X0, y - 18, WALL_X1 - WALL_X0, 24);
-    // 顶线
-    ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = 'rgba(255, 235, 160, 0.95)';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(WALL_X0, y + 4); ctx.lineTo(WALL_X1, y + 4); ctx.stroke();
+    ctx.fillRect(WALL_X0, topY, WALL_X1 - WALL_X0, Math.max(4, (y + 26) - topY));
+    // 顶沿亮线
+    ctx.globalAlpha = 0.95 * fade;
+    ctx.strokeStyle = '#fff2c0';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(WALL_X0, topY); ctx.lineTo(WALL_X1, topY); ctx.stroke();
+    // 上升时的火花
+    if (rising) {
+        for (let i = 0; i < 3; i++) {
+            addParticle({ x: WALL_X0 + Math.random() * (WALL_X1 - WALL_X0), y: topY + 6, vx: (Math.random() - 0.5) * 2, vy: -2 - Math.random() * 2, radius: 2 + Math.random() * 2, life: 260, color: '#ffe9a8' });
+        }
+    }
     ctx.restore();
 }
 
@@ -6560,11 +6587,9 @@ function updateZombies(dt) {
         // 竖直向下坠落（城墙玩法：敌人不再朝坦克 homing，改为竖直下落）
         zombie.y += sp;
 
-        // v2.16：盾墙期间，怪被挡在墙前 150px
-        if (Date.now() < shieldWallUntil) {
-            const _limit = WALL_Y - 150;
-            if (zombie.y > _limit) zombie.y = _limit;
-        }
+        // v2.17：盾墙上升过程中，把怪持续顶上去（不是一次性 clamp）
+        const _swY = getShieldWallY(now);
+        if (_swY !== null && zombie.y > _swY - 26) zombie.y = _swY - 26;
 
         // 战场边界钳制：以身体边缘为基准，被击退也不越出左右屏幕边缘（保持可被瞄准）
         clampZombieToField(zombie);
@@ -7571,7 +7596,7 @@ function startGame() {
     wallLives = wallLivesMax;
     leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
-    reviveUsed = false; reviveOfferUntil = 0; shieldWallUntil = 0;
+    reviveUsed = false; reviveOfferUntil = 0; shieldWall = null;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
