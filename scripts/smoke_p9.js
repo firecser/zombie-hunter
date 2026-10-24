@@ -411,6 +411,20 @@ const driver = `
     ok('复活触摸顺序：复活判定先于暂停弹窗');
   } catch(e){ fail('复活触摸顺序', e); }
 
+  // ---------- 6p) v2.15.2：破格是否真的生成盾兵 ----------
+  try {
+    resetAll(); zombies.length = 0;
+    gameState = 'playing'; gamePaused = false;
+    wallLives = 3; wallLivesMax = 3; shieldAdUsed = 0; shieldSoldier = null; reviveOfferUntil = 0;
+    const z = zk(160, 0, '金'); z.speed = 0; z.y = WALL_Y - z.radius + 2;
+    zombies.push(z);
+    updateZombies(16);
+    if (wallLives !== 2) throw new Error('应扣 1 格');
+    if (!shieldSoldier) throw new Error('破格后未生成盾兵');
+    if (!(shieldSoldier.until > Date.now())) throw new Error('盾兵时长异常');
+    ok('破格生成盾兵：lives 3→2，盾兵 @x=' + Math.round(shieldSoldier.x));
+  } catch(e){ fail('破格生成盾兵', e); }
+
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');

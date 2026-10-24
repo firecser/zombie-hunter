@@ -4229,8 +4229,8 @@ function drawShieldSoldier() {
     ctx.globalAlpha = fade;
     // 光圈
     ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.45 + 0.35 * pulse) + ')';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y, 30 + 4 * pulse, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(x, y, 36 + 5 * pulse, 0, Math.PI * 2); ctx.stroke();
     // 盾牌
     ctx.fillStyle = '#2f6f4f';
     ctx.strokeStyle = '#ffd23a';
@@ -4246,13 +4246,28 @@ function drawShieldSoldier() {
     ctx.fill(); ctx.stroke();
     // 盾面「援」
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 15px "STKaiti","KaiTi","SimHei",sans-serif';
+    ctx.font = 'bold 18px "STKaiti","KaiTi","SimHei",sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('援', x, y - 1);
-    // 上方提示
-    ctx.fillStyle = 'rgba(255, 235, 160, 0.95)';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('点我·看广告', x, y - 34);
+
+    // 上方胶囊标签「看广告 · 援军」（深底金字，明确可点）
+    const _lw = 96, _lh = 20, _ly = y - 52;
+    ctx.fillStyle = 'rgba(8, 14, 24, 0.88)';
+    roundRect(ctx, x - _lw / 2, _ly, _lw, _lh, 10); ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 210, 74, 0.9)'; ctx.lineWidth = 1.5;
+    roundRect(ctx, x - _lw / 2, _ly, _lw, _lh, 10); ctx.stroke();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('看广告 · 援军', x, _ly + _lh / 2 + 1);
+
+    // 跳动的下箭头（指向盾兵）
+    const _bob = Math.sin(now / 180) * 3;
+    ctx.fillStyle = 'rgba(255, 210, 74, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 28 + _bob);
+    ctx.lineTo(x - 7, y - 38 + _bob);
+    ctx.lineTo(x + 7, y - 38 + _bob);
+    ctx.closePath(); ctx.fill();
     ctx.restore();
 }
 
@@ -6616,7 +6631,12 @@ function updateZombies(dt) {
                 }
                 // v2.14：破格后，在破口位置出现「盾兵援军」（仅当还有广告次数）
                 if (shieldAdUsed < SHIELD_AD_MAX && wallLives > 0) {
-                    shieldSoldier = { x: Math.max(50, Math.min(screenWidth - 50, zombie.x)), y: WALL_Y - 34, until: now + 6500 };
+                    // v2.15.2：存在 10s；抬高到城墙上方，避免与炮台/血条重叠
+                    let _sx = Math.max(50, Math.min(screenWidth - 50, zombie.x));
+                    if (Math.abs(_sx - player.x) < 60) _sx = player.x + (player.x < screenWidth / 2 ? 70 : -70);
+                    shieldSoldier = { x: Math.max(40, Math.min(screenWidth - 40, _sx)), y: WALL_Y - 64, until: now + 10000 };
+                    AudioSystem.playPickup();
+                    vibrate('light');
                 }
                 if (wallLives <= 0 && (reviveUsed || Date.now() >= reviveOfferUntil)) { gameOver(); }
             }
@@ -15217,7 +15237,7 @@ wx.onTouchStart((e) => {
             // 五行坞点击（P2：选中元素 = 立即切换炮台发射属性；相生连携在此激活）
             // v2.14：先判定「盾兵援军」（场上单位，优先于五行坞）
             if (shieldSoldier && Date.now() < shieldSoldier.until &&
-                Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 46) {
+                Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 54) {
                 const _sol = shieldSoldier;
                 showRewardedAd(() => grantShieldReinforcement(_sol));
                 return;
