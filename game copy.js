@@ -207,6 +207,7 @@ const ELEMENT_BASE_DPS   = { '金':300, '火':240, '木':180, '土':170, '水':1
 const ELEMENT_AOE        = { '金':1.4, '火':1.6, '木':1.0, '土':1.0, '水':1.0 }; // 多目标等效（克制时生效）
 const ELEMENT_FIRE_RATE  = 220;                                        // 炮台射速（ms）
 const ELEMENT_FIRE_HZ    = 1000 / ELEMENT_FIRE_RATE;                   // ≈4.55 发/s
+const BOSS_TTK_SECONDS   = 16;                                         // v2.12：BOSS 目标击杀时长（秒），用于动态血量
 // 注意：updateBullets() 是按「像素/帧」推进（bullet.x += bullet.vx），与 player.bulletSpeed 同单位！
 // 切勿写成 640（px/s）——那样子弹一帧就飞出屏幕被回收，表现为「完全不发射」。
 const ELEMENT_BULLET_SPEED = 10;                                       // 五行子弹速度（px/帧，≈600px/s）
@@ -5395,6 +5396,16 @@ function elementPerShot(el) {
     return per;
 }
 
+// v2.12：当前「克制向」DPS 估算——用于 BOSS 血量定标
+// 说明：BOSS 不该用「波次血量预算」定大小（预算是给杂兵的），否则玩家一发育就把 BOSS 秒了。
+// 这里按「当前元素满弹道、对克制目标」的理论 DPS 算，再乘目标秒数，保证每个 BOSS 都要打一会儿。
+function currentCounterDPS() {
+    const el = activeElement;
+    const per = elementPerShot(el) * Math.max(1, restraintMult) * (ELEMENT_AOE[el] || 1);
+    const n = bulletCountFor(el);
+    return per * n * ELEMENT_FIRE_HZ * comboMul();
+}
+
 // M3：弹道数 = 1 + 精通档位（Lv5/Lv9）+ 词条「连发」+ 进化加成，上限 6
 function bulletCountFor(el) {
     const lvl = elementLevels[el] || 1;
@@ -6906,6 +6917,13 @@ function updatePendingSpawns() {
         // 现在血量只由「关卡基线 × 波次 tier 表」决定，成长压力交给 E_BASE / 元素精通 / 局外树。
         const healthMult = stage.healthMult;
         const damageMult = stage.damageMult * tier.dmgT;
+        // v2.12：BOSS 血量 = max(波次预算份额, 当前克制 DPS × 16s)
+        // 同一关里越往后的 BOSS，玩家发育越强 → 动态血量也越高，不会「越打越脆」。
+        let _spawnHP = template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1));
+        if (p.type === 'boss') {
+            const _dyn = currentCounterDPS() * BOSS_TTK_SECONDS;
+            _spawnHP = Math.max(_spawnHP, _dyn);
+        }
         zombies.push({
             id: _zombieIdSeq++,
             x: p._adTemp ? p._adTemp.x : (Math.random() * screenWidth),
@@ -6915,8 +6933,8 @@ function updatePendingSpawns() {
             creature: p.creature || 'seal',
             radius: template.radius,
             speed: p._adTemp ? p._adTemp.speed : (template.speed * stage.speedMult),
-            health: template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1)),
-            maxHealth: template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1)),
+            health: _spawnHP,
+            maxHealth: _spawnHP,
             damage: template.damage * damageMult,
             color: template.color,
             exp: p.expVal,   // v1.1.73：每波总经验=EXP_BASE×波次、按怪数均分（见 spawnWave），与怪量/密度解耦

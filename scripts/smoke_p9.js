@@ -63,7 +63,8 @@ const sandbox = {
     __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src),
     __hasShotOrient: /ctx\.rotate\(Math\.atan2\(shot\.ty - shot\.y0/.test(src),
     __hasBounceFx: /createLightning\(src\.x, src\.y, best\.x, best\.y\)/.test(src),
-    __hasBossScale: /bossScale = isBoss \? \(bossHP \/ BASE_HP\.boss\)/.test(src)
+    __hasBossScale: /bossScale = isBoss \? \(bossHP \/ BASE_HP\.boss\)/.test(src),
+    __hasBossDyn: /currentCounterDPS\(\) \* BOSS_TTK_SECONDS/.test(src) && /const BOSS_TTK_SECONDS   = 16;/.test(src)
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
@@ -304,6 +305,21 @@ const driver = `
     if (!__hasBossScale) throw new Error('BOSS 未使用独立血量份额');
     ok('v2.11：中性0.55/错配0.15 + 投掷物定向 + 弹射连线 + BOSS 独立血量');
   } catch(e){ fail('v2.11 修复', e); }
+
+  // ---------- 6j) v2.12：BOSS 动态血量 ----------
+  try {
+    resetAll();
+    activeElement = '火';
+    elementLevels['火'] = 1;
+    const d1 = currentCounterDPS();
+    elementLevels['火'] = 9;
+    perks.multishot = 3;
+    const d6 = currentCounterDPS();
+    if (!(d1 > 0)) throw new Error('DPS 估算应为正');
+    if (!(d6 > d1 * 3)) throw new Error('满弹道 DPS 应远高于单弹道');
+    if (!__hasBossDyn) throw new Error('BOSS 未接入动态血量');
+    ok('BOSS 动态血量：单弹道 ' + Math.round(d1) + ' DPS → 满弹道 ' + Math.round(d6) + ' DPS（×16s 定血）');
+  } catch(e){ fail('BOSS 动态血量', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
