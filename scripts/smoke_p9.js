@@ -61,6 +61,7 @@ const sandbox = {
     __hasSharpShot: /moveTo\(0, -15\); ctx\.lineTo\(6\.5, 0\)/.test(src)
         && !/ctx\.rotate\(\(now \/ 90\)/.test(src),
     __hasChestSpawn: /chests\.push\(\{ x: 60 \+ Math\.random/.test(src),
+    __hasRevive: /function grantRevive/.test(src) && /function drawReviveOffer/.test(src) && /grantRevive\(\)/.test(src),
     __hasShield: /const SHIELD_AD_MAX = 2;/.test(src) && /function grantShieldReinforcement/.test(src) && /function drawShieldSoldier/.test(src) && /grantShieldReinforcement\(_sol\)/.test(src),
     __hasWallLives: /const WALL_LIVES_BASE = 3;/.test(src) && /wallLives = wallLivesMax;/.test(src) && /roundRect\(ctx, sx - 2, y - 2, segW \+ 4/.test(src),
     __hasShotOrient: /ctx\.rotate\(Math\.atan2\(shot\.ty - shot\.y0/.test(src),
@@ -375,6 +376,27 @@ const driver = `
     if (!__hasShield) throw new Error('盾兵未接入点击/绘制');
     ok('盾兵援军：修 1 格 + 推退 + 1.5s 无敌 + 次数计数');
   } catch(e){ fail('盾兵援军', e); }
+
+  // ---------- 6n) v2.15：守将复活 ----------
+  try {
+    resetAll(); zombies.length = 0;
+    gameState = 'playing'; gamePaused = false;
+    wallLives = 1; wallLivesMax = 3; reviveUsed = false; reviveOfferUntil = 0;
+    const z = zk(200, 0, '金'); z.speed = 0; z.y = WALL_Y - z.radius + 2; zombies.push(z);
+    updateZombies(16);
+    if (wallLives !== 0) throw new Error('应扣到 0 格');
+    if (!(reviveOfferUntil > Date.now())) throw new Error('归零应进入复活窗口');
+    if (!gamePaused) throw new Error('复活窗口应暂停战斗');
+    if (gameState !== 'playing') throw new Error('复活窗口不应直接结束');
+
+    grantRevive();
+    if (wallLives !== REVIVE_LIVES) throw new Error('复活后应回 ' + REVIVE_LIVES + ' 格');
+    if (gamePaused) throw new Error('复活后应继续战斗');
+    if (!(invincibleUntil > Date.now())) throw new Error('复活后应有无敌');
+    if (!reviveUsed) throw new Error('复活次数应标记已用');
+    if (!__hasRevive) throw new Error('复活未接入绘制/点击');
+    ok('守将复活：归零进窗口 / 回 2 格 / 无敌 / 每局一次');
+  } catch(e){ fail('守将复活', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

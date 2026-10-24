@@ -100,6 +100,13 @@ let shieldAdUsed = 0;                  // 已使用次数
 let shieldSoldier = null;              // { x, y, until } 场上的盾兵
 let shieldPushUntil = 0;               // 推退动画窗口（表现用）
 
+// ===== v2.15 IAA：失败复活（守将）=====
+let reviveUsed = false;        // 每局 1 次
+let reviveOfferUntil = 0;      // 复活窗口（> now 表示正在展示）
+const REVIVE_OFFER_MS = 8000;  // 展示时长
+const REVIVE_LIVES = 2;        // 复活后护城格
+const REVIVE_INVINCIBLE = 3000;// 复活无敌（ms）
+
 const WALL_MAX_HEALTH = 2000;         // v1.1.74(M5)：城墙基础血量由 800 提到 2000，匹配开局 DPS≈52/s、单小怪约10伤的清场节奏（容错更合理，仍靠城墙天赋拉开上限）
 
 // 战场左右边界（敌人「身体边缘」不可越界）：与城墙两端对齐（即屏幕左右缘）。
@@ -4094,6 +4101,92 @@ function drawBombExplosions() {
 }
 
 // 绘制UI
+// ===== v2.15 IAA：守将复活 =====
+function grantRevive() {
+    const now = Date.now();
+    reviveUsed = true;
+    reviveOfferUntil = 0;
+    wallLives = Math.min(wallLivesMax, REVIVE_LIVES);
+    gamePaused = false;
+    lastTime = now;
+    invincibleUntil = Math.max(invincibleUntil, now + REVIVE_INVINCIBLE);
+
+    // 复活瞬间清掉压到城下的怪，给玩家喘息
+    for (let i = zombies.length - 1; i >= 0; i--) {
+        const z = zombies[i];
+        if (z.y > WALL_Y - 200) {
+            z.y = Math.max(-40, z.y - 260);
+        }
+    }
+    addShake(16, 420);
+    vibrate('heavy');
+    AudioSystem.playExplosion();
+    damageNumbers.push({ x: screenWidth / 2, y: WALL_Y - 90, text: '守将归来', life: 1500, vy: -1.0, color: '#ffd23a', isCrit: true });
+    for (let i = 0; i < 26; i++) {
+        const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6;
+        addParticle({ x: screenWidth / 2, y: WALL_Y - 40, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, radius: 3 + Math.random() * 4, life: 560, color: i % 2 ? '#ffd23a' : '#fff2c0' });
+    }
+}
+
+function drawReviveOffer() {
+    if (Date.now() >= reviveOfferUntil) return;
+    const cx = screenWidth / 2, cy = screenHeight * 0.62;
+    const now = Date.now();
+    const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+
+    ctx.save();
+    // 压暗战场（但不全黑，保留"废墟"氛围）
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.72)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // 守将：披风剪影 + 盾
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = '#2b3550';
+    ctx.beginPath(); ctx.arc(cx, cy - 26, 16, 0, Math.PI * 2); ctx.fill();            // 头
+    ctx.beginPath();
+    ctx.moveTo(cx - 24, cy + 36); ctx.lineTo(cx - 14, cy - 12);
+    ctx.lineTo(cx + 14, cy - 12); ctx.lineTo(cx + 24, cy + 36);
+    ctx.closePath(); ctx.fill();                                                       // 身
+    ctx.fillStyle = '#3d7a5a';
+    ctx.strokeStyle = '#ffd23a'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + 26, cy - 20); ctx.lineTo(cx + 44, cy - 12);
+    ctx.lineTo(cx + 42, cy + 8); ctx.lineTo(cx + 26, cy + 18);
+    ctx.lineTo(cx + 10, cy + 8); ctx.lineTo(cx + 8, cy - 12);
+    ctx.closePath(); ctx.fill(); ctx.stroke();                                         // 盾
+
+    // 光圈
+    ctx.strokeStyle = 'rgba(255, 210, 74,' + (0.4 + 0.4 * pulse) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, 62 + 5 * pulse, 0, Math.PI * 2); ctx.stroke();
+
+    // 标题
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffd23a';
+    ctx.font = 'bold 24px "STKaiti","KaiTi","SimHei",sans-serif';
+    ctx.fillText('城墙已破', cx, cy - 96);
+    ctx.fillStyle = '#e6eef8';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('守将尚在，可再战一次', cx, cy - 70);
+
+    // 召唤按钮
+    ctx.fillStyle = 'rgba(255, 210, 74, 0.16)';
+    roundRect(ctx, cx - 84, cy + 54, 168, 34, 17); ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.6 + 0.4 * pulse) + ')';
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx - 84, cy + 54, 168, 34, 17); ctx.stroke();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('点守将 · 看广告复活', cx, cy + 71);
+
+    // 放弃
+    ctx.fillStyle = 'rgba(200, 210, 225, 0.75)';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('放弃本局', cx, cy + 106);
+    ctx.restore();
+}
+
 // ===== v2.14 IAA：盾兵援军 =====
 // 看完广告：盾兵冲锋 → 贴墙的怪整体后退 180px + 修 1 格 + 1.5s 无敌
 function grantShieldReinforcement(sol) {
@@ -4219,6 +4312,7 @@ function drawBossHud() {
 function drawUI() {
     drawBossHud();
     drawShieldSoldier();
+    drawReviveOffer();
     const stage = getCurrentStage();
 
     // ========== 顶部信息栏 ==========
@@ -6515,11 +6609,16 @@ function updateZombies(dt) {
                 }
                 zombie.health = 0;
                 _leakedOut.push(zombie);
+                // v2.15：护城归零 → 先给一次「守将复活」机会（每局 1 次）
+                if (wallLives <= 0 && !reviveUsed) {
+                    reviveOfferUntil = now + REVIVE_OFFER_MS;
+                    gamePaused = true;
+                }
                 // v2.14：破格后，在破口位置出现「盾兵援军」（仅当还有广告次数）
                 if (shieldAdUsed < SHIELD_AD_MAX && wallLives > 0) {
                     shieldSoldier = { x: Math.max(50, Math.min(screenWidth - 50, zombie.x)), y: WALL_Y - 34, until: now + 6500 };
                 }
-                if (wallLives <= 0) { gameOver(); }
+                if (wallLives <= 0 && (reviveUsed || Date.now() >= reviveOfferUntil)) { gameOver(); }
             }
             continue;
 
@@ -7445,6 +7544,7 @@ function startGame() {
     wallLives = wallLivesMax;
     leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
+    reviveUsed = false; reviveOfferUntil = 0;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -14792,6 +14892,12 @@ function gameLoop() {
     } else if (gameState === 'stageSelect') {
         drawStageSelect();
     } else if (gameState === 'playing') {
+        // v2.15：复活窗口超时未点 → 自动结束（避免停在暂停态）
+        if (reviveOfferUntil > 0 && Date.now() >= reviveOfferUntil) {
+            reviveOfferUntil = 0;
+            gamePaused = false;
+            gameOver();
+        }
         if (!gamePaused) {
             gameTime += dt;
             update(dt);
@@ -14834,7 +14940,7 @@ function gameLoop() {
             drawAdDemoGuide();
         }
 
-        if (gamePaused) {
+        if (gamePaused && Date.now() >= reviveOfferUntil) {
             drawPauseModal();
         }
         ctx.restore();
@@ -15095,6 +15201,19 @@ wx.onTouchStart((e) => {
             }
         } else {
             // 五行坞点击（P2：选中元素 = 立即切换炮台发射属性；相生连携在此激活）
+            // v2.15：复活窗口优先——点守将看广告，点「放弃」直接结束
+            if (Date.now() < reviveOfferUntil) {
+                const _cy = screenHeight * 0.62;
+                if (Math.hypot(x - screenWidth / 2, y - _cy) <= 70) {
+                    showRewardedAd(() => grantRevive());
+                } else if (y > _cy + 70 && y < _cy + 108) {
+                    reviveOfferUntil = 0;
+                    gamePaused = false;
+                    gameOver();
+                }
+                return;
+            }
+
             // v2.14：先判定「盾兵援军」（场上单位，优先于五行坞）
             if (shieldSoldier && Date.now() < shieldSoldier.until &&
                 Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 46) {
