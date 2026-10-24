@@ -2523,6 +2523,8 @@ let bombFull = false; // 炸弹已满标志
 // ==================== 流量主：激励视频广告（看广告补发炸弹并立即释放） ====================
 // 仅在微信小游戏运行环境下初始化；无头测试/wx 缺失时静默跳过，不影响逻辑测试
 let rewardedAd = null;
+let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
+let adStartAt = 0;    // 广告开始时间
 function ensureRewardedAd() {
     if (rewardedAd) return rewardedAd;
     if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null;
@@ -2547,7 +2549,19 @@ function showRewardedAd(onReward) {
         pausedByAd = true;
     }
     const resume = () => {
-        if (pausedByAd) gamePaused = false;
+        adOpen = false;
+        // v2.18：把广告耗时补回复活窗口，避免「广告还没看完，倒计时先超时」
+        if (reviveOfferUntil > 0 && adStartAt > 0) {
+            reviveOfferUntil += Math.max(0, Date.now() - adStartAt);
+        }
+        adStartAt = 0;
+        // v2.18：有有效复活窗口时保持暂停（守将还在等玩家决定）；否则一律解除暂停并关闭暂停弹窗
+        const keepPausedForRevive = (reviveOfferUntil > 0 && Date.now() < reviveOfferUntil);
+        if (keepPausedForRevive) {
+            gamePaused = true;
+        } else {
+            gamePaused = false;
+        }
         // 微信播放激励视频会挂起 AudioContext，广告结束后需恢复，否则背景音乐消失
         if (typeof AudioSystem !== 'undefined') {
             AudioSystem.resume();
@@ -2556,6 +2570,8 @@ function showRewardedAd(onReward) {
             }
         }
     };
+    adOpen = true;
+    adStartAt = Date.now();
     if (!ad) {
         // 非微信环境（如本地预览/测试）：直接视为已发放奖励，便于联调
         if (onReward) onReward();
@@ -4109,6 +4125,8 @@ function grantRevive() {
     reviveUsed = true;
     reviveOfferUntil = 0;
     wallLives = Math.min(wallLivesMax, REVIVE_LIVES);
+    gameState = 'playing';      // v2.18：兜底——即使已被判负，也要拉回战斗
+    gameRunning = true;
     gamePaused = false;
     lastTime = now;
     invincibleUntil = Math.max(invincibleUntil, now + REVIVE_INVINCIBLE);
@@ -4192,7 +4210,7 @@ function grantShieldReinforcement(sol) {
         if (z.y > WALL_Y - 340) z.y -= 220;
         if (z.y < -60) z.y = -60;
     }
-    shieldWall = { start: now, fromY: WALL_Y + 20, toY: WALL_Y - 150, riseMs: 900, until: now + 4200 };
+    shieldWall = { start: now, fromY: WALL_Y + 20, toY: WALL_Y - 150, riseMs: 5000, until: now + 6200 };
 
     addShake(12, 320);
     vibrate('heavy');
@@ -14945,7 +14963,7 @@ function gameLoop() {
         drawStageSelect();
     } else if (gameState === 'playing') {
         // v2.15：复活窗口超时未点 → 自动结束（避免停在暂停态）
-        if (reviveOfferUntil > 0 && Date.now() >= reviveOfferUntil) {
+        if (!adOpen && reviveOfferUntil > 0 && Date.now() >= reviveOfferUntil) {
             reviveOfferUntil = 0;
             gamePaused = false;
             gameOver();

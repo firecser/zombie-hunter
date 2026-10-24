@@ -68,6 +68,7 @@ const sandbox = {
         const pause = src.indexOf('if (gamePaused) {', branch);
         return branch > 0 && revive > branch && pause > revive;
     })(),
+    __hasAdFreeze: /!adOpen && reviveOfferUntil > 0/.test(src) && /reviveOfferUntil \+= Math\.max\(0, Date\.now\(\) - adStartAt\)/.test(src),
     __hasRevive: /function grantRevive/.test(src) && /function drawReviveOffer/.test(src) && /grantRevive\(\)/.test(src),
     __hasShield: /const SHIELD_AD_MAX = 2;/.test(src) && /function grantShieldReinforcement/.test(src) && /function drawShieldSoldier/.test(src) && /grantShieldReinforcement\(_sol\)/.test(src),
     __hasWallLives: /const WALL_LIVES_BASE = 3;/.test(src) && /wallLives = wallLivesMax;/.test(src) && /roundRect\(ctx, sx - 2, y - 2, segW \+ 4/.test(src),
@@ -386,13 +387,13 @@ const driver = `
 
     // v2.17：盾墙必须「逐步上升」——起点在墙底，终点在 WALL_Y-150
     const _y0 = getShieldWallY(shieldWall.start + 0);
-    const _y1 = getShieldWallY(shieldWall.start + 450);
-    const _y2 = getShieldWallY(shieldWall.start + 900);
+    const _y1 = getShieldWallY(shieldWall.start + 2500);
+    const _y2 = getShieldWallY(shieldWall.start + 5000);
     if (!(_y0 > _y1 && _y1 > _y2)) throw new Error('盾墙应逐步上升: ' + [_y0, _y1, _y2].join(' > '));
-    if (Math.abs(_y2 - (WALL_Y - 150)) > 1) throw new Error('盾墙终点应为 WALL_Y-150, 实=' + _y2);
+    if (Math.abs(_y2 - (WALL_Y - 150)) > 1) throw new Error('盾墙 5s 后应到 WALL_Y-150, 实=' + _y2);
 
     // 升满后：怪被顶到墙外
-    shieldWall.start = Date.now() - 2000;
+    shieldWall.start = Date.now() - 5200;
     const z2 = zk(200, 0, '金'); z2.speed = 0; z2.y = WALL_Y - 100;
     zombies.length = 0; zombies.push(z2);
     updateZombies(16);
@@ -400,7 +401,7 @@ const driver = `
     if (wallLives !== 2) throw new Error('盾墙期间不应掉格');
 
     if (!__hasShield) throw new Error('盾兵未接入点击/绘制');
-    ok('盾兵：推退 220px + 盾墙从墙底升起(WALL_Y+20 → WALL_Y-150) + 顶怪');
+    ok('盾兵：推退 220px + 盾墙 5s 从墙底升起(WALL_Y+20 → WALL_Y-150) + 顶怪');
   } catch(e){ fail('盾兵援军', e); }
 
   // ---------- 6n) v2.15：守将复活 ----------
@@ -443,6 +444,12 @@ const driver = `
     if (!(shieldSoldier.until > Date.now())) throw new Error('盾兵时长异常');
     ok('破格生成盾兵：lives 3→2，盾兵 @x=' + Math.round(shieldSoldier.x));
   } catch(e){ fail('破格生成盾兵', e); }
+
+  // ---------- 6q) v2.18：广告期间冻结复活倒计时 ----------
+  try {
+    if (!__hasAdFreeze) throw new Error('广告播放中未冻结复活判定（会被 watchdog 提前判负）');
+    ok('广告期间：冻结复活倒计时 + 结束后补回时长');
+  } catch(e){ fail('广告冻结', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

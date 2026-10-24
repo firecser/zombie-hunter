@@ -265,3 +265,16 @@
 shieldWall = { start, fromY: WALL_Y + 20, toY: WALL_Y - 150, riseMs: 900, until: now + 4200 }
 getShieldWallY(now) → 线性插值；每帧用于顶怪 & 绘制
 ```
+
+### 12.5 v2.18：广告返回 / 盾墙 5s / 复活被提前判负
+
+| # | 问题 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 广告结束回到游戏仍暂停/弹暂停窗 | `showRewardedAd` 的 `resume()` 只在 `pausedByAd` 时解除暂停；复活场景本来就是暂停态，所以回不来 | `resume()` 改为：**有有效复活窗口 → 保持暂停**；否则 **一律 `gamePaused = false`** |
+| 2 | 盾墙升起太快 | `riseMs = 900` | **`riseMs = 5000`**，总时长 6.2s（5s 上升 + 1.2s 停留 + 淡出） |
+| 3B | 金币重玩后，看广告复活无效、仍回结算 | **广告播放超过 8s，而 `gameLoop` 的复活 watchdog 在广告背后把局面判负**（`reviveOfferUntil` 已过期） | ① 新增 `adOpen`：广告期间 **watchdog 不判定**；② 广告结束后把播放时长 **补回** `reviveOfferUntil`（倒计时冻结）；③ `grantRevive()` 兜底 `gameState='playing'; gameRunning=true` |
+| 3A | 金币重玩与广告复活冲突 | 两者都是"续玩"，但同时只会有其一（结算页只在复活不可用时出现） | 保持互斥：一局内先给**广告复活**，用过/超时才轮到**金币重玩**；金币重开会重置为全新一局 |
+
+### 验证
+
+`smoke_p9` 23 项 PASS（新增：盾墙 5s 三点高度递减、广告冻结/补回断言）。
