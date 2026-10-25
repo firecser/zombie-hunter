@@ -3330,23 +3330,16 @@ function drawZombie(zombie, now) {
     ctx.fillStyle = 'rgba(8,16,28,0.55)';
     ctx.fill();
 
-    // 汉字：**空心描边**（只描边不实心填充），避免远看糊成一块橙色；
-    // 内部给 18% 的同色底，保证深色背景上仍可读。
+    // 汉字：**实心填充**（v2.29.1 按用户要求改回实心）+ 暗色描边压在外侧，
+    // 先描边后填充，既保留轮廓分离，又不会糊成一块（字号已按类型封顶）。
     ctx.font = 'bold ' + fontSize + 'px "STKaiti","KaiTi","SimHei","Microsoft YaHei",sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.save();
-    ctx.globalAlpha = 0.18;
+    ctx.lineWidth = Math.max(2, fontSize * 0.065);
+    ctx.strokeStyle = 'rgba(6,10,18,0.9)';
+    ctx.strokeText(glyph, x, y + fontSize * 0.04);
     ctx.fillStyle = col;
     ctx.fillText(glyph, x, y + fontSize * 0.04);
-    ctx.restore();
-    ctx.lineWidth = Math.max(2, fontSize * 0.075);
-    ctx.strokeStyle = col;
-    ctx.strokeText(glyph, x, y + fontSize * 0.04);
-    // 外侧极细暗边，增强与背景分离
-    ctx.lineWidth = Math.max(1.2, fontSize * 0.022);
-    ctx.strokeStyle = 'rgba(6,10,18,0.85)';
-    ctx.strokeText(glyph, x, y + fontSize * 0.04);
 
     // BOSS 冠
     if (zombie.type === 'boss') {
