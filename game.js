@@ -5937,7 +5937,9 @@ function vibrate(type) {
     try { if (wx.vibrateShort) wx.vibrateShort({ type: type || 'light' }); } catch (e) {}
 }
 function addShake(mag, ms) {
-    shakeMag = Math.max(shakeMag, mag);
+    // v2.24.1：震幅封顶 8px。之前 BOSS 击破传 12/16，配合衰减系数会到 30px+，
+    // 背景被平移出屏外，看起来像"整个画面缩小/偏移"。
+    shakeMag = Math.min(8, Math.max(shakeMag, mag));
     shakeUntil = Math.max(shakeUntil, Date.now() + (ms || 180));
 }
 function comboMul() {
@@ -15223,6 +15225,8 @@ function gameLoop() {
     } else if (gameState === 'stageSelect') {
         drawStageSelect();
     } else if (gameState === 'playing') {
+        // v2.24.1：每帧重置画布变换，防止某个 draw 里 save/restore 不平衡导致逐帧累积（画面缩小/漂移）
+        try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; } catch (e) {}
         // v2.15：复活窗口超时未点 → 自动结束（避免停在暂停态）
         if (!adOpen && reviveOfferUntil > 0 && Date.now() >= reviveOfferUntil) {
             reviveOfferUntil = 0;
@@ -15236,7 +15240,7 @@ function gameLoop() {
         
         ctx.save();
         if (Date.now() < shakeUntil) {
-            const _sm = shakeMag * Math.max(0, (shakeUntil - Date.now()) / 200);
+            const _sm = Math.min(8, shakeMag) * Math.max(0, Math.min(1, (shakeUntil - Date.now()) / 220));
             ctx.translate((Math.random() - 0.5) * _sm, (Math.random() - 0.5) * _sm);
         }
         drawBackground();
