@@ -68,6 +68,7 @@ const sandbox = {
         const pause = src.indexOf('if (gamePaused) {', branch);
         return branch > 0 && revive > branch && pause > revive;
     })(),
+    __audioUsed: Array.from(new Set((src.match(/AudioSystem\.[a-zA-Z]+/g) || []).map(x => x.split('.')[1]))),
     __hasScene: /const AD_BRANCH = \{/.test(src)
         && /wx\.reportUserBehaviorBranchAnalytics/.test(src)
         && (src.match(/reportBranch\('/g) || []).length >= 6
@@ -77,6 +78,8 @@ const sandbox = {
         && ['bomb','shield','revive','reroll','chest','double_gold'].every(k => src.indexOf("'" + k + "')") > 0)
         && /track\('level_end'/.test(src),
     __hasReroll: /const REROLL_AD_MAX = 2;/.test(src) && /rerollAdUsed\+\+/.test(src) && /showUpgradePanel\(\);/.test(src),
+    __hasDoubleGoldBoth: /function drawDoubleGoldBtn/.test(src) && /function tryDoubleGoldTap/.test(src)
+        && (src.match(/tryDoubleGoldTap\(x, y, modalX, modalY, modalW\)/g) || []).length >= 2,
     __hasDoubleGold: /doubleGoldUsed = false;/.test(src) && /player\.gold \+= stageGoldEarned;/.test(src) && /stageGoldEarned \*= 2;/.test(src),
     __hasAdFreeze: /!adOpen && reviveOfferUntil > 0/.test(src) && /reviveOfferUntil \+= Math\.max\(0, Date\.now\(\) - adStartAt\)/.test(src),
     __hasRevive: /function grantRevive/.test(src) && /function drawReviveOffer/.test(src) && /grantRevive\(\)/.test(src),
@@ -545,6 +548,18 @@ const driver = `
     if (got !== 0) throw new Error('isEnded:false 不应发奖, got=' + got);
     ok('广告回调：true/undefined/{} 都发奖，仅 isEnded:false 不发');
   } catch(e){ fail('广告回调', e); }
+
+  // ---------- 6w) v2.23：AudioSystem 调用必须都真实存在 ----------
+  try {
+    const _used = __audioUsed;
+    const _defined = ['ctx','bgmGain','sfxGain','bgmOscillators','bgmInterval','isMuted','isInitialized','init','resume',
+        'playShoot','playZombieDeath','playPickup','playLevelUp','playHurt','playGameOver','playVictory',
+        'playBombExplosion','startBGM','playAmbient','stopBGM','toggleMute'];
+    const _missing = _used.filter(u => _defined.indexOf(u) < 0);
+    if (_missing.length) throw new Error('调用了不存在的音频方法: ' + _missing.join(','));
+    if (!__hasDoubleGoldBoth) throw new Error('金币×2 未同时接入通关/失败页');
+    ok('AudioSystem 调用全部存在 / 金币×2 双结算页接线');
+  } catch(e){ fail('音频与结算接线', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

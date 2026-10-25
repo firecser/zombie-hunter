@@ -4237,7 +4237,7 @@ function grantRevive() {
     }
     addShake(16, 420);
     vibrate('heavy');
-    AudioSystem.playExplosion();
+    AudioSystem.playBombExplosion();
     damageNumbers.push({ x: screenWidth / 2, y: WALL_Y - 90, text: '守将归来', life: 1500, vy: -1.0, color: '#ffd23a', isCrit: true });
     for (let i = 0; i < 26; i++) {
         const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6;
@@ -4311,7 +4311,7 @@ function grantShieldReinforcement(sol) {
 
     addShake(12, 320);
     vibrate('heavy');
-    AudioSystem.playExplosion();
+    AudioSystem.playBombExplosion();
     damageNumbers.push({ x: sol.x, y: sol.y - 26, text: '盾墙 4 秒', life: 1200, vy: -1.2, color: '#ffd23a', isCrit: true });
     for (let i = 0; i < 18; i++) {
         const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 5;
@@ -5157,6 +5157,52 @@ function drawGoldBanner(x, y, w, h, amount) {
     ctx.fillText(String(amount), x + w / 2, y + 38);
 }
 
+// ===== v2.23：结算双倍金币（通关 / 失败共用）=====
+function doubleGoldRect(modalX, modalY, modalW) {
+    return { w: 92, h: 50, x: modalX + modalW - 16 - 92, y: modalY + 118 };
+}
+
+function drawDoubleGoldBtn(modalX, modalY, modalW) {
+    const r = doubleGoldRect(modalX, modalY, modalW);
+    if (!doubleGoldUsed) {
+        const _pulse = 0.5 + 0.5 * Math.sin(Date.now() / 260);
+        ctx.fillStyle = 'rgba(255, 210, 74, ' + (0.14 + 0.10 * _pulse) + ')';
+        roundRect(ctx, r.x, r.y, r.w, r.h, 8); ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.7 + 0.3 * _pulse) + ')';
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, r.x, r.y, r.w, r.h, 8); ctx.stroke();
+        ctx.fillStyle = '#ffe9a8';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('看广告', r.x + r.w / 2, r.y + 17);
+        ctx.fillStyle = '#ffd23a';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText('金币 ×2', r.x + r.w / 2, r.y + 35);
+    } else {
+        ctx.fillStyle = 'rgba(120, 130, 145, 0.35)';
+        roundRect(ctx, r.x, r.y, r.w, r.h, 8); ctx.fill();
+        ctx.fillStyle = '#9fb0c4';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('已翻倍', r.x + r.w / 2, r.y + r.h / 2);
+    }
+}
+
+function tryDoubleGoldTap(x, y, modalX, modalY, modalW) {
+    const r = doubleGoldRect(modalX, modalY, modalW);
+    if (doubleGoldUsed) return false;
+    if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) return false;
+    showRewardedAd(() => {
+        if (doubleGoldUsed) return;
+        player.gold += stageGoldEarned;
+        stageGoldEarned *= 2;
+        doubleGoldUsed = true;
+        saveProgress();
+        AudioSystem.playVictory();
+    }, 'double_gold');
+    return true;
+}
+
 function drawGameOver() {
     // 半透明遮罩
     ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
@@ -5193,35 +5239,10 @@ function drawGameOver() {
     const seconds = Math.floor((gameTime % 60000) / 1000);
     ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 106);
     
-    // 突出显示：本次获得金币（右侧留出「×2」广告位）
-    const _dblW = 92, _dblH = 50;
-    const _dblX = modalX + modalW - 16 - _dblW, _dblY = modalY + 118;
-    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32 - _dblW - 8, 50, stageGoldEarned);
+    // 突出显示：本次获得金币（右侧留给「金币×2」）
+    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32 - 100, 50, stageGoldEarned);
+    drawDoubleGoldBtn(modalX, modalY, modalW);
 
-    // v2.19：看广告 · 金币 ×2（每局 1 次）
-    if (!doubleGoldUsed) {
-        const _pulse = 0.5 + 0.5 * Math.sin(Date.now() / 260);
-        ctx.fillStyle = 'rgba(255, 210, 74, ' + (0.14 + 0.10 * _pulse) + ')';
-        roundRect(ctx, _dblX, _dblY, _dblW, _dblH, 8); ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.7 + 0.3 * _pulse) + ')';
-        ctx.lineWidth = 1.5;
-        roundRect(ctx, _dblX, _dblY, _dblW, _dblH, 8); ctx.stroke();
-        ctx.fillStyle = '#ffe9a8';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('看广告', _dblX + _dblW / 2, _dblY + 17);
-        ctx.fillStyle = '#ffd23a';
-        ctx.font = 'bold 15px sans-serif';
-        ctx.fillText('金币 ×2', _dblX + _dblW / 2, _dblY + 35);
-    } else {
-        ctx.fillStyle = 'rgba(120, 130, 145, 0.35)';
-        roundRect(ctx, _dblX, _dblY, _dblW, _dblH, 8); ctx.fill();
-        ctx.fillStyle = '#9fb0c4';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('已翻倍', _dblX + _dblW / 2, _dblY + _dblH / 2);
-    }
-    
     // 按钮（皇室战争风立体按钮）：重玩 / 变强 / 返回
     const btnSize = 42;
     const gap = 12;
@@ -5284,8 +5305,9 @@ function drawVictory() {
     ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 84);
     ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 106);
     
-    // 突出显示：本次获得金币
-    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32, 50, stageGoldEarned);
+    // 突出显示：本次获得金币（右侧留给「金币×2」）
+    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32 - 100, 50, stageGoldEarned);
+    drawDoubleGoldBtn(modalX, modalY, modalW);
     
     // 按钮（正方形，与技能图标样式一致）—— 下一关 / 重玩 / 关卡（全通关时无「下一关」）
     const btnSize = 48;
@@ -15504,7 +15526,7 @@ wx.onTouchStart((e) => {
                             synergyHintDone = true;
                             synergyHintUntil = _nowT + 4000;
                         }
-                        AudioSystem.playSynergy && AudioSystem.playSynergy();
+                        AudioSystem.playLevelUp && AudioSystem.playLevelUp();
                     }
                     const _prevEl = activeElement;
                     if (_isCombo) detonateCharge(_prevEl);   // v2.4：相生切换 → 引爆上一元素的「印」
@@ -15610,6 +15632,9 @@ wx.onTouchStart((e) => {
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
 
+        // v2.23：先判「金币×2」（失败结算页也有）
+        if (tryDoubleGoldTap(x, y, modalX, modalY, modalW)) return;
+
         const btnSize = 42;
         const gap = 12;
         const totalW = btnSize * 3 + gap * 2;
@@ -15652,22 +15677,8 @@ wx.onTouchStart((e) => {
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
 
-        // v2.19：结算双倍金币（优先于底部按钮）
-        {
-            const _dblW = 92, _dblH = 50;
-            const _dblX = modalX + modalW - 16 - _dblW, _dblY = modalY + 118;
-            if (!doubleGoldUsed && x >= _dblX && x <= _dblX + _dblW && y >= _dblY && y <= _dblY + _dblH) {
-                showRewardedAd(() => {
-                    if (doubleGoldUsed) return;
-                    player.gold += stageGoldEarned;   // 再补一份 = 翻倍
-                    stageGoldEarned *= 2;
-                    doubleGoldUsed = true;
-                    saveProgress();
-                    AudioSystem.playVictory();
-                }, 'double_gold');
-                return;
-            }
-        }
+        // v2.23：结算双倍金币（优先于底部按钮）
+        if (tryDoubleGoldTap(x, y, modalX, modalY, modalW)) return;
 
         const btnSize = 48;
         const gap = 15;
