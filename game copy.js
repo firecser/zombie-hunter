@@ -8434,41 +8434,10 @@ let rankDragStartScrollY = 0; // 拖动开始时的滚动偏移
 let gameClubButton = null;
 let gameClubButtonVisible = false;   // 避免每帧重复 show/hide 触发原生视图重建
 
-// 模拟全服排行榜数据（本地前100名）
-const rankCityData = [
-    { rank: 1, name: '冰霜之王', location: '黑龙江 哈尔滨', level: 45, power: 128500 },
-    { rank: 2, name: '雪域狂魔', location: '吉林 长春', level: 43, power: 115200 },
-    { rank: 3, name: '寒冰射手', location: '辽宁 沈阳', level: 42, power: 108300 },
-    { rank: 4, name: '极地风暴', location: '内蒙古 呼和浩特', level: 40, power: 98500 },
-    { rank: 5, name: '冰晶凤凰', location: '新疆 乌鲁木齐', level: 39, power: 92400 },
-    { rank: 6, name: '冻土之心', location: '甘肃 兰州', level: 38, power: 87600 },
-    { rank: 7, name: '凛冬将至', location: '青海 西宁', level: 37, power: 82300 },
-    { rank: 8, name: '霜华漫天', location: '宁夏 银川', level: 36, power: 77800 },
-    { rank: 9, name: '寒潮来袭', location: '陕西 西安', level: 35, power: 73500 },
-    { rank: 10, name: '冰雪女王', location: '北京', level: 34, power: 69200 },
-    { rank: 11, name: '北境之王', location: '天津', level: 33, power: 65800 },
-    { rank: 12, name: '银装素裹', location: '河北 石家庄', level: 32, power: 62400 },
-    { rank: 13, name: '冰封千里', location: '山西 太原', level: 31, power: 59100 },
-    { rank: 14, name: '雪漫山河', location: '山东 济南', level: 30, power: 55800 },
-    { rank: 15, name: '寒光闪烁', location: '河南 郑州', level: 29, power: 52600 },
-    { rank: 16, name: '冰雨时节', location: '江苏 南京', level: 28, power: 49400 },
-    { rank: 17, name: '霜雪漫天', location: '安徽 合肥', level: 27, power: 46300 },
-    { rank: 18, name: '冻彻心扉', location: '上海', level: 26, power: 43200 },
-    { rank: 19, name: '极寒之巅', location: '浙江 杭州', level: 25, power: 40200 },
-    { rank: 20, name: '冰封王座', location: '福建 福州', level: 24, power: 37200 },
-    { rank: 21, name: '寒意逼人', location: '江西 南昌', level: 23, power: 34300 },
-    { rank: 22, name: '冰霜之魂', location: '湖北 武汉', level: 22, power: 31400 },
-    { rank: 23, name: '霜刃飞舞', location: '广东 广州', level: 21, power: 28600 },
-    { rank: 24, name: '寒冰冷酷', location: '广西 南宁', level: 20, power: 25800 },
-];
-
-// 模拟好友排行榜数据
-const rankFriendData = [
-    { rank: 1, name: '小明', location: '广东 深圳', level: 38, power: 89200, avatar: '🎮' },
-    { rank: 2, name: '老王', location: '北京', level: 35, power: 75600, avatar: '🎯' },
-    { rank: 3, name: '小李', location: '上海', level: 32, power: 62400, avatar: '⚔️' },
-    { rank: 4, name: '阿强', location: '浙江 杭州', level: 28, power: 48600, avatar: '🛡️' },
-];
+// v3.2：排行榜假数据已删除（原 rankCityData 24 条 / rankFriendData 4 条均为硬编码虚构用户）
+// 真实数据来源：
+//   · 我的战绩 —— 本地存档（stageProgress / calculatePower）
+//   · 好友排行 —— 微信开放数据域（下一版接入，需 game.json 配置 openDataContext）
 
 // ========== 商城相关 ==========
 // 商城分类
@@ -8702,21 +8671,11 @@ function calculatePower() {
     return total;
 }
 
-// 获取玩家在全服排行榜中的名次
+// v3.2：原实现把玩家战力拿去和 24 条硬编码假数据比名次，已废弃。
+// 现在返回"进度段位"（已通关数 + 1），不再声称是全服名次。
 function getPlayerRank() {
-    const playerPower = calculatePower();
-    // rankCityData 按战力降序排列，找比玩家战力高的人数
-    let higherCount = 0;
-    for (const entry of rankCityData) {
-        if (entry.power > playerPower) {
-            higherCount++;
-        } else {
-            break; // 降序排列，遇到 <= 的就不用继续了
-        }
-    }
-    return higherCount + 1;
+    return stageProgress.filter(Boolean).length + 1;
 }
-
 // 升级天赋
 // ========== 金币经济模型（v1.1.58 重算） ==========
 // 获取曲线 = 直线：每关通关固定奖励 = GOLD_BASE + GOLD_SLOPE·(关序号-1)，斜率恒定、无波动。
@@ -8982,7 +8941,7 @@ function drawMainMenuHero() {
     const rows = [
         { label: '玩家名字', value: heroData.name },
         { label: '天赋等级', value: 'Lv.' + totalTalentLevel },
-        { label: '排行榜名次', value: '第 ' + getPlayerRank() + ' 名' },
+        { label: '累进通关', value: stageProgress.filter(Boolean).length + ' / ' + STAGES.length + ' 关' },
         { label: '总战力', value: calculatePower().toLocaleString() }
     ];
     
@@ -9650,311 +9609,75 @@ function handleTalentModalClick(x, y) {
 // ========== 排行Tab ==========
 function drawMainMenuRank() {
     const topOffset = SAFE_TOP_OFFSET;
-    const navH = MAIN_MENU_NAV_H;
 
-    // ===== 构建动态排名数据 =====
-    let currentData;
-    let playerOutOfList = false; // 玩家是否在可见列表之外（供底部固定显示）
-    
-    if (rankTab === 'global') {
-        // 全服排行：根据真实战力动态插入玩家
-        const playerPower = calculatePower();
-        currentData = rankCityData.map(item => ({...item})); // 深拷贝
-        
-        // 找到插入位置（按战力降序排列）
-        let insertIdx = currentData.length;
-        for (let i = 0; i < currentData.length; i++) {
-            if (playerPower > currentData[i].power) {
-                insertIdx = i;
-                break;
-            }
-        }
-        
-        // 插入玩家
-        currentData.splice(insertIdx, 0, {
-            rank: insertIdx + 1,
-            name: heroData.name,
-            location: '未知位置',
-            level: heroData.level,
-            power: playerPower
-        });
-        
-        // 重排后续排名编号
-        for (let i = insertIdx + 1; i < currentData.length; i++) {
-            currentData[i].rank = i + 1;
-        }
-        
-        // 玩家是否在可见列表内（前24名）
-        playerOutOfList = (insertIdx >= rankCityData.length);
-    } else {
-        // 好友排行：如果玩家不在列表中则追加
-        currentData = rankFriendData.map(item => ({...item}));
-        const playerExists = currentData.some(item => item.name === heroData.name);
-        if (!playerExists) {
-            const playerPower = calculatePower();
-            currentData.push({
-                rank: currentData.length + 1,
-                name: heroData.name,
-                location: '未知位置',
-                level: heroData.level,
-                power: playerPower,
-                avatar: '🎮'
-            });
-        }
-        // 好友列表玩家自己总是在列表中
-    }
-
-    // 绘制标题栏背景
     ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
     ctx.fillRect(0, 0, screenWidth, topOffset + 30);
-
-    // 绘制标题
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillText('排行榜', screenWidth / 2, topOffset + 20);
 
-    // Tab参数
-    const tabY = topOffset + 40;
-    const tabH = 40;
-    const tabGap = 10;
-    const tabW = (screenWidth - 30) / 2;
-    const padding = 15;
-
-    // 绘制Tab背景
+    // Tabs（保留 global/friend 两个 id，避免改动触摸逻辑）
+    const tabY = topOffset + 40, tabH = 40, tabGap = 10, tabW = (screenWidth - 30) / 2;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-    ctx.beginPath();
-    roundRect(ctx, padding, tabY, screenWidth - padding * 2, tabH, 10);
-    ctx.fill();
+    roundRect(ctx, 15, tabY, screenWidth - 30, tabH, 10); ctx.fill();
 
-    // 绘制Tab项
-    const tabs = [
-        { id: 'global', label: '全服排行' },
-        { id: 'friend', label: '好友排行' }
-    ];
-
-    tabs.forEach((tab, i) => {
-        const tx = padding + 5 + i * (tabW + tabGap);
-        const isActive = rankTab === tab.id;
-
-        // Tab背景
-        if (isActive) {
-            ctx.fillStyle = 'rgba(79, 195, 247, 0.15)';
-            ctx.beginPath();
-            roundRect(ctx, tx, tabY + 3, tabW, tabH - 6, 8);
-            ctx.fill();
-
-            // Tab选中边框
-            ctx.strokeStyle = '#4fc3f7';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            roundRect(ctx, tx, tabY + 3, tabW, tabH - 6, 8);
-            ctx.stroke();
-        }
-
-        // Tab文字
-        ctx.fillStyle = isActive ? '#4fc3f7' : '#666';
+    [{ id: 'global', label: '我的战绩' }, { id: 'friend', label: '好友排行' }].forEach((tab, i) => {
+        const tx = 15 + 5 + i * (tabW + tabGap);
+        const active = rankTab === tab.id;
+        ctx.fillStyle = active ? 'rgba(255, 215, 0, 0.18)' : 'rgba(255,255,255,0.04)';
+        roundRect(ctx, tx, tabY + 5, tabW - 10, tabH - 10, 8); ctx.fill();
+        ctx.fillStyle = active ? '#ffd700' : '#9fb0c4';
         ctx.font = 'bold 13px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(tab.label, tx + tabW / 2, tabY + tabH / 2 + 5);
+        ctx.fillText(tab.label, tx + (tabW - 10) / 2, tabY + tabH / 2);
     });
 
-    // 列表区域
-    const listY = tabY + tabH + 10;
-    const listH = screenHeight - listY - navH - 10;
+    const bodyY = tabY + tabH + 18;
 
-    // 列表背景
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-    ctx.beginPath();
-    roundRect(ctx, padding, listY, screenWidth - padding * 2, listH, 12);
-    ctx.fill();
-
-    // 设置裁剪区域，防止列表内容超出
-    ctx.save();
-    ctx.beginPath();
-    roundRect(ctx, padding, listY, screenWidth - padding * 2, listH, 12);
-    ctx.clip();
-
-    // 列表内容（带滚动）
-    const itemH = 50;
-    const avatarSize = 36;
-    const startX = padding + 12;
-    const contentWidth = screenWidth - padding * 2 - 24;
-
-    // 计算可见范围
-    const startIdx = Math.floor(rankScrollY / itemH);
-    const endIdx = Math.min(currentData.length, startIdx + Math.ceil(listH / itemH) + 1);
-
-    for (let i = startIdx; i < endIdx; i++) {
-        const item = currentData[i];
-        const itemY = listY + 8 + (i * itemH) - rankScrollY;
-
-        // 检查是否是自己
-        const isMe = item.name === heroData.name;
-
-        // 列表项背景
-        if (isMe) {
-            // 高亮自己
-            ctx.fillStyle = 'rgba(79, 195, 247, 0.15)';
-            ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            roundRect(ctx, padding + 6, itemY, screenWidth - padding * 2 - 12, itemH - 6, 8);
-            ctx.fill();
-            ctx.stroke();
-        }
-
-        // 排名
-        const rankX = startX;
-        ctx.textAlign = 'center';
-        if (item.rank <= 3) {
-            // 前三名显示奖牌emoji
-            const medals = ['🏆', '🥈', '🥉'];
-            ctx.fillStyle = '#fff';
-            ctx.font = '18px Arial';
-            ctx.fillText(medals[item.rank - 1], rankX + 18, itemY + itemH / 2 + 6);
-        } else {
-            ctx.fillStyle = '#ffd700';
-            ctx.font = 'bold 14px Arial';
-            ctx.fillText(item.rank, rankX + 18, itemY + itemH / 2 + 5);
-        }
-
-        // 头像
-        const avatarX = rankX + 45;
-        const avatarY = itemY + (itemH - avatarSize) / 2 - 3;
-        
-        // 自己的头像用微信头像，其他人的用 emoji
-        if (isMe && wechatAvatarImage) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.drawImage(wechatAvatarImage, avatarX, avatarY, avatarSize, avatarSize);
-            ctx.restore();
-        } else {
-            ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
-            ctx.beginPath();
-            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-            // 头像内的图标
-            const avatarIcon = item.avatar || '🎮';
-            ctx.font = '16px Arial';
-            ctx.fillStyle = '#4fc3f7';
-            ctx.textAlign = 'center';
-            ctx.fillText(avatarIcon, avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
-        }
-
-        // 玩家信息
-        const infoX = avatarX + avatarSize + 10;
-        ctx.textAlign = 'left';
-
-        // 玩家名称
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 13px Arial';
-        ctx.fillText(item.name, infoX, itemY + itemH / 2 - 3);
-
-        // 地区
-        ctx.fillStyle = '#888';
-        ctx.font = '10px Arial';
-        ctx.fillText(item.location, infoX, itemY + itemH / 2 + 12);
-
-        // 等级和战力
-        const rightX = screenWidth - padding - 12;
-        ctx.textAlign = 'right';
-
-        // 战力（如果是我自己，使用实时计算值）
-        const displayPower = isMe ? calculatePower() : item.power;
-        ctx.fillStyle = '#4fc3f7';
-        ctx.font = 'bold 13px Arial';
-        const powerStr = displayPower >= 10000 ? (displayPower / 10000).toFixed(1) + '万' : displayPower.toString();
-        ctx.fillText(powerStr, rightX, itemY + itemH / 2 - 3);
-
-        // 等级
-        ctx.fillStyle = '#888';
-        ctx.font = '10px Arial';
-        ctx.fillText('Lv.' + item.level, rightX, itemY + itemH / 2 + 12);
-    }
-
-    // 恢复上下文，结束裁剪
-    ctx.restore();
-
-    // ===== 玩家在列表外时，底部固定显示自己的信息 =====
-    if (rankTab === 'global' && playerOutOfList) {
-        const playerPower = calculatePower();
-        const fixedY = listY + listH - itemH + 8; // 紧贴列表底部
-        
-        // 高亮背景（不透明）
-        ctx.fillStyle = '#1e2d4d';
-        ctx.strokeStyle = 'rgba(79, 195, 247, 0.4)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        roundRect(ctx, padding + 6, fixedY, screenWidth - padding * 2 - 12, itemH - 6, 8);
-        ctx.fill();
-        ctx.stroke();
-        
-        // 排名（显示 N+名）
-        const meRank = currentData.length; // 最后一名
-        ctx.fillStyle = '#ffd700';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(meRank, startX + 18, fixedY + itemH / 2 + 5);
-        
-        // 头像（自己的微信头像）
-        const avatarX = startX + 45;
-        const avatarY = fixedY + (itemH - avatarSize) / 2 - 3;
-        if (wechatAvatarImage) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.drawImage(wechatAvatarImage, avatarX, avatarY, avatarSize, avatarSize);
-            ctx.restore();
-        } else {
-            ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
-            ctx.beginPath();
-            ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.font = '16px Arial';
-            ctx.fillStyle = '#4fc3f7';
-            ctx.textAlign = 'center';
-            ctx.fillText('🎮', avatarX + avatarSize / 2, avatarY + avatarSize / 2 + 5);
-        }
-        
-        // 名称
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 13px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(heroData.name, avatarX + avatarSize + 10, fixedY + itemH / 2 - 3);
-        
-        // 地区
-        ctx.fillStyle = '#888';
-        ctx.font = '10px Arial';
-        ctx.fillText('未知位置', avatarX + avatarSize + 10, fixedY + itemH / 2 + 12);
-        
-        // 战力
-        const rightX = screenWidth - padding - 12;
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#4fc3f7';
-        ctx.font = 'bold 13px Arial';
-        const powerStr = playerPower >= 10000 ? (playerPower / 10000).toFixed(1) + '万' : playerPower.toString();
-        ctx.fillText(powerStr, rightX, fixedY + itemH / 2 - 3);
-        
-        // 等级
-        ctx.fillStyle = '#888';
-        ctx.font = '10px Arial';
-        ctx.fillText('Lv.' + heroData.level, rightX, fixedY + itemH / 2 + 12);
-    }
-
-    // 底部提示
-    const tipY = screenHeight - navH - 5;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#555';
-    ctx.font = '10px Arial';
     if (rankTab === 'global') {
-        ctx.fillText('全服前100名排行榜', screenWidth / 2, tipY);
-    } else {
-        ctx.fillText('微信好友排行榜', screenWidth / 2, tipY);
+        // ===== 我的战绩：全部来自本地真实存档 =====
+        const cleared = stageProgress.filter(Boolean).length;
+        const bestLv = Math.min(STAGES.length, Math.max(1, cleared + 1));
+        const power = calculatePower();
+        const rows = [
+            { k: '最高关卡', v: '第 ' + bestLv + ' 关', c: '#ffd700' },
+            { k: '累进通关', v: cleared + ' / ' + STAGES.length + ' 关', c: '#9fe3ff' },
+            { k: '最高战力', v: String(power), c: '#ff9a4a' }
+        ];
+        rows.forEach((r, i) => {
+            const ry = bodyY + i * 62;
+            ctx.fillStyle = 'rgba(255,255,255,0.05)';
+            roundRect(ctx, 18, ry, screenWidth - 36, 52, 10); ctx.fill();
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#9fb0c4';
+            ctx.font = '13px Arial';
+            ctx.fillText(r.k, 34, ry + 26);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = r.c;
+            ctx.font = 'bold 17px Arial';
+            ctx.fillText(r.v, screenWidth - 34, ry + 26);
+        });
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(160, 180, 200, 0.75)';
+        ctx.font = '11px Arial';
+        ctx.fillText('数据来自本机存档 · 全服榜需要服务端，暂不开放', screenWidth / 2, bodyY + 3 * 62 + 10);
+        return;
     }
+
+    // ===== 好友排行：开放数据域未接入前，显示真实空态 =====
+    // v3.2：旧版这里是 4 条硬编码的虚构好友（编造姓名/地区/战力），已整体删除。
+    const boxH = 190;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    roundRect(ctx, 18, bodyY, screenWidth - 36, boxH, 12); ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#9fb0c4';
+    ctx.font = 'bold 15px Arial';
+    ctx.fillText('好友榜即将开放', screenWidth / 2, bodyY + 60);
+    ctx.fillStyle = 'rgba(160, 180, 200, 0.8)';
+    ctx.font = '12px Arial';
+    ctx.fillText('正在接入微信好友数据', screenWidth / 2, bodyY + 88);
+    ctx.fillText('（需要开放数据域）', screenWidth / 2, bodyY + 108);
 }
 
 // ========== 世界Tab ==========
@@ -16111,17 +15834,8 @@ wx.onTouchMove((e) => {
             const deltaY = y - rankDragStartY;
             rankScrollY = rankDragStartScrollY - deltaY;
 
-            // 限制滚动范围（使用动态数据长度）
-            let totalItems;
-            if (rankTab === 'global') {
-                const playerPower = calculatePower();
-                // 判断玩家是否在列表中：玩家战力 > 列表最后一位
-                const lastPower = rankCityData[rankCityData.length - 1].power;
-                totalItems = playerPower > lastPower ? rankCityData.length + 1 : rankCityData.length;
-            } else {
-                const playerExists = rankFriendData.some(item => item.name === heroData.name);
-                totalItems = playerExists ? rankFriendData.length : rankFriendData.length + 1;
-            }
+            // v3.2：新排行榜为固定高度卡片，不再需要滚动
+            const totalItems = 4;
             const itemH = 50;
             const listY = 105;
             const listH = screenHeight - listY - MAIN_MENU_NAV_H - 10;

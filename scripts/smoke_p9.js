@@ -74,6 +74,8 @@ const sandbox = {
         && /y = SAFE_TOP_OFFSET \+ 88/.test(src)
         && /const btnR = 20;/.test(src)
         && /墙体塌一段/.test(src),
+    __noFakeRank: !/const rankCityData\s*=/.test(src) && !/const rankFriendData\s*=/.test(src) && !/小明|老王|小李|阿强/.test(src),
+    __hasRealRank: /stageProgress\.filter\(Boolean\)\.length/.test(src),
     __hasMercy: /\* mercyHpMult/.test(src) && /mercySpeedMult/.test(src) && /function mercyFor/.test(src),
     __hasFailAttrib: /☠/.test(src) && /💡/.test(src) && /第 \$\{_waveNo\} 波阵亡/.test(src),
     __hasShare: /wx\.shareAppMessage/.test(src) && /doShare\('fail'\)/.test(src),
@@ -682,6 +684,13 @@ const driver = `
     if (!__hasMercy) throw new Error('降档未作用到出怪（血量/速度）');
     ok('连败降档：0/2/3/5 四档正确（hp ' + m2.hp + '→' + m5.hp + '，炸弹 ' + m3.bombs + '）');
   } catch(e){ fail('连败降档', e); }
+
+  // ---------- 6af) v3.2：排行榜不得有假数据 ----------
+  try {
+    if (!__noFakeRank) throw new Error('排行榜仍存在硬编码假数据/假用户名');
+    if (!__hasRealRank) throw new Error('战绩未使用真实本地数据');
+    ok('排行榜：假数据已清零，战绩来自本地存档');
+  } catch(e){ fail('排行榜真实性', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
