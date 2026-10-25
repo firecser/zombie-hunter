@@ -8434,6 +8434,23 @@ let rankDragStartScrollY = 0; // 拖动开始时的滚动偏移
 let gameClubButton = null;
 let gameClubButtonVisible = false;   // 避免每帧重复 show/hide 触发原生视图重建
 
+// v3.3：守关榜（Guardian Ranks）
+// 与"假玩家榜"的区别：这些是**世界观里的守关者**（对应 10 章 BOSS），
+// 定位是"挑战目标"而非"其他玩家"，界面必须标注「非真实玩家」。
+// 合规依据：不冒充真人、不编造用户身份、不虚构在线人数。
+const GUARDIAN_RANKS = [
+    { name: '冰雪守关者', ch: 1,  power: 900,   avatar: '❄️' },
+    { name: '潮汐领主',   ch: 2,  power: 2400,  avatar: '🌊' },
+    { name: '枯木巨像',   ch: 3,  power: 4800,  avatar: '🌲' },
+    { name: '熔火巨兽',   ch: 4,  power: 8200,  avatar: '🔥' },
+    { name: '金甲将军',   ch: 5,  power: 13000, avatar: '⚔️' },
+    { name: '岩石泰坦',   ch: 6,  power: 19500, avatar: '🪨' },
+    { name: '双生守卫',   ch: 7,  power: 28000, avatar: '👥' },
+    { name: '熔岩地龙',   ch: 8,  power: 39000, avatar: '🐉' },
+    { name: '焚天树妖',   ch: 9,  power: 53000, avatar: '🔥' },
+    { name: '五行之主',   ch: 10, power: 72000, avatar: '👑' }
+];
+
 // v3.2：排行榜假数据已删除（原 rankCityData 24 条 / rankFriendData 4 条均为硬编码虚构用户）
 // 真实数据来源：
 //   · 我的战绩 —— 本地存档（stageProgress / calculatePower）
@@ -9623,7 +9640,7 @@ function drawMainMenuRank() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
     roundRect(ctx, 15, tabY, screenWidth - 30, tabH, 10); ctx.fill();
 
-    [{ id: 'global', label: '我的战绩' }, { id: 'friend', label: '好友排行' }].forEach((tab, i) => {
+    [{ id: 'global', label: '我的战绩' }, { id: 'friend', label: '守关榜' }].forEach((tab, i) => {
         const tx = 15 + 5 + i * (tabW + tabGap);
         const active = rankTab === tab.id;
         ctx.fillStyle = active ? 'rgba(255, 215, 0, 0.18)' : 'rgba(255,255,255,0.04)';
@@ -9665,19 +9682,46 @@ function drawMainMenuRank() {
         return;
     }
 
-    // ===== 好友排行：开放数据域未接入前，显示真实空态 =====
-    // v3.2：旧版这里是 4 条硬编码的虚构好友（编造姓名/地区/战力），已整体删除。
-    const boxH = 190;
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
-    roundRect(ctx, 18, bodyY, screenWidth - 36, boxH, 12); ctx.fill();
+    // ===== 守关榜：10 章 BOSS 作为挑战目标（明确标注非真实玩家）=====
+    const power = calculatePower();
+    const rowH = 46;
+    GUARDIAN_RANKS.forEach((g, i) => {
+        const ry = bodyY + i * (rowH + 4);
+        if (ry > screenHeight - MAIN_MENU_NAV_H - 30) return;
+        const beaten = power >= g.power;
+        ctx.fillStyle = beaten ? 'rgba(70, 211, 90, 0.12)' : 'rgba(255,255,255,0.05)';
+        roundRect(ctx, 18, ry, screenWidth - 36, rowH, 9); ctx.fill();
+        if (beaten) {
+            ctx.strokeStyle = 'rgba(70, 211, 90, 0.5)';
+            ctx.lineWidth = 1;
+            roundRect(ctx, 18, ry, screenWidth - 36, rowH, 9); ctx.stroke();
+        }
+        ctx.textAlign = 'left';
+        ctx.font = '16px Arial';
+        ctx.fillText(g.avatar, 30, ry + rowH / 2);
+        ctx.fillStyle = beaten ? '#8ef0a0' : '#cfe4f5';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText(g.name, 56, ry + rowH / 2 - 6);
+        ctx.fillStyle = '#7f93a8';
+        ctx.font = '10px Arial';
+        ctx.fillText('第 ' + g.ch + ' 章守关者', 56, ry + rowH / 2 + 10);
+
+        ctx.textAlign = 'right';
+        if (beaten) {
+            ctx.fillStyle = '#8ef0a0';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText('已超越', screenWidth - 34, ry + rowH / 2);
+        } else {
+            ctx.fillStyle = '#ffd23a';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText('战力 ' + g.power, screenWidth - 34, ry + rowH / 2);
+        }
+    });
+
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#9fb0c4';
-    ctx.font = 'bold 15px Arial';
-    ctx.fillText('好友榜即将开放', screenWidth / 2, bodyY + 60);
-    ctx.fillStyle = 'rgba(160, 180, 200, 0.8)';
-    ctx.font = '12px Arial';
-    ctx.fillText('正在接入微信好友数据', screenWidth / 2, bodyY + 88);
-    ctx.fillText('（需要开放数据域）', screenWidth / 2, bodyY + 108);
+    ctx.fillStyle = 'rgba(150, 170, 190, 0.75)';
+    ctx.font = '10px Arial';
+    ctx.fillText('守关者为本作设定的挑战目标，非真实玩家', screenWidth / 2, screenHeight - MAIN_MENU_NAV_H - 8);
 }
 
 // ========== 世界Tab ==========

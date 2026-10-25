@@ -74,6 +74,7 @@ const sandbox = {
         && /y = SAFE_TOP_OFFSET \+ 88/.test(src)
         && /const btnR = 20;/.test(src)
         && /墙体塌一段/.test(src),
+    __hasGuardian: /const GUARDIAN_RANKS = \[/.test(src) && /非真实玩家/.test(src) && /已超越/.test(src),
     __noFakeRank: !/const rankCityData\s*=/.test(src) && !/const rankFriendData\s*=/.test(src) && !/小明|老王|小李|阿强/.test(src),
     __hasRealRank: /stageProgress\.filter\(Boolean\)\.length/.test(src),
     __hasMercy: /\* mercyHpMult/.test(src) && /mercySpeedMult/.test(src) && /function mercyFor/.test(src),
@@ -691,6 +692,17 @@ const driver = `
     if (!__hasRealRank) throw new Error('战绩未使用真实本地数据');
     ok('排行榜：假数据已清零，战绩来自本地存档');
   } catch(e){ fail('排行榜真实性', e); }
+
+  // ---------- 6ag) v3.3：守关榜（合规的"人气感"） ----------
+  try {
+    if (!__hasGuardian) throw new Error('守关榜未接入（数据/免责声明/已超越判定）');
+    if (typeof GUARDIAN_RANKS !== 'object' || GUARDIAN_RANKS.length !== 10) throw new Error('守关者应为 10 位');
+    // 战力必须递增（作为挑战梯度）
+    for (let i = 1; i < GUARDIAN_RANKS.length; i++) {
+      if (GUARDIAN_RANKS[i].power <= GUARDIAN_RANKS[i-1].power) throw new Error('守关者战力未递增');
+    }
+    ok('守关榜：10 位守关者、战力递增、标注"非真实玩家"');
+  } catch(e){ fail('守关榜', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
