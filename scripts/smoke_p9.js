@@ -7,6 +7,21 @@ const path = require('path');
 const filePath = path.join(__dirname, '..', 'game.js');
 const src = fs.readFileSync(filePath, 'utf8');
 
+// v3.4：开放数据域文件级校验（在 Node 侧完成，vm 内无 fs/__dirname）
+const ROOT = path.join(__dirname, '..');
+let __odcGameJson = false, __odcSub = false, __odcMain = false;
+try {
+    const gj = JSON.parse(fs.readFileSync(path.join(ROOT, 'game.json'), 'utf8'));
+    __odcGameJson = gj.openDataContext === 'openDataContext';
+} catch (e) {}
+try {
+    const sub = fs.readFileSync(path.join(ROOT, 'openDataContext', 'index.js'), 'utf8');
+    __odcSub = /getFriendCloudStorage/.test(sub) && /getSharedCanvas/.test(sub);
+} catch (e) {}
+__odcMain = /wx\.setUserCloudStorage/.test(src)
+    && src.indexOf("postMessage({ type: 'render'") >= 0
+    && src.indexOf('drawImage(openDataCanvas') >= 0;
+
 const gradientStub = { addColorStop() {} };
 const ctxProxy = new Proxy({}, {
     get(t, p) {
@@ -77,6 +92,9 @@ const sandbox = {
     __hasGuardian: /const GUARDIAN_RANKS = \[/.test(src) && /非真实玩家/.test(src) && /已超越/.test(src),
     __noFakeRank: !/const rankCityData\s*=/.test(src) && !/const rankFriendData\s*=/.test(src) && !/小明|老王|小李|阿强/.test(src),
     __hasRealRank: /stageProgress\.filter\(Boolean\)\.length/.test(src),
+    __odcGameJson: __odcGameJson,
+    __odcSub: __odcSub,
+    __odcMain: __odcMain,
     __hasMercy: /\* mercyHpMult/.test(src) && /mercySpeedMult/.test(src) && /function mercyFor/.test(src),
     __hasFailAttrib: /☠/.test(src) && /💡/.test(src) && /第 \$\{_waveNo\} 波阵亡/.test(src),
     __hasShare: /wx\.shareAppMessage/.test(src) && /doShare\('fail'\)/.test(src),
@@ -703,6 +721,15 @@ const driver = `
     }
     ok('守关榜：10 位守关者、战力递增、标注"非真实玩家"');
   } catch(e){ fail('守关榜', e); }
+
+  // ---------- 6ah) v3.4：开放数据域（真实好友榜） ----------
+  try {
+    if (!__odcGameJson) throw new Error('game.json 未配置 openDataContext');
+    if (!__odcSub) throw new Error('子域未拉取好友数据/未用 sharedCanvas');
+
+    if (!__odcMain) throw new Error('主域未上传成绩/未渲染好友榜/未绘制 sharedCanvas');
+    ok('好友榜：game.json + 子域拉取/渲染 + 主域上传/绘制 全部就位');
+  } catch(e){ fail('开放数据域', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

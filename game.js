@@ -7874,6 +7874,7 @@ function useBomb() {
 // 游戏结束
 function gameOver() {
     failStreak++;   // 连败计数
+    submitBestScore();
     track('level_end', { level: currentStage, win: 0, dur: Math.round(gameTime / 1000), leaks: leaksThisLevel, lives: wallLives });
     gameState = 'gameOver';
     gameRunning = false;
@@ -7891,6 +7892,7 @@ function gameOver() {
 // 胜利
 function victory() {
     failStreak = 0;
+    submitBestScore();
     track('level_end', { level: currentStage, win: 1, dur: Math.round(gameTime / 1000), leaks: leaksThisLevel, lives: wallLives });
     gameState = 'victory';
     gameRunning = false;
@@ -8433,6 +8435,39 @@ let rankDragStartScrollY = 0; // 拖动开始时的滚动偏移
 // 游戏圈按钮（原生覆盖层）
 let gameClubButton = null;
 let gameClubButtonVisible = false;   // 避免每帧重复 show/hide 触发原生视图重建
+
+// ===== v3.4：好友排行榜（开放数据域）=====
+let openDataCtx = null;
+let openDataCanvas = null;
+let lastSubmittedBest = null;
+
+function initOpenData() {
+    if (openDataCtx) return true;
+    try {
+        if (typeof wx === 'undefined' || !wx.getOpenDataContext) return false;
+        openDataCtx = wx.getOpenDataContext();
+        openDataCanvas = openDataCtx.canvas;
+        return !!(openDataCtx && openDataCanvas);
+    } catch (e) { return false; }
+}
+
+// 上传成绩到微信云存储（只在有提升时写，减少调用）
+function submitBestScore() {
+    try {
+        if (typeof wx === 'undefined' || !wx.setUserCloudStorage) return;
+        const cleared = stageProgress.filter(Boolean).length;
+        const best = {
+            lv: Math.min(STAGES.length, cleared + 1),
+            cleared: cleared,
+            power: calculatePower(),
+            ts: Date.now()
+        };
+        const prev = lastSubmittedBest;
+        if (prev && prev.power >= best.power && prev.cleared >= best.cleared) return;
+        lastSubmittedBest = best;
+        wx.setUserCloudStorage({ KVDataList: [{ key: 'best', value: JSON.stringify(best) }] });
+    } catch (e) { /* 上传失败不影响玩法 */ }
+}
 
 // v3.3：守关榜（Guardian Ranks）
 // 与"假玩家榜"的区别：这些是**世界观里的守关者**（对应 10 章 BOSS），
@@ -9635,13 +9670,14 @@ function drawMainMenuRank() {
     ctx.textBaseline = 'middle';
     ctx.fillText('排行榜', screenWidth / 2, topOffset + 20);
 
-    // Tabs（保留 global/friend 两个 id，避免改动触摸逻辑）
-    const tabY = topOffset + 40, tabH = 40, tabGap = 10, tabW = (screenWidth - 30) / 2;
+    // v3.4：三个 Tab（战绩 / 守关 / 好友）
+    const tabY = topOffset + 40, tabH = 40, tabGap = 8;
+    const tabW = (screenWidth - 30 - tabGap * 2) / 3;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
     roundRect(ctx, 15, tabY, screenWidth - 30, tabH, 10); ctx.fill();
 
-    [{ id: 'global', label: '我的战绩' }, { id: 'friend', label: '守关榜' }].forEach((tab, i) => {
-        const tx = 15 + 5 + i * (tabW + tabGap);
+    [{ id: 'global', label: '战绩' }, { id: 'guardian', label: '守关' }, { id: 'friend', label: '好友' }].forEach((tab, i) => {
+        const tx = 15 + i * (tabW + tabGap);
         const active = rankTab === tab.id;
         ctx.fillStyle = active ? 'rgba(255, 215, 0, 0.18)' : 'rgba(255,255,255,0.04)';
         roundRect(ctx, tx, tabY + 5, tabW - 10, tabH - 10, 8); ctx.fill();
@@ -9679,6 +9715,30 @@ function drawMainMenuRank() {
         ctx.fillStyle = 'rgba(160, 180, 200, 0.75)';
         ctx.font = '11px Arial';
         ctx.fillText('数据来自本机存档 · 全服榜需要服务端，暂不开放', screenWidth / 2, bodyY + 3 * 62 + 10);
+        return;
+    }
+
+    if (rankTab === 'friend') {
+        // ===== 好友榜：开放数据域渲染（真实好友成绩）=====
+        if (initOpenData()) {
+            const vx = 18, vy = bodyY;
+            const vw = Math.round(screenWidth - 36);
+            const vh = Math.round(screenHeight - bodyY - MAIN_MENU_NAV_H - 14);
+            try {
+                openDataCtx.postMessage({ type: 'render', width: vw, height: vh });
+                ctx.drawImage(openDataCanvas, vx, vy, vw, vh);
+            } catch (e) {
+                ctx.fillStyle = '#9fb0c4';
+                ctx.font = '13px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('好友榜加载中…', screenWidth / 2, bodyY + 60);
+            }
+        } else {
+            ctx.fillStyle = '#9fb0c4';
+            ctx.font = '13px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('当前环境不支持好友榜', screenWidth / 2, bodyY + 60);
+        }
         return;
     }
 
@@ -16066,20 +16126,18 @@ wx.onTouchEnd((e) => {
         }
     }
 
-    // 排行榜Tab的Tab切换点击检测
+    // 排行榜Tab的Tab切换点击检测（v3.4：三个 Tab）
     if (gameState === 'mainMenu' && mainMenuTab === 'rank' && !isRankDragging) {
         const topOffset = SAFE_TOP_OFFSET;
         const tabY = topOffset + 40;
         const tabH = 40;
-        const tabGap = 10;
-        const tabW = (screenWidth - 30) / 2;
+        const tabGap = 8;
+        const tabW = (screenWidth - 30 - tabGap * 2) / 3;
 
         if (rankTouchStartY >= tabY && rankTouchStartY <= tabY + tabH) {
-            if (rankTouchStartX >= 15 && rankTouchStartX <= 15 + tabW) {
-                rankTab = 'global';
-                rankScrollY = 0;
-            } else if (rankTouchStartX >= 15 + tabW + tabGap && rankTouchStartX <= screenWidth - 15) {
-                rankTab = 'friend';
+            const idx = Math.floor((rankTouchStartX - 15) / (tabW + tabGap));
+            if (rankTouchStartX >= 15 && idx >= 0 && idx <= 2) {
+                rankTab = ['global', 'guardian', 'friend'][idx];
                 rankScrollY = 0;
             }
         }
