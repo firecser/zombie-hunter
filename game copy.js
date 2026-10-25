@@ -7341,11 +7341,16 @@ function applyChestReward(kind) {
     return '炮台 +12';
 }
 // 磁吸（复用掉落半径）+ 贴身拾取；奖励三选一：金币 / 当前元素印 / 炮台伤害
+// v2.28：宝箱的纵向生成位置与磁吸半径（都随屏幕高度自适应）
+function chestSpawnY() { return Math.min(screenHeight * 0.58, player.y - 60); }
+function chestMagnetR() { return Math.max(ORB_MAGNET_R, Math.round(screenHeight * 0.13)); }
+
 function updateChests(now) {
+    const _chestMagnet = chestMagnetR();
     for (let i = chests.length - 1; i >= 0; i--) {
         const c = chests[i];
         const d = Math.hypot(player.x - c.x, player.y - c.y);
-        if (d > 5 && d < ORB_MAGNET_R) {
+        if (d > 5 && d < _chestMagnet) {
             const a = Math.atan2(player.y - c.y, player.x - c.x);
             c.x += Math.cos(a) * 10;
             c.y += Math.sin(a) * 10;
@@ -7498,7 +7503,9 @@ function spawnWave(w, stage) {
     waveAlive[w.i] = w.comp.length;
     // P8b：上一波已清空 → 掉一个宝箱（第 1 波不掉）
     if (w.i > 1) {
-        chests.push({ x: 60 + Math.random() * (screenWidth - 120), y: screenHeight * 0.58, r: 18, born: Date.now() });
+        // v2.28：纵向位置按"玩家上方固定距离"兜底。
+        // 原来固定 0.58H，而玩家在 0.70H-34：高屏上间距会超过固定磁吸半径 70，永远吃不到。
+        chests.push({ x: 60 + Math.random() * (screenWidth - 120), y: chestSpawnY(), r: 18, born: Date.now() });
     }
     // 同一波的所有怪均匀错峰入队：每只在 w.spawnAt + s*WAVE_INTERVAL ± 抖动 入场，
     // 铺满本波独占的时间段；下一波在末尾紧接，全程连绵不绝、不会一排同时出现。

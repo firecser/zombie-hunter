@@ -575,6 +575,28 @@ const driver = `
     ok('坦克移动：到位刹车无过冲（max=' + maxX.toFixed(1) + '，终点=' + player.x.toFixed(1) + '）');
   } catch(e){ fail('坦克移动', e); }
 
+  // ---------- 6aa) v2.28：宝箱在不同屏高下都必须可达 ----------
+  try {
+    resetAll();
+    const gap = player.y - chestSpawnY();
+    if (gap > chestMagnetR() + 0.5) {
+        throw new Error('宝箱超出磁吸范围: gap=' + gap.toFixed(1) + ' > magnet=' + chestMagnetR());
+    }
+    // 端到端：放在生成点，模拟 60 帧必须被吃掉
+    chests = [{ x: player.x + 20, y: chestSpawnY(), r: 18, born: Date.now() }];
+    chestDouble = null; chestAdUsed = 0;
+    for (let i = 0; i < 60 && chests.length; i++) updateChests(Date.now());
+    if (chests.length !== 0) throw new Error('宝箱 60 帧内未被拾取（gap=' + gap.toFixed(1) + '）');
+    // 纯公式校验：常见屏高下「间距 ≤ 磁吸」都必须成立
+    for (const h of [667, 812, 844, 896, 932, 1024]) {
+        const chestY = Math.min(h * 0.58, (h * 0.70 - 34) - 60);
+        const gapH = (h * 0.70 - 34) - chestY;
+        const magH = Math.max(70, Math.round(h * 0.13));
+        if (gapH > magH) throw new Error('屏高 ' + h + ' 不可达: gap=' + gapH.toFixed(0) + ' > mag=' + magH);
+    }
+    ok('宝箱可达性：生成间距 ' + gap.toFixed(0) + 'px ≤ 磁吸 ' + chestMagnetR() + 'px；667–1024 屏高全部可达');
+  } catch(e){ fail('宝箱可达性', e); }
+
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');
