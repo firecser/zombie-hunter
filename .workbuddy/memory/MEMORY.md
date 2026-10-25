@@ -47,3 +47,4 @@
 ## 战斗代码铁律
 - 改 battle 相关必须基于代码事实，不猜测；重做机制前先纸面建模(三层循环+火力门数值自洽)。
 - 现有战斗锚点：胜利=撑满5min(GAME_TIME_LIMIT)、墙血归零败；`stage.element/elements` 已存在；`ELEMENT_COUNTER` 即用克制映射；`drawZombie`(2672)/`damageZombie`(5432, 带element参数)/`shoot`(5030, 读SKILL_DEFS[type].element)/`spawnZombies`(6131)/`wx.onTouchEnd`(14706 战斗分支)。
+- **协作纪律（2026-10-25 用户纠正）**：**一次只推进一条线**。用户提了新问题（如"震屏缩小"）时，先明确回答"是不是我改的"，并**询问是否现在修**，不要顺手把另一条线的改动混进当前任务；跨线程修复必须单独 commit + 单独告知。
