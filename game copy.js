@@ -2632,10 +2632,12 @@ function showRewardedAd(onReward, slot) {
         wall: wallLives,
         revive: reviveUsed ? 1 : 0
     });
-    if (!ad) {
-        // 非微信环境（如本地预览/测试）：直接视为已发放奖励，便于联调
+    // 开发者工具里激励视频通常不可用：直接发放，避免"点了没反应"的假象
+    let _isDevtools = false;
+    try { _isDevtools = (typeof wx !== 'undefined' && wx.getSystemInfoSync && wx.getSystemInfoSync().platform === 'devtools'); } catch (e) {}
+    if (!ad || _isDevtools) {
         track('ad_result', { slot: _slot, level: currentStage, ok: 1, ms: 0 });
-        if (onReward) onReward();
+        try { if (onReward) onReward(); } catch (e) { console.error('ad reward error', e); }
         addDailyTaskProgress('ad');
         resume();
         return;
@@ -2645,7 +2647,7 @@ function showRewardedAd(onReward, slot) {
         const _ok = (res === undefined || (res && res.isEnded)) ? 1 : 0;
         track('ad_result', { slot: _slot, level: currentStage, ok: _ok, ms: Date.now() - adStartAt });
         if (_ok) {
-            if (onReward) onReward();
+            try { if (onReward) onReward(); } catch (e) { console.error('ad reward error', e); }
             addDailyTaskProgress('ad');
         }
         ad.offClose(handler);
@@ -2657,12 +2659,32 @@ function showRewardedAd(onReward, slot) {
     const _bid = AD_BRANCH[_slot];
     const _dim = String(Math.max(1, Math.min(100, currentStage || 1)));
     const _showArg = _bid ? { branchId: _bid, branchDim: _dim } : undefined;
-    ad.show(_showArg).catch(() => {
-        // 失败重试
+
+    // v2.22.4：部分基础库的 show 不接受参数（会同步抛错），必须兜住并回退
+    const _invokeShow = () => {
+        try {
+            const ret = ad.show(_showArg);
+            return (ret && typeof ret.catch === 'function') ? ret : Promise.resolve();
+        } catch (e) {
+            try {
+                const ret2 = ad.show();
+                return (ret2 && typeof ret2.catch === 'function') ? ret2 : Promise.resolve();
+            } catch (e2) {
+                return Promise.reject(e2);
+            }
+        }
+    };
+
+    // 点击反馈：让玩家知道"点到了"
+    try { if (wx.showToast) wx.showToast({ title: '广告加载中…', icon: 'none', duration: 800 }); } catch (e) {}
+
+    _invokeShow().catch(() => {
+        // 失败重试一次
         ad.load()
-            .then(() => ad.show(_showArg))
+            .then(() => _invokeShow())
             .catch(err => {
                 console.error('激励视频 广告显示失败', err);
+                try { if (wx.showToast) wx.showToast({ title: '广告暂时不可用，请稍后重试', icon: 'none' }); } catch (e) {}
                 resume();
             });
     });
