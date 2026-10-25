@@ -74,6 +74,8 @@ const sandbox = {
         && /y = SAFE_TOP_OFFSET \+ 88/.test(src)
         && /const btnR = 20;/.test(src)
         && /墙体塌一段/.test(src),
+    __hasFailAttrib: /☠/.test(src) && /💡/.test(src) && /第 \$\{_waveNo\} 波阵亡/.test(src),
+    __hasShare: /wx\.shareAppMessage/.test(src) && /doShare\('fail'\)/.test(src),
     __hasShakeFix: (() => {
         const iBg = src.indexOf('背景**不参与**震屏');
         const iTx = src.indexOf('ctx.translate((Math.random() - 0.5) * _sm');
@@ -117,7 +119,7 @@ const driver = `
     talentMods.expMult = 1; talentMods.goldMult = 1;
     shieldWall = null; shieldSoldier = null; shieldAdUsed = 0;
     reviveUsed = false; reviveOfferUntil = 0; invincibleUntil = 0;
-    wallLives = 3; leaksThisLevel = 0;
+    wallLives = 3; leaksThisLevel = 0; gameTime = 200000; tutorialArmorBlocks = 0;   // 默认跳过第1关护甲窗口
   }
   function zk(x,y,el){ return { x:x, y:y, radius:22, element:el||'金', elements:null, health:1e9, maxHealth:1e9,
                                frozenUntil:0, slowUntil:0, burningUntil:0, vulnUntil:0, vulnMul:1, burnDmg:0,
@@ -609,6 +611,65 @@ const driver = `
     if (!(upgradeInputLock > Date.now())) throw new Error('未设置输入锁（拖动手指会误选）');
     ok('三选一：面板上移到 ' + Math.round(py) + 'px（底部不超 80% 屏高）+ 260ms 输入锁');
   } catch(e){ fail('三选一面板', e); }
+
+  // ---------- 6ac) v3.0：第 1 关 90 秒守军护甲 ----------
+  try {
+    // ① 第 1 关、90 秒内：不扣格、不计漏怪
+    resetAll();
+    currentStage = 1; gameTime = 10000;
+    wallLives = 3; leaksThisLevel = 0; tutorialArmorBlocks = 0;
+    let z = zk(200, 0, '金'); z.speed = 0; z.y = WALL_Y - z.radius + 2;
+    zombies.length = 0; zombies.push(z);
+    updateZombies(16);
+    if (wallLives !== 3) throw new Error('护甲期应不扣格, 实剩 ' + wallLives);
+    if (leaksThisLevel !== 0) throw new Error('护甲期不应计漏怪, 实=' + leaksThisLevel);
+    if (tutorialArmorBlocks !== 1) throw new Error('护甲抵挡计数未 +1');
+
+    // ② 第 1 关、90 秒后：正常扣格
+    resetAll();
+    currentStage = 1; gameTime = 95000;
+    wallLives = 3; leaksThisLevel = 0;
+    z = zk(200, 0, '金'); z.speed = 0; z.y = WALL_Y - z.radius + 2;
+    zombies.length = 0; zombies.push(z);
+    updateZombies(16);
+    if (wallLives !== 2) throw new Error('90 秒后应正常扣格, 实剩 ' + wallLives);
+
+    // ③ 第 2 关、刚开始：没有护甲
+    resetAll();
+    currentStage = 2; gameTime = 10000;
+    wallLives = 3; leaksThisLevel = 0;
+    z = zk(200, 0, '水'); z.speed = 0; z.y = WALL_Y - z.radius + 2;
+    zombies.length = 0; zombies.push(z);
+    updateZombies(16);
+    if (wallLives !== 2) throw new Error('第 2 关不应有护甲, 实剩 ' + wallLives);
+
+    ok('1-1 护甲：90s 内免扣格，90s 后与其它关正常扣格');
+  } catch(e){ fail('1-1 护甲', e); }
+
+  // ---------- 6ad) v3.0：失败归因 + 分享 + 连败计数 ----------
+  try {
+    resetAll();
+    currentStage = 12; failStreak = 0; wallLives = 0; leaksThisLevel = 3; wavesSpawned = 17;
+
+    // ① 失败归因：弹窗必须画三行（死因/数据/建议）
+    if (!__hasFailAttrib) throw new Error('失败弹窗缺归因三行');
+
+    // ② 连败计数
+    gameOver();
+    if (failStreak !== 1) throw new Error('失败未累计 failStreak');
+    gameOver();
+    if (failStreak !== 2) throw new Error('连败未累计到 2');
+
+    // ③ 分享文案（挑衅型，带关卡号）
+    const t = buildShareTitle('fail');
+    if (!/第 12 关/.test(t) || !/死了/.test(t)) throw new Error('分享文案异常: ' + t);
+    if (!__hasShare) throw new Error('分享未接入 wx.shareAppMessage / 点击');
+
+    // ④ 通关清零
+    victory();
+    if (failStreak !== 0) throw new Error('通关未清零连败');
+    ok('失败归因三行 + 连败计数 + 分享文案（' + t + '）');
+  } catch(e){ fail('失败体验与分享', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

@@ -88,7 +88,9 @@ const WALL_ATTACK_INTERVAL = 500;     // 僵尸啄墙攻击间隔(ms)
 const WALL_LIVES_BASE = 3;             // 基础护城格数
 let wallLives = WALL_LIVES_BASE;       // 当前格数
 let wallLivesMax = WALL_LIVES_BASE;    // 本局上限
-let leaksThisLevel = 0;                // 本局漏怪数（0 漏 = 无伤）
+let leaksThisLevel = 0;
+let tutorialArmorBlocks = 0;   // v3.0：第 1 关护甲抵挡次数
+let failStreak = 0;            // v3.0：当前关卡连续失败次数（通关清零，用于分享文案与后续连败降档）                // 本局漏怪数（0 漏 = 无伤）
 let wallCrackUntil = 0;                // 破损红闪
 let flawlessClear = false;             // 本局是否无伤通关
 
@@ -5302,65 +5304,92 @@ function tryDoubleGoldTap(x, y, modalX, modalY, modalW) {
     return true;
 }
 
+// 分享工具（v3.0）：只做自愿传播，**不绑定任何奖励**（绑定奖励=诱导分享，会被降权）
+function buildShareTitle(kind) {
+    if (kind === 'fail') {
+        return `第 ${currentStage} 关我死了 ${Math.max(1, failStreak)} 次，你能过吗？`;
+    }
+    if (kind === 'clear') {
+        return `5 分钟守住 20 波，第 ${currentStage} 关三星通关！`;
+    }
+    return '五行相克，5 分钟一局，来试试你能过第几关';
+}
+function doShare(kind) {
+    try {
+        if (typeof wx === 'undefined' || !wx.shareAppMessage) { showAdToast('当前环境不支持分享'); return; }
+        wx.shareAppMessage({
+            title: buildShareTitle(kind),
+            query: 'lv=' + (currentStage || 1) + '&from=' + (kind || 'game')
+        });
+        track('share_click', { kind: kind || 'unknown', level: currentStage || 1 });
+    } catch (e) { /* 分享失败不影响玩法 */ }
+}
+
 function drawGameOver() {
-    // 半透明遮罩
     ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
-    
-    // 弹窗
+
     const modalW = Math.min(300, screenWidth * 0.85);
-    const modalH = 248;
+    const modalH = 312;
     const modalX = (screenWidth - modalW) / 2;
-    const modalY = screenHeight - 130 - modalH;
+    const modalY = screenHeight - 104 - modalH;
 
     drawRoyalePanel(modalX, modalY, modalW, modalH, 14);
-    // 顶部红色描边强调
     ctx.strokeStyle = ROYALE.red;
     ctx.lineWidth = 2;
     roundRect(ctx, modalX, modalY, modalW, modalH, 14);
     ctx.stroke();
-    
+
     // 标题
     ctx.fillStyle = ROYALE.red;
-    ctx.font = 'bold 20px Arial';
+    ctx.font = 'bold 19px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('👾 游戏结束', screenWidth / 2, modalY + 34);
-    
-    // 统计信息
-    ctx.fillStyle = '#cfd8e3';
-    ctx.font = '13px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`最终等级: ${player.level}`, screenWidth / 2, modalY + 62);
-    ctx.fillText(`击杀僵尸: ${player.kills}`, screenWidth / 2, modalY + 84);
-    const minutes = Math.floor(gameTime / 60000);
-    const seconds = Math.floor((gameTime % 60000) / 1000);
-    ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 106);
-    
-    // 突出显示：本次获得金币（右侧留给「金币×2」）
-    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32 - 100, 50, stageGoldEarned);
+    ctx.fillText('👾 城池失守', screenWidth / 2, modalY + 28);
+
+    // ===== v3.0 P0-2：失败归因三行（死因 / 根因 / 建议）=====
+    // 规划依据：失败后必须告诉玩家"为什么输、下一步怎么做"，这是 D7 的关键。
+    const _st = getCurrentStage();
+    const _waveNo = Math.max(1, Math.min(wavesSpawned, WAVE_COUNT));
+    const _elMain = (_st.element && _st.element !== 'normal') ? _st.element : ((_st.elements && _st.elements[0]) || null);
+    const _counter = _elMain ? (ELEMENT_COUNTER[_elMain] || null) : null;
+    const _lines = [
+        { icon: '☠', text: `第 ${_waveNo} 波阵亡 · 漏 ${leaksThisLevel} 只`, color: '#ff8a80' },
+        { icon: '📊', text: `击杀 ${player.kills} · 等级 ${player.level} · 剩 ${wallLives} 格`, color: '#cfd8e3' },
+        { icon: '💡', text: _counter ? `本关${_elMain}属性，优先用「${_counter}」克制` : '多切五行，克制伤害 ×2.5', color: '#9fe3ff' }
+    ];
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    _lines.forEach((l, k) => {
+        const ly = modalY + 54 + k * 22;
+        ctx.fillStyle = l.color;
+        ctx.fillText(l.icon, modalX + 14, ly);
+        ctx.fillText(l.text, modalX + 30, ly);
+    });
+
+    // 本次金币（右侧留给「金币×2」）
+    drawGoldBanner(modalX + 14, modalY + 116, modalW - 28 - 100, 44, stageGoldEarned);
     drawDoubleGoldBtn(modalX, modalY, modalW);
 
-    // 按钮（皇室战争风立体按钮）：重玩 / 变强 / 返回
-    const btnSize = 42;
-    const gap = 12;
-    const totalW = btnSize * 3 + gap * 2;
-    const startX = screenWidth / 2 - totalW / 2;
-    const btnY = modalY + 184;
-
-    drawRoyaleBevelButton({ x: startX, y: btnY, w: btnSize, h: btnSize, r: 10 }, '🔄', 'red');
-    drawRoyaleBevelButton({ x: startX + (btnSize + gap), y: btnY, w: btnSize, h: btnSize, r: 10 }, '💪', 'gold');
-    drawRoyaleBevelButton({ x: startX + (btnSize + gap) * 2, y: btnY, w: btnSize, h: btnSize, r: 10 }, '📋', 'blue');
-
-    // 按钮文字
+    // ===== 主按钮：再来一局（免费、第一时间可点）=====
+    const mainW = 200, mainH = 44;
+    const mainX = (screenWidth - mainW) / 2, mainY = modalY + 176;
+    drawRoyaleBevelButton({ x: mainX, y: mainY, w: mainW, h: mainH, r: 12 }, '▶', 'green');
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px Arial';
+    ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(`💰${GOLD_RETRY_COST}`, startX + btnSize / 2, btnY + btnSize + 14);
-    ctx.fillText('变强', startX + (btnSize + gap) + btnSize / 2, btnY + btnSize + 14);
-    ctx.fillText('返回', startX + (btnSize + gap) * 2 + btnSize / 2, btnY + btnSize + 14);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('再来一局', screenWidth / 2 + 8, mainY + mainH / 2);
+
+    // 次级：变强 / 分享 / 关卡
+    const subY = modalY + 240;
+    ctx.font = 'bold 13px Arial';
+    ctx.fillStyle = '#ffd23a';
+    ctx.fillText('💪 变强', screenWidth / 2 - 92, subY);
+    ctx.fillStyle = '#7fe3ff';
+    ctx.fillText('📤 分享', screenWidth / 2, subY);
+    ctx.fillStyle = '#9fc7e8';
+    ctx.fillText('📋 关卡', screenWidth / 2 + 92, subY);
 }
 
 // 通关界面
@@ -6925,6 +6954,22 @@ function updateZombies(dt) {
             // ===== v2.13 A 案：漏怪 → 扣护城格 → 怪物消失（不再无限啄墙）=====
             if (!zombie._leaked) {
                 zombie._leaked = true;
+
+                // ===== v3.0 P0-1：第 1 关前 90 秒「守军护甲」=====
+                // 目的：让新玩家在 90 秒内只体验「赢」，不出现任何挫败。
+                // 不扣格、不计漏怪（无伤通关仍然成立），只给一次视觉反馈。
+                if (currentStage === 1 && gameTime < 90000) {
+                    tutorialArmorBlocks++;
+                    damageNumbers.push({
+                        x: zombie.x, y: WALL_Y - 42, text: '护甲抵挡',
+                        life: 900, vy: -1.2, color: '#7fe3ff', isCrit: false
+                    });
+                    hitEffects.push({ x: zombie.x, y: WALL_Y, type: 'revive', life: 420, maxLife: 420, rot: 0 });
+                    zombie.health = 0;
+                    _leakedOut.push(zombie);
+                    continue;
+                }
+
                 const _cost = (zombie.type === 'boss') ? 2 : 1;
                 leaksThisLevel++;
                 wallCrackUntil = now + 320;
@@ -7804,6 +7849,7 @@ function useBomb() {
 
 // 游戏结束
 function gameOver() {
+    failStreak++;   // 连败计数
     track('level_end', { level: currentStage, win: 0, dur: Math.round(gameTime / 1000), leaks: leaksThisLevel, lives: wallLives });
     gameState = 'gameOver';
     gameRunning = false;
@@ -7820,6 +7866,7 @@ function gameOver() {
 
 // 胜利
 function victory() {
+    failStreak = 0;
     track('level_end', { level: currentStage, win: 1, dur: Math.round(gameTime / 1000), leaks: leaksThisLevel, lives: wallLives });
     gameState = 'victory';
     gameRunning = false;
@@ -7957,7 +8004,7 @@ function startGame() {
     chests = [];
     wallLivesMax = WALL_LIVES_BASE;
     wallLives = wallLivesMax;
-    leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
+    leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false; tutorialArmorBlocks = 0;
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
     reviveUsed = false; reviveOfferUntil = 0; shieldWall = null;
     doubleGoldUsed = false;
@@ -15413,20 +15460,43 @@ function gameLoop() {
         drawFields();
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
-        drawBackground();
-        drawFieldBorders();       // 结算界面仍显示战场边界
-        drawEarthSpikes();        // 结算界面仍把地刺压在怪下层
-        drawEarthSinkholes();     // 结算界面仍把陷坑压在怪下层
-        const drawNow3 = Date.now();
-        for (const zombie of zombies) {
-            drawZombie(zombie, drawNow3);
+        // 与 drawGameOver 一致的几何（v3.0：主按钮「再来一局」免费）
+        const modalW = Math.min(300, screenWidth * 0.85);
+        const modalH = 312;
+        const modalX = (screenWidth - modalW) / 2;
+        const modalY = screenHeight - 104 - modalH;
+
+        if (tryDoubleGoldTap(x, y, modalX, modalY, modalW)) return;
+
+        const mainW = 200, mainH = 44;
+        const mainX = (screenWidth - mainW) / 2, mainY = modalY + 176;
+        if (x >= mainX && x <= mainX + mainW && y >= mainY && y <= mainY + mainH) {
+            startGame();           // 免费重开，不再扣金币
+            return;
         }
-        drawLogs();               // 结算界面仍把滚木压在怪上层
-        drawEarthShields();       // 结算界面仍把岩盾压在怪上层
-        drawWall();
-        drawWallHealthBar();
-        drawPlayer();
-        drawGameOver();
+        const subY = modalY + 240;
+        if (y >= subY - 18 && y <= subY + 18) {
+            // 分享（中间）
+            if (x > screenWidth / 2 - 30 && x < screenWidth / 2 + 30) {
+                doShare('fail');
+                return;
+            }
+            if (x >= screenWidth / 2 - 130 && x <= screenWidth / 2 - 56) {
+                levelReturnHandled = true;
+                gameState = 'mainMenu';
+                mainMenuTab = 'talent';
+                talentPage = 'jin';
+                talentScrollX = 0;
+                isSkillLab = false;
+                return;
+            } else if (x > screenWidth / 2 + 56 && x <= screenWidth / 2 + 130) {
+                levelReturnHandled = true;
+                gameState = 'mainMenu';
+                mainMenuTab = 'level';
+                isSkillLab = false;
+                return;
+            }
+        }
     } else if (gameState === 'victory') {
         drawBackground();
         drawPlayer();
