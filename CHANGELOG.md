@@ -10,6 +10,10 @@
 
 ---
 
+## [2.22.1] - 2026-10-25
+### Fixed
+- 场景分析补齐官方 step3：`ad.show({ branchId, branchDim })`，否则拿不到广告收入/ECPM
+
 ## [2.22.0] - 2026-10-25
 ### Added
 - 接入微信「场景分析」：6 个广告点位的曝光/点击上报（`reportUserBehaviorBranchAnalytics`）

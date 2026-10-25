@@ -2647,10 +2647,15 @@ function showRewardedAd(onReward, slot) {
         resume(); // 广告结束（无论是否看完）都恢复游戏
     };
     ad.onClose(handler);
-    ad.show().catch(() => {
+    // v2.22.1：官方要求——广告组件的 show 带上 branchId/branchDim，
+    // 平台才能把「广告曝光 → 广告点击 → 收入/ECPM/ARPPU」关联到该场景。
+    const _bid = AD_BRANCH[_slot];
+    const _dim = String(Math.max(1, Math.min(100, currentStage || 1)));
+    const _showArg = _bid ? { branchId: _bid, branchDim: _dim } : undefined;
+    ad.show(_showArg).catch(() => {
         // 失败重试
         ad.load()
-            .then(() => ad.show())
+            .then(() => ad.show(_showArg))
             .catch(err => {
                 console.error('激励视频 广告显示失败', err);
                 resume();

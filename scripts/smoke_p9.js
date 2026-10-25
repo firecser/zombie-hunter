@@ -71,7 +71,8 @@ const sandbox = {
     __hasScene: /const AD_BRANCH = \{/.test(src)
         && /wx\.reportUserBehaviorBranchAnalytics/.test(src)
         && (src.match(/reportBranch\('/g) || []).length >= 6
-        && /branchDim: String\(dim\)/.test(src),
+        && /branchDim: String\(dim\)/.test(src)
+        && /ad\.show\(_showArg\)/.test(src),
     __hasTrack: /wx\.reportAnalytics/.test(src)
         && ['bomb','shield','revive','reroll','chest','double_gold'].every(k => src.indexOf("'" + k + "')") > 0)
         && /track\('level_end'/.test(src),
