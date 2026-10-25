@@ -2532,14 +2532,19 @@ let rewardedAd = null;
 // branchDim 平台限制只能是 1–100 的整数，这里用「关卡号」当拆分维度。
 // 未填 branchId 的点位不会上报，也不会报错。
 const AD_BRANCH = {
-    bomb: '', shield: '', revive: '', reroll: '', chest: '', double_gold: ''
+    bomb:        'BCBgAAoXHx5d00p_2JkR_5',
+    shield:      'BCBgAAoXHx5d00p_2JkR_6',
+    revive:      'BCBgAAoXHx5d00p_2JkR_7',
+    reroll:      'BCBgAAoXHx5d00p_2JkR_8',
+    chest:       'BCBgAAoXHx5d00p_2JkR_9',
+    double_gold: 'BCBgAAoXHx5d00p_2JkR_-'   // 注意：以 "-" 结尾，若不是请替换
 };
 
 // eventType: 1=曝光，2=点击
 function reportBranch(slot, eventType) {
     try {
         const bid = AD_BRANCH[slot];
-        if (!bid) return;
+        if (!bid || bid.length < 10) return;   // 未配置 / ID 明显不完整 → 不上报
         if (typeof wx === 'undefined' || !wx.reportUserBehaviorBranchAnalytics) return;
         var dim = Math.max(1, Math.min(100, currentStage || 1));
         wx.reportUserBehaviorBranchAnalytics({ branchId: bid, branchDim: String(dim), eventType: eventType });

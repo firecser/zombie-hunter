@@ -508,6 +508,9 @@ const driver = `
   // ---------- 6u) v2.22：场景分析上报 ----------
   try {
     if (!__hasScene) throw new Error('场景分析未接入（branchId 配置/上报/曝光点击）');
+    // 6 个 branchId 必须都已配置（长度 >10），否则会出现"某个点位没数据"
+    const _bad = Object.keys(AD_BRANCH).filter(k => !AD_BRANCH[k] || AD_BRANCH[k].length < 10);
+    if (_bad.length) throw new Error('branchId 未配置: ' + _bad.join(','));
     // 未配置 branchId 时必须静默返回，不抛错
     reportBranch('bomb', 1);
     reportBranch('not_exist', 2);
