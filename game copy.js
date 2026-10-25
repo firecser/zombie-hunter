@@ -5936,7 +5936,7 @@ function castElementSkill(el, isCombo, prevEl) {
 // v2.25.2：统一降级为 light。
 // 之前破格/盾兵/复活/BOSS 都传 'heavy'，真机上整台手机会明显震动，
 // 玩家会感觉「整个屏幕（连刘海、微信右上角按钮）都在晃」——那是震动，不是画布位移。
-const VIBRATE_TYPE = 'light';   // 改成 'none' 可整体关闭震动
+const VIBRATE_TYPE = 'none';    // v2.25.3：用户要求完全关闭震动（'light' 可恢复轻微触感）
 let _lastVibrateAt = 0;
 function vibrate() {
     try {
