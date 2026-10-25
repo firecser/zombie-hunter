@@ -15238,12 +15238,15 @@ function gameLoop() {
             update(dt);
         }
         
+        // v2.25：背景**不参与**震屏——先画满屏背景，再对战场层做位移。
+        // 这样无论震幅多大，都不会把背景平移出屏（之前看起来像"整个画面缩小"就是边缘露黑）。
+        drawBackground();
+
         ctx.save();
         if (Date.now() < shakeUntil) {
-            const _sm = Math.min(8, shakeMag) * Math.max(0, Math.min(1, (shakeUntil - Date.now()) / 220));
+            const _sm = Math.min(10, shakeMag) * Math.max(0, Math.min(1, (shakeUntil - Date.now()) / 220));
             ctx.translate((Math.random() - 0.5) * _sm, (Math.random() - 0.5) * _sm);
         }
-        drawBackground();
         drawFieldBorders();       // 战场左右透明边界（敌人身体边缘不可越界，视觉提示）
         drawOrbs();
         drawWall();               // 城墙（先画，置于子弹下层；子弹绘制于城墙之上）

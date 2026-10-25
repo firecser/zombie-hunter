@@ -69,6 +69,11 @@ const sandbox = {
         return branch > 0 && revive > branch && pause > revive;
     })(),
     __audioUsed: Array.from(new Set((src.match(/AudioSystem\.[a-zA-Z]+/g) || []).map(x => x.split('.')[1]))),
+    __hasShakeFix: (() => {
+        const iBg = src.indexOf('背景**不参与**震屏');
+        const iTx = src.indexOf('ctx.translate((Math.random() - 0.5) * _sm');
+        return iBg > 0 && iTx > iBg && /Math\.min\(10, shakeMag\)/.test(src);
+    })(),
     __hasScene: /const AD_BRANCH = \{/.test(src)
         && /wx\.reportUserBehaviorBranchAnalytics/.test(src)
         && (src.match(/reportBranch\('/g) || []).length >= 6
@@ -541,6 +546,12 @@ const driver = `
     }
     ok('广告回调：true/undefined/{} 发奖，isEnded:false 不发');
   } catch(e){ fail('广告回调', e); }
+
+  // ---------- 6x) v2.25：背景不参与震屏 ----------
+  try {
+    if (!__hasShakeFix) throw new Error('震屏仍会平移背景（会露黑边/看起来像缩小）');
+    ok('震屏：背景先画满屏，只有战场层位移');
+  } catch(e){ fail('震屏修复', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
