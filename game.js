@@ -5933,8 +5933,19 @@ function castElementSkill(el, isCombo, prevEl) {
     spawnBulletFan(el, elementPerShot(el), true, isCombo, isCombo ? (prevEl + '生' + el) : null);
 }
 // ===== v2.4 反馈与轮转 =====
-function vibrate(type) {
-    try { if (wx.vibrateShort) wx.vibrateShort({ type: type || 'light' }); } catch (e) {}
+// v2.25.2：统一降级为 light。
+// 之前破格/盾兵/复活/BOSS 都传 'heavy'，真机上整台手机会明显震动，
+// 玩家会感觉「整个屏幕（连刘海、微信右上角按钮）都在晃」——那是震动，不是画布位移。
+const VIBRATE_TYPE = 'light';   // 改成 'none' 可整体关闭震动
+let _lastVibrateAt = 0;
+function vibrate() {
+    try {
+        if (VIBRATE_TYPE === 'none') return;
+        const now = Date.now();
+        if (now - _lastVibrateAt < 150) return;   // 去抖：同一秒内多只怪破格不会连震
+        _lastVibrateAt = now;
+        if (wx.vibrateShort) wx.vibrateShort({ type: VIBRATE_TYPE });
+    } catch (e) {}
 }
 function addShake(mag, ms) {
     // v2.24.1：震幅封顶 8px。之前 BOSS 击破传 12/16，配合衰减系数会到 30px+，
