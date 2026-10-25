@@ -15174,6 +15174,8 @@ function handleMainMenuTouch(x, y) {
 
 // ==================== 游戏循环 ====================
 function gameLoop() {
+    // v2.25.1：每帧先重置画布变换，任何 draw 漏 restore 都不会累积到下一帧
+    try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; } catch (e) {}
     const now = Date.now();
     let dt = Math.min(now - lastTime, 50);
     if (Date.now() < slowUntil) dt *= 0.3;          // v2.4：轮转慢动作
@@ -15268,20 +15270,16 @@ function gameLoop() {
         drawLogs();               // 滚木绘制于僵尸上层（碾压时压在怪身上）
         drawEarthShields();       // 岩盾绘制于僵尸上层（挡在敌人路径上）
 
-        drawWallHealthBar();      // 城墙血条（整组下沿贴齐城墙下沿，先画）
-        drawPlayer();             // 坦克绘制于血条上层
-        drawDamageNumbers();
-        drawUI();
+        drawPlayer();             // 坦克属于战场层，跟着震
+        drawDamageNumbers();      // 伤害飘字锚在战场坐标，跟着震
+        ctx.restore();            // ← 战场层到此结束
 
-        // 素材演示引导
-        if (isAdDemoMode) {
-            drawAdDemoGuide();
-        }
-
-        if (gamePaused && Date.now() >= reviveOfferUntil) {
-            drawPauseModal();
-        }
-        ctx.restore();
+        // ===== 以下全是 HUD：不参与震屏 =====
+        try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; } catch (e) {}
+        drawWallHealthBar();      // 城墙血条
+        drawUI();                 // 五行坞 / 按钮 / BOSS 血条 / 盾兵 / 复活层
+        if (isAdDemoMode) drawAdDemoGuide();
+        if (gamePaused && Date.now() >= reviveOfferUntil) drawPauseModal();
         // v2.4：轮转全屏闪光
         if (Date.now() < flashUntil) {
             const _fa = Math.max(0, (flashUntil - Date.now()) / 260);
