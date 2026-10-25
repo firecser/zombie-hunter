@@ -123,7 +123,7 @@ let safeAreaBottomInset = 0;   // 底部安全区内边距（全面屏 Home 指�
 try {
     // 新基础库用 wx.getWindowInfo（同步，含 statusBarHeight/safeArea）；旧库回退 getSystemInfoSync
     const _wi = wx.getWindowInfo ? (wx.getWindowInfo() || {}) : (wx.getSystemInfoSync() || {});
-    statusBarHeight = _wi.statusBarHeight || 20;
+    statusBarHeight = Number(_wi.statusBarHeight) || 20;   // v2.24：强制数字，避免字符串拼接/NaN 传给原生视图
     if (_wi.safeArea && typeof _wi.safeArea.bottom === 'number') {
         safeAreaBottomInset = Math.max(0, Math.round(screenHeight - _wi.safeArea.bottom));
     }
@@ -2551,6 +2551,27 @@ function drawAdToast() {
 // ===== v2.21 埋点 =====
 // 统一出口：wx.reportAnalytics（需在微信后台「自定义分析」注册同名事件）
 // 本地保留最近 60 条，方便真机调试（wx.getStorageSync('zhTrack') 可查）
+// ===== v2.24：原生 toast 保护 =====
+// 广告期间/刚结束的 1.2s 内不弹原生 toast，并做 600ms 去抖。
+// 原因：广告层与原生 textView 会互相踩，刷 insertTextView/updateTextView:fail。
+(function patchNativeToast() {
+    try {
+        if (typeof wx === 'undefined' || !wx.showToast) return;
+        const _origToast = wx.showToast.bind(wx);
+        let _lastToastAt = 0;
+        wx.showToast = function (opt) {
+            try {
+                const now = Date.now();
+                if (adOpen) return;
+                if (lastAdEndAt && now - lastAdEndAt < 1200) return;
+                if (now - _lastToastAt < 600) return;
+                _lastToastAt = now;
+                return _origToast(opt);
+            } catch (e) { /* 忽略原生视图异常 */ }
+        };
+    } catch (e) {}
+})();
+
 // ===== v2.22 场景分析（统计 → 场景分析）=====
 // 后台「新建场景」→「获取代码」拿到每个行为分支的 branchId，填进下表。
 // branchDim 平台限制只能是 1–100 的整数，这里用「关卡号」当拆分维度。
@@ -2596,6 +2617,7 @@ function track(event, data) {
 let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
 let adStartAt = 0;    // 广告开始时间
 let adToast = null;   // v2.23.1：画布内提示，避免原生 showToast 与广告层冲突
+let lastAdEndAt = 0;  // v2.24：广告结束时间（用于抑制紧随其后的原生 toast）
 let doubleGoldUsed = false;   // v2.19：结算双倍金币是否已用
 
 // ===== v2.20 IAA：三选一刷新 / 宝箱奖励 ×2 =====
@@ -2632,6 +2654,7 @@ let adCtx = null;          // { slot, onReward }
 
 function resumeAfterAd() {
     adOpen = false;
+    lastAdEndAt = Date.now();
     // 把广告耗时补回复活窗口，避免「广告还没看完，倒计时先超时」
     if (reviveOfferUntil > 0 && adStartAt > 0) {
         reviveOfferUntil += Math.max(0, Date.now() - adStartAt);
@@ -2676,6 +2699,8 @@ function showRewardedAd(onReward, slot) {
     adOpen = true;
     adStartAt = Date.now();
     adCtx = { slot: _slot, onReward: onReward };
+    // v2.24：广告前收起原生按钮，避免广告结束回来时 SDK 重建 textView 报错
+    try { if (typeof hideGameClubButton === 'function') hideGameClubButton(); } catch (e) {}
 
     reportBranch(_slot, 2);
     track('ad_show', {
@@ -9997,6 +10022,12 @@ function showGameClubButton() {
         const btnX = 30;
         const btnY = SAFE_TOP_OFFSET + 230;
 
+        // v2.24：原生 text 视图对 top/left 类型极其敏感（非 Number 就报 insertTextView:fail）
+        if (!isFinite(btnX) || !isFinite(btnY) || !isFinite(btnW) || !isFinite(btnH)) {
+            console.warn('游戏圈按钮坐标非法，跳过创建', btnX, btnY, btnW, btnH);
+            return;
+        }
+        try {
         gameClubButton = wx.createGameClubButton({
             type: 'text',
             text: '   进入游戏圈互动',
@@ -10014,6 +10045,11 @@ function showGameClubButton() {
                 textAlign: 'center'
             }
         });
+        } catch (e) {
+            console.warn('创建游戏圈按钮失败', e);
+            gameClubButton = null;
+            return;
+        }
     }
     // 微信引擎在部分基础库版本下 show 偶发 parent not found，吞掉避免刷屏卡顿
     try { gameClubButton.show(); } catch (e) { /* ignore native view rebuild error */ }
