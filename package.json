@@ -1,0 +1,13 @@
+{
+  "name": "zombie-hunter",
+  "version": "2.19.0",
+  "private": true,
+  "description": "制霸新手村的骷髅怪 · 微信小游戏（IAA）",
+  "scripts": {
+    "check": "node --check game.js",
+    "test": "node scripts/run_all_tests.js",
+    "sim": "node scripts/sim_v22_real.js",
+    "waves": "node scripts/check_waves.js",
+    "verify": "node scripts/run_all_tests.js && node scripts/sim_v22_real.js > /dev/null && echo SIM_OK"
+  }
+}
