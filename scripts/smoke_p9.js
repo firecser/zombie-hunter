@@ -69,6 +69,11 @@ const sandbox = {
         return branch > 0 && revive > branch && pause > revive;
     })(),
     __audioUsed: Array.from(new Set((src.match(/AudioSystem\.[a-zA-Z]+/g) || []).map(x => x.split('.')[1]))),
+    __hasVisualCleanup: /maxR: 0\.260/.test(src)
+        && /Math\.min\(r \* ts\.fs, screenWidth \* ts\.maxR\)/.test(src)
+        && /y = SAFE_TOP_OFFSET \+ 88/.test(src)
+        && /const btnR = 20;/.test(src)
+        && /墙体塌一段/.test(src),
     __hasShakeFix: (() => {
         const iBg = src.indexOf('背景**不参与**震屏');
         const iTx = src.indexOf('ctx.translate((Math.random() - 0.5) * _sm');
@@ -552,6 +557,12 @@ const driver = `
     if (!__hasShakeFix) throw new Error('震屏仍会平移背景（会露黑边/看起来像缩小）');
     ok('震屏：背景先画满屏，只有战场层位移');
   } catch(e){ fail('震屏修复', e); }
+
+  // ---------- 6y) v2.26：视觉降噪（怪物尺寸/HUD/炸弹/城墙破损） ----------
+  try {
+    if (!__hasVisualCleanup) throw new Error('视觉降噪未落地（怪物字号封顶/BOSS条位置/炸弹缩小/城墙破损）');
+    ok('视觉降噪：怪物字号按类型封顶 + BOSS条下移 + 炸弹缩小 + 城墙破损');
+  } catch(e){ fail('视觉降噪', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

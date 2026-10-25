@@ -749,7 +749,7 @@ let l1IntroDone = false;
 let soundEnabled = true;
 let musicEnabled = true;
 let vibrationEnabled = true;  // 振动开关状态
-const buttonSize = 44;
+const buttonSize = 34;   // v2.26：44→34，减少对战场下半部的侵占
 const buttonGap = 6;
 
 // ========== 设置系统 ==========
@@ -1183,7 +1183,7 @@ function drawDailyTaskEntryButton() {
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.font = '22px Arial';
+    ctx.font = '17px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('📋', x + w / 2, y + h / 2);
@@ -1202,9 +1202,9 @@ const DOCK_HEIGHT = screenHeight * DOCK_H_RATIO;
 // P1 修复：坞顶扣除底部安全区（全面屏 Home 指示条约 34px），绘制与点击命中共用同一基准
 const DOCK_TOP = screenHeight - SAFE_BOTTOM_OFFSET - DOCK_HEIGHT;
 // 控制按钮（音效/暂停/炸弹）基线：位于五行坞上方，避开顶部信息栏与微信胶囊
-const CONTROL_Y = DOCK_TOP - buttonSize - 16;
+const CONTROL_Y = DOCK_TOP - buttonSize - 10;   // v2.26：贴紧五行坞，少占战场
 const BOMB_BTN_X = screenWidth - 48;
-const BOMB_BTN_Y = CONTROL_Y + 27;
+const BOMB_BTN_Y = DOCK_TOP - 34;   // v2.26：视觉半径 20 + 10px 点击容差，保证 30px 内不压坞
 
 // 按钮位置：音效(左) / 暂停(右) 居五行坞上方一行
 const soundBtnX = 10;
@@ -2983,6 +2983,42 @@ function drawWall() {
         }
     }
 
+    // v2.26：护城值破损——每破一格，对应 1/3 墙体塌一段（缺口 + 碎石）
+    if (wallLives < wallLivesMax) {
+        const segW = w / wallLivesMax;
+        for (let i = 0; i < wallLivesMax; i++) {
+            if (i < wallLives) continue;              // 还完好的段跳过
+            const sx = x0 + i * segW;
+            const collapseH = h * 0.62;
+            // 缺口（深色，模拟塌陷）
+            ctx.fillStyle = 'rgba(10, 14, 20, 0.92)';
+            ctx.beginPath();
+            ctx.moveTo(sx + 2, topY);
+            ctx.lineTo(sx + segW * 0.22, topY + collapseH * 0.55);
+            ctx.lineTo(sx + segW * 0.48, topY + collapseH * 0.30);
+            ctx.lineTo(sx + segW * 0.72, topY + collapseH * 0.72);
+            ctx.lineTo(sx + segW - 2, topY + collapseH * 0.40);
+            ctx.lineTo(sx + segW - 2, topY);
+            ctx.closePath();
+            ctx.fill();
+            // 断口亮边
+            ctx.strokeStyle = 'rgba(200, 210, 225, 0.35)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(sx + 2, topY + collapseH * 0.1);
+            ctx.lineTo(sx + segW * 0.22, topY + collapseH * 0.55);
+            ctx.lineTo(sx + segW * 0.48, topY + collapseH * 0.30);
+            ctx.stroke();
+            // 碎石
+            for (let k = 0; k < 4; k++) {
+                ctx.fillStyle = 'rgba(120, 132, 148, ' + (0.5 + k * 0.1) + ')';
+                ctx.beginPath();
+                ctx.arc(sx + segW * (0.2 + k * 0.18), topY + h * (0.62 + (k % 2) * 0.16), 2 + (k % 2), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
     // 城垛（顶部锯齿）
     ctx.fillStyle = baseTop;
     const merlonW = 26, gap = 18;
@@ -3272,38 +3308,47 @@ function drawZombie(zombie, now) {
     const glyph = WUXING_GLYPH[_primaryEl] || '僵';
     const col = WUXING_COLORS[_primaryEl] || WUXING_COLORS.normal;
     const typeStyle = {
-        normal: { fs: 1.5,  lw: 3, dark: '#6b4a1f' },
-        fast:   { fs: 1.35, lw: 2, dark: '#9a5a10' },
-        tank:   { fs: 1.9,  lw: 5, dark: '#4a2589' },
-        boss:   { fs: 2.5,  lw: 6, dark: '#8a1f24' }
+        normal: { fs: 1.30, lw: 2.5, dark: '#6b4a1f', maxR: 0.130 },
+        fast:   { fs: 1.20, lw: 2.0, dark: '#9a5a10', maxR: 0.115 },
+        tank:   { fs: 1.45, lw: 3.0, dark: '#4a2589', maxR: 0.165 },
+        giant:  { fs: 1.45, lw: 3.5, dark: '#5a2a6a', maxR: 0.200 },
+        boss:   { fs: 1.60, lw: 4.0, dark: '#8a1f24', maxR: 0.260 }
     };
     const ts = typeStyle[zombie.type] || typeStyle.normal;
-    const fontSize = r * ts.fs;
+    // v2.26：字号按屏宽封顶（BOSS ≤26%、巨型 ≤20%、坦 ≤16.5%、普通 ≤13%、快 ≤11.5%）
+    // 之前 BOSS 字号 = 半径×2.5 = 150px（约 31% 屏宽），会盖住左上角关卡信息。
+    const fontSize = Math.min(r * ts.fs, screenWidth * ts.maxR);
 
-    // 印章底（暗色圆，增强前景对比）
+    // 印章底：只保留紧贴字形的暗底，不再用 r*1.02 的大圆（那会把画面糊成一团）
+    const stampR = fontSize * 0.62;
     ctx.beginPath();
-    ctx.arc(x, y, r * 1.02, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(8,16,28,0.85)';
+    ctx.arc(x, y, stampR, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(8,16,28,0.55)';
     ctx.fill();
-    ctx.lineWidth = ts.lw;
-    ctx.strokeStyle = col;
-    ctx.stroke();
 
-    // 汉字（元素色填充 + 暗描边）
+    // 汉字：**空心描边**（只描边不实心填充），避免远看糊成一块橙色；
+    // 内部给 18% 的同色底，保证深色背景上仍可读。
     ctx.font = 'bold ' + fontSize + 'px "STKaiti","KaiTi","SimHei","Microsoft YaHei",sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineWidth = Math.max(2, fontSize * 0.08);
-    ctx.strokeStyle = ts.dark;
-    ctx.strokeText(glyph, x, y + fontSize * 0.04);
+    ctx.save();
+    ctx.globalAlpha = 0.18;
     ctx.fillStyle = col;
     ctx.fillText(glyph, x, y + fontSize * 0.04);
+    ctx.restore();
+    ctx.lineWidth = Math.max(2, fontSize * 0.075);
+    ctx.strokeStyle = col;
+    ctx.strokeText(glyph, x, y + fontSize * 0.04);
+    // 外侧极细暗边，增强与背景分离
+    ctx.lineWidth = Math.max(1.2, fontSize * 0.022);
+    ctx.strokeStyle = 'rgba(6,10,18,0.85)';
+    ctx.strokeText(glyph, x, y + fontSize * 0.04);
 
     // BOSS 冠
     if (zombie.type === 'boss') {
-        ctx.font = 'bold ' + (r * 0.8) + 'px sans-serif';
+        ctx.font = 'bold ' + (fontSize * 0.5) + 'px sans-serif';
         ctx.fillStyle = '#ffd23a';
-        ctx.fillText('👑', x, y - r * 1.15);
+        ctx.fillText('👑', x, y - fontSize * 0.72);
     }
 
     // P1 修复：双系相生怪在右上角补一个「第二元素」小字（只靠半环颜色不够直观）
@@ -4490,8 +4535,9 @@ function drawBossHud() {
     let boss = null;
     for (const z of zombies) { if (z.type === 'boss' && z.health > 0) { boss = z; break; } }
     if (!boss) return;
-    const w = screenWidth * 0.62, h = 12;
-    const x = (screenWidth - w) / 2, y = 62;
+    // v2.26：血条从 y=62 下移到左上信息面板下方，避免和「第X关」面板抢位置
+    const w = screenWidth * 0.62, h = 13;
+    const x = (screenWidth - w) / 2, y = SAFE_TOP_OFFSET + 88;
     const ratio = Math.max(0, Math.min(1, boss.health / Math.max(1, boss.maxHealth)));
     ctx.save();
     ctx.fillStyle = 'rgba(10,14,22,0.75)';
@@ -4509,10 +4555,13 @@ function drawBossHud() {
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
     roundRect(ctx, x, y, w, h, 6);
     ctx.stroke();
-    ctx.fillStyle = '#ffd9b0';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('BOSS  ' + Math.ceil(boss.health) + ' / ' + Math.ceil(boss.maxHealth), screenWidth / 2, y - 4);
+    // v2.26：名字写进血条内部（火·王 22401/22401），不再另占一行
+    const _bEl = (boss.element && boss.element !== 'normal') ? boss.element : ((boss.elements && boss.elements[0]) || 'normal');
+    const _bGlyph = WUXING_GLYPH[_bEl] || '王';
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('BOSS · ' + _bGlyph + '王   ' + Math.ceil(boss.health) + ' / ' + Math.ceil(boss.maxHealth), screenWidth / 2, y + h / 2 + 0.5);
     ctx.restore();
 }
 
@@ -4525,9 +4574,10 @@ function drawUI() {
     // ========== 顶部信息栏 ==========
     // 左上角信息面板（使用安全顶部偏移）
     const panelX = 10;
-    const panelY = SAFE_TOP_OFFSET + 20;
-    const panelW = 145;
-    const panelH = 58;
+    // v2.26：面板压缩（145×58 → 128×50），给右侧留出呼吸空间
+    const panelY = SAFE_TOP_OFFSET + 12;
+    const panelW = 128;
+    const panelH = 50;
 
     // 背景（皇室战争风面板）
     drawRoyalePanel(panelX, panelY, panelW, panelH, 8);
@@ -4537,7 +4587,8 @@ function drawUI() {
     ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`第${currentStage}关 ${stage.name}`, panelX + 8, panelY + 12);
+    ctx.font = 'bold 11px Arial';
+    ctx.fillText(`第${currentStage}关 ${stage.name}`, panelX + 8, panelY + 11);
 
     // 五行属性点（面板右上角）：提示本章怪物属性（单系圆点 / 双系相生双色）
     if (stage.elements && stage.elements.length > 1) {
@@ -4554,11 +4605,11 @@ function drawUI() {
     ctx.fillStyle = '#fff';
     ctx.font = '10px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(`Lv.${player.level}`, panelX + 8, panelY + 30);
+    ctx.fillText(`Lv.${player.level}`, panelX + 8, panelY + 26);
     
     // 经验条（蓝色渐变风格）
     const expBarX = panelX + 40;
-    const expBarY = panelY + 26;
+    const expBarY = panelY + 23;
     const expBarW = 60;
     const expBarH = 6;
     
@@ -4578,13 +4629,13 @@ function drawUI() {
     ctx.fillStyle = '#fff';
     ctx.font = '10px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(`👾${player.kills} 💰${player.gold}`, panelX + 8, panelY + 48);
+    ctx.fillText(`👾${player.kills} 💰${player.gold}`, panelX + 8, panelY + 42);
 
     // 波次进度放右边（当前波次 / 总波次）
     ctx.fillStyle = '#9fe3ff';
     ctx.font = '10px Arial';
     ctx.textAlign = 'right';
-    ctx.fillText(waveStr, panelX + panelW - 8, panelY + 48);
+    ctx.fillText(waveStr, panelX + panelW - 8, panelY + 42);
     
     // ========== 右上角按钮（音效+暂停）==========
     // 避开微信胶囊按钮区域（右上角约90像素宽度）
@@ -4640,7 +4691,7 @@ function drawUI() {
 function drawBombButton() {
     const btnX = BOMB_BTN_X;
     const btnY = BOMB_BTN_Y;
-    const btnR = 27; // 55px直径 / 2
+    const btnR = 20; // v2.26：27→20（缩小 26%，不再抢右下角视线）
     
     // 发光效果（可用时）
     const isAvailable = bombCount > 0 && bombCooldown <= 0;
@@ -4733,6 +4784,8 @@ function drawBombButton() {
 // 绘制素材演示引导动画
 function drawAdDemoGuide() {
     if (!isAdDemoMode) return;
+    // v2.26：引导只在前 3 关出现，避免长期霸占右下角
+    if (currentStage > 3) return;
 
     adDemoTimer++;
 
@@ -4742,7 +4795,7 @@ function drawAdDemoGuide() {
     if (adDemoState === 'guiding') {
         // 炸弹按钮加强闪光边框
         const glowIntensity = 0.5 + Math.sin(adDemoTimer * 0.15) * 0.5;
-        const glowSize = 45 + Math.sin(adDemoTimer * 0.1) * 8;
+        const glowSize = 32 + Math.sin(adDemoTimer * 0.1) * 5;
 
         // 外层发光
         ctx.beginPath();
@@ -4753,7 +4806,7 @@ function drawAdDemoGuide() {
 
         // 中层闪光
         ctx.beginPath();
-        ctx.arc(bombBtnX, bombBtnY, 40, 0, Math.PI * 2);
+        ctx.arc(bombBtnX, bombBtnY, 30, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(255, 200, 68, ${glowIntensity})`;
         ctx.lineWidth = 6;
         ctx.setLineDash([8, 4]);
@@ -4763,7 +4816,7 @@ function drawAdDemoGuide() {
 
         // 内层实线
         ctx.beginPath();
-        ctx.arc(bombBtnX, bombBtnY, 35, 0, Math.PI * 2);
+        ctx.arc(bombBtnX, bombBtnY, 26, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(255, 100, 100, ${0.6 + glowIntensity * 0.4})`;
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -4775,15 +4828,15 @@ function drawAdDemoGuide() {
 
         // 文字阴影
         ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillText('点击炸弹', bombBtnX + 1, bombBtnY - 65 + 1);
+        ctx.fillText('点击炸弹', bombBtnX + 1, bombBtnY - 50 + 1);
         ctx.fillStyle = '#ffdd44';
-        ctx.fillText('点击炸弹', bombBtnX, bombBtnY - 65);
+        ctx.fillText('点击炸弹', bombBtnX, bombBtnY - 50);
 
         // 文字闪烁
         if (Math.floor(adDemoTimer / 15) % 2 === 0) {
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 14px Arial';
-            ctx.fillText('💣 一发清屏！', bombBtnX, bombBtnY - 90);
+            ctx.fillText('💣 一发清屏！', bombBtnX, bombBtnY - 72);
         }
 
     } else if (adDemoState === 'exploding') {
