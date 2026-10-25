@@ -5429,6 +5429,17 @@ function drawVictory() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('🎉 通关成功！', screenWidth / 2, modalY + 34);
+
+    // v3.1：晒战绩（炫耀型分享，无奖励）
+    const shW = 62, shH = 24, shX = modalX + 10, shY = modalY + 8;
+    ctx.fillStyle = 'rgba(255, 210, 74, 0.16)';
+    roundRect(ctx, shX, shY, shW, shH, 12); ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 210, 74, 0.85)';
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, shX, shY, shW, shH, 12); ctx.stroke();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('📤 晒战绩', shX + shW / 2, shY + shH / 2 + 1);
     
     // 统计信息
     ctx.fillStyle = '#cfd8e3';
@@ -15942,6 +15953,14 @@ wx.onTouchStart((e) => {
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
 
+        // v3.1：分享（左上角胶囊）
+        {
+            const shW = 62, shH = 24, shX = modalX + 10, shY = modalY + 8;
+            if (x >= shX && x <= shX + shW && y >= shY && y <= shY + shH) {
+                doShare('clear');
+                return;
+            }
+        }
         // v2.23：结算双倍金币（优先于底部按钮）
         if (tryDoubleGoldTap(x, y, modalX, modalY, modalW)) return;
 
