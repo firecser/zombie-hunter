@@ -3395,7 +3395,7 @@ function drawZombie(zombie, now) {
     if (zombie.frozenUntil > nowZ) {
         // 冰壳：半透明冰蓝覆盖 + 内部冰晶棱线 + 边缘冰锥
         ctx.save();
-        ctx.globalAlpha = 0.5;
+        ctx.globalAlpha = 0.22;   // v2.26.1：0.5→0.22，避免 BOSS 被冻时盖住字形
         ctx.fillStyle = '#8fe3ff';
         ctx.beginPath();
         ctx.arc(x, y, r * 1.05, 0, Math.PI * 2);
@@ -7191,11 +7191,17 @@ function drawEnemyShots() {
         if (!z.thrower || z.health <= 0) continue;
         const blink = 0.5 + 0.5 * Math.sin(now / 120);
         ctx.save();
-        ctx.globalAlpha = 0.65 + 0.35 * blink;
-        ctx.fillStyle = '#ff5a3c';
-        ctx.font = 'bold 16px "STKaiti","KaiTi","SimHei",sans-serif';
+        ctx.globalAlpha = 0.75 + 0.25 * blink;
+        // v2.26.1：加深色胶囊底 + 白字——原来橙红字压在橙红怪身上几乎看不见
+        const _bx = z.x, _by = z.y - z.radius - 18;
+        ctx.fillStyle = 'rgba(10, 14, 22, 0.85)';
+        roundRect(ctx, _bx - 11, _by - 9, 22, 18, 9); ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 120, 90, 0.9)'; ctx.lineWidth = 1.2;
+        roundRect(ctx, _bx - 11, _by - 9, 22, 18, 9); ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px "STKaiti","KaiTi","SimHei",sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('投', z.x, z.y - z.radius - 14);
+        ctx.fillText('投', _bx, _by + 1);
         ctx.restore();
     }
     for (const shot of enemyShots) {
@@ -15340,6 +15346,17 @@ function gameLoop() {
 
         // ===== 以下全是 HUD：不参与震屏 =====
         try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; } catch (e) {}
+        // v2.26.1：顶部安全区遮罩——怪物经过状态栏/微信胶囊区域时压暗淡出，
+        // 不再和原生按钮抢视线（这一条只影响渲染，不改出生点与碰撞）
+        {
+            const _h = SAFE_TOP_OFFSET + 34;
+            const _g = ctx.createLinearGradient(0, 0, 0, _h);
+            _g.addColorStop(0, 'rgba(6, 10, 18, 0.92)');
+            _g.addColorStop(0.65, 'rgba(6, 10, 18, 0.55)');
+            _g.addColorStop(1, 'rgba(6, 10, 18, 0)');
+            ctx.fillStyle = _g;
+            ctx.fillRect(0, 0, screenWidth, _h);
+        }
         drawWallHealthBar();      // 城墙血条
         drawUI();                 // 五行坞 / 按钮 / BOSS 血条 / 盾兵 / 复活层
         if (isAdDemoMode) drawAdDemoGuide();
