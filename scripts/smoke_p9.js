@@ -517,6 +517,35 @@ const driver = `
     ok('场景分析：6 点位曝光/点击接线 + 未配置时静默');
   } catch(e){ fail('场景分析', e); }
 
+  // ---------- 6v) v2.22.5：广告关闭回调 → 奖励必须发放 ----------
+  try {
+    resetAll();
+    gameState = 'playing'; gameRunning = true; gamePaused = false;
+    const mkAd = () => ({ _h: null, onClose(fn){ this._h = fn; }, offClose(){}, show(){ return Promise.resolve(); }, load(){ return Promise.resolve(); } });
+    // ① 新接口 {isEnded:true}
+    let got = 0;
+    rewardedAd = mkAd();
+    showRewardedAd(() => { got++; }, 'revive');
+    rewardedAd._h({ isEnded: true });
+    if (got !== 1) throw new Error('isEnded:true 应发奖, got=' + got);
+    // ② 旧接口 undefined
+    got = 0; rewardedAd = mkAd();
+    showRewardedAd(() => { got++; }, 'shield');
+    rewardedAd._h(undefined);
+    if (got !== 1) throw new Error('undefined 应发奖, got=' + got);
+    // ③ 部分基础库返回 {}（无 isEnded）
+    got = 0; rewardedAd = mkAd();
+    showRewardedAd(() => { got++; }, 'bomb');
+    rewardedAd._h({});
+    if (got !== 1) throw new Error('{} 应发奖, got=' + got);
+    // ④ 明确 isEnded:false 不发奖
+    got = 0; rewardedAd = mkAd();
+    showRewardedAd(() => { got++; }, 'chest');
+    rewardedAd._h({ isEnded: false });
+    if (got !== 0) throw new Error('isEnded:false 不应发奖, got=' + got);
+    ok('广告回调：true/undefined/{} 都发奖，仅 isEnded:false 不发');
+  } catch(e){ fail('广告回调', e); }
+
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');

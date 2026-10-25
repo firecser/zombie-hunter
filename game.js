@@ -2584,6 +2584,9 @@ function ensureRewardedAd() {
         rewardedAd = wx.createRewardedVideoAd({ adUnitId: 'adunit-d8eb7685a648ebc1' });
         rewardedAd.onError((err) => {
             console.error('激励视频广告加载/播放错误', err);
+            // v2.22.5：报错时兜底解除暂停，避免玩家卡在暂停态
+            adOpen = false;
+            if (typeof gameState !== 'undefined' && gameState === 'playing') gamePaused = false;
         });
     } catch (e) {
         rewardedAd = null;
@@ -2632,10 +2635,7 @@ function showRewardedAd(onReward, slot) {
         wall: wallLives,
         revive: reviveUsed ? 1 : 0
     });
-    // 开发者工具里激励视频通常不可用：直接发放，避免"点了没反应"的假象
-    let _isDevtools = false;
-    try { _isDevtools = (typeof wx !== 'undefined' && wx.getSystemInfoSync && wx.getSystemInfoSync().platform === 'devtools'); } catch (e) {}
-    if (!ad || _isDevtools) {
+    if (!ad) {
         track('ad_result', { slot: _slot, level: currentStage, ok: 1, ms: 0 });
         try { if (onReward) onReward(); } catch (e) { console.error('ad reward error', e); }
         addDailyTaskProgress('ad');
@@ -2644,8 +2644,15 @@ function showRewardedAd(onReward, slot) {
     }
     const handler = (res) => {
         // 新接口：res.isEnded === true 表示看完激励；旧接口：res 为 undefined 也表示发放
-        const _ok = (res === undefined || (res && res.isEnded)) ? 1 : 0;
+        // v2.22.5：只有「明确 isEnded === false」才算中途关闭；
+        // 旧接口 res 为 undefined、部分基础库返回 {}（无 isEnded 字段）都应发奖。
+        const _ok = (res === undefined || res === null || res.isEnded !== false) ? 1 : 0;
         track('ad_result', { slot: _slot, level: currentStage, ok: _ok, ms: Date.now() - adStartAt });
+        // 诊断用：真机若仍有问题，把这行日志发出来即可定位
+        try { console.log('[ad-close]', _slot, 'res=', JSON.stringify(res), 'ok=', _ok, 'ms=', Date.now() - adStartAt); } catch (e) {}
+        if (!_ok) {
+            try { if (wx.showToast) wx.showToast({ title: '需要看完广告才能领取', icon: 'none' }); } catch (e) {}
+        }
         if (_ok) {
             try { if (onReward) onReward(); } catch (e) { console.error('ad reward error', e); }
             addDailyTaskProgress('ad');
@@ -2658,7 +2665,10 @@ function showRewardedAd(onReward, slot) {
     // 平台才能把「广告曝光 → 广告点击 → 收入/ECPM/ARPPU」关联到该场景。
     const _bid = AD_BRANCH[_slot];
     const _dim = String(Math.max(1, Math.min(100, currentStage || 1)));
-    const _showArg = _bid ? { branchId: _bid, branchDim: _dim } : undefined;
+    // v2.22.5：先关掉「show 传参」——部分基础库传参会导致广告播完不发奖/无法拉起。
+// 功能优先；等真机验证传参无副作用后，把开关改成 true 即可恢复广告收入归因。
+const USE_SCENE_SHOW_ARGS = false;
+    const _showArg = (USE_SCENE_SHOW_ARGS && _bid) ? { branchId: _bid, branchDim: _dim } : undefined;
 
     // v2.22.4：部分基础库的 show 不接受参数（会同步抛错），必须兜住并回退
     const _invokeShow = () => {
@@ -2674,9 +2684,6 @@ function showRewardedAd(onReward, slot) {
             }
         }
     };
-
-    // 点击反馈：让玩家知道"点到了"
-    try { if (wx.showToast) wx.showToast({ title: '广告加载中…', icon: 'none', duration: 800 }); } catch (e) {}
 
     _invokeShow().catch(() => {
         // 失败重试一次
