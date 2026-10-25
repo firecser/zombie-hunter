@@ -278,9 +278,13 @@ let moveUntil = 0;          // 移动状态截止时间（移动时射速 ×0.5�
 let playerVX = 0;                 // 当前横向速度 px/s
 let playerMoveTargetX = null;     // 手指给出的目标 x
 // v2.9.1：跟手性上调（SMOOTH 10→16、SPEED 400→480、ACCEL 2000→3000）
-const PLAYER_MOVE_SPEED = 480;    // 最高速 px/s（约 0.65 秒横穿全屏）
-const PLAYER_MOVE_ACCEL = 3000;   // 加速度 px/s²（起步约 0.16 秒到最高速）
-const PLAYER_MOVE_SMOOTH = 22;    // 目标跟随强度（越大越跟手；v2.9.2: 16→22）
+// v2.27：真机手感（"很滑 + 会回弹"）
+//  - 加速度 3000→7000：起停更快，少一点惯性漂移
+//  - 跟随 22→36：手指到哪，车头立刻朝哪
+//  - 最高速 480→520：手感更利落（横穿约 0.6s）
+const PLAYER_MOVE_SPEED = 520;    // 最高速 px/s
+const PLAYER_MOVE_ACCEL = 7000;   // 加速度 px/s²
+const PLAYER_MOVE_SMOOTH = 36;    // 目标跟随强度
 
 // ===== v2.8 C：投掷怪（威胁锁定玩家）=====
 let enemyShots = [];              // 敌方投掷物
@@ -7245,12 +7249,25 @@ function updatePlayerMove(dt) {
     if (desired > PLAYER_MOVE_SPEED) desired = PLAYER_MOVE_SPEED;
     if (desired < -PLAYER_MOVE_SPEED) desired = -PLAYER_MOVE_SPEED;
 
+    // v2.27：**到达刹车**——按"刹车距离"限制速度：v ≤ √(2·a·|dx|)
+    // 这是"回弹"的根因：原来 480px/s 要 38px 才刹住，越过目标后再往回拉。
+    const dx = target - player.x;
+    const brakeV = Math.sqrt(Math.max(0, 2 * PLAYER_MOVE_ACCEL * Math.abs(dx)));
+    if (Math.abs(desired) > brakeV) desired = (dx >= 0 ? 1 : -1) * brakeV;
+
     // 速度按加速度逼近
     const acc = PLAYER_MOVE_ACCEL * dts;
     if (playerVX < desired) playerVX = Math.min(desired, playerVX + acc);
     else playerVX = Math.max(desired, playerVX - acc);
 
-    player.x += playerVX * dts;
+    // v2.27：本帧若会越过目标，直接停在目标（离散积分下刹车限制仍可能过冲几像素）
+    const _nextX = player.x + playerVX * dts;
+    if ((target - player.x > 0 && _nextX > target) || (target - player.x < 0 && _nextX < target)) {
+        player.x = target;
+        playerVX = 0;
+    } else {
+        player.x = _nextX;
+    }
 
     // 边界
     if (player.x < minX) { player.x = minX; playerVX = 0; playerMoveTargetX = minX; }
@@ -16015,6 +16032,11 @@ wx.onTouchMove((e) => {
 
 // 触摸结束处理
 wx.onTouchEnd((e) => {
+    // v2.27：松手就停——原实现手指抬起后仍朝最后目标点滑行，真机上像"在冰上"
+    if (gameState === 'playing') {
+        playerMoveTargetX = player.x;
+        playerVX *= 0.25;
+    }
     // 获取触摸终点的实际坐标
     const touchEnd = e.changedTouches[0];
     const endX = touchEnd.clientX;

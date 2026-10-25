@@ -564,6 +564,17 @@ const driver = `
     ok('视觉降噪：怪物字号按类型封顶 + BOSS条下移 + 炸弹缩小 + 城墙破损');
   } catch(e){ fail('视觉降噪', e); }
 
+  // ---------- 6z) v2.27：坦克移动不过冲（不回弹） ----------
+  try {
+    resetAll();
+    player.x = 100; playerVX = 0; playerMoveTargetX = 200;
+    let maxX = player.x;
+    for (let i = 0; i < 120; i++) { updatePlayerMove(16); maxX = Math.max(maxX, player.x); }
+    if (maxX > 201) throw new Error('出现回弹：最大 x=' + maxX.toFixed(1) + ' > 目标 200');
+    if (Math.abs(player.x - 200) > 2) throw new Error('未到位：x=' + player.x.toFixed(1));
+    ok('坦克移动：到位刹车无过冲（max=' + maxX.toFixed(1) + '，终点=' + player.x.toFixed(1) + '）');
+  } catch(e){ fail('坦克移动', e); }
+
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');
