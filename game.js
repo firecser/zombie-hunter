@@ -2526,6 +2526,13 @@ let rewardedAd = null;
 let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
 let adStartAt = 0;    // 广告开始时间
 let doubleGoldUsed = false;   // v2.19：结算双倍金币是否已用
+
+// ===== v2.20 IAA：三选一刷新 / 宝箱奖励 ×2 =====
+const REROLL_AD_MAX = 2;      // 每局最多刷新次数
+let rerollAdUsed = 0;
+const CHEST_AD_MAX = 3;       // 每局最多宝箱翻倍次数
+let chestAdUsed = 0;
+let chestDouble = null;       // { x, y, until, kind } 宝箱翻倍提示
 function ensureRewardedAd() {
     if (rewardedAd) return rewardedAd;
     if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null;
@@ -5295,6 +5302,21 @@ function drawUpgradePanel() {
     
     // 外框（皇室战争风深蓝面板 + 金色描边）
     drawRoyalePanel(panelX, panelY, panelW, panelH, 15);
+    // v2.20：「看广告 · 换一批」（右上角，2 次/局）
+    if (rerollAdUsed < REROLL_AD_MAX) {
+        const rw = 74, rh = 24;
+        const rx = panelX + panelW - rw - 8, ry = panelY + 8;
+        const _pulse = 0.5 + 0.5 * Math.sin(Date.now() / 220);
+        ctx.fillStyle = 'rgba(255, 210, 74, ' + (0.12 + 0.08 * _pulse) + ')';
+        roundRect(ctx, rx, ry, rw, rh, 12); ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.65 + 0.3 * _pulse) + ')';
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, rx, ry, rw, rh, 12); ctx.stroke();
+        ctx.fillStyle = '#ffe9a8';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('换一批 ' + (REROLL_AD_MAX - rerollAdUsed), rx + rw / 2, ry + rh / 2 + 1);
+    }
     ctx.strokeStyle = ROYALE.gold;
     ctx.lineWidth = 3;
     roundRect(ctx, panelX, panelY, panelW, panelH, 15);
@@ -7057,6 +7079,16 @@ function updateEnemyShots(now) {
 }
 
 // ===== P8b：宝箱 =====
+// v2.20：奖励与「翻倍」解耦——同一个 kind 可以再发一次，实现 ×2
+function applyChestReward(kind) {
+    if (kind === 'gold') { player.gold += 120; return '+120 金币'; }
+    if (kind === 'charge') {
+        elementCharge[activeElement] = Math.min(CHARGE_MAX, (elementCharge[activeElement] || 0) + 8);
+        return activeElement + '印 +8';
+    }
+    autoDpsBonus = Math.min(200, autoDpsBonus + 12);
+    return '炮台 +12';
+}
 // 磁吸（复用掉落半径）+ 贴身拾取；奖励三选一：金币 / 当前元素印 / 炮台伤害
 function updateChests(now) {
     for (let i = chests.length - 1; i >= 0; i--) {
@@ -7069,26 +7101,45 @@ function updateChests(now) {
         }
         if (d < player.radius + c.r) {
             const roll = Math.random();
-            let txt;
-            if (roll < 0.60) {
-                player.gold += 120;
-                txt = '+120 金币';
-            } else if (roll < 0.85) {
-                elementCharge[activeElement] = Math.min(CHARGE_MAX, (elementCharge[activeElement] || 0) + 8);
-                txt = activeElement + '印 +8';
-            } else {
-                autoDpsBonus = Math.min(200, autoDpsBonus + 12);
-                txt = '炮台 +12';
-            }
+            const kind = (roll < 0.60) ? 'gold' : (roll < 0.85 ? 'charge' : 'power');
+            const txt = applyChestReward(kind);
             damageNumbers.push({ x: c.x, y: c.y - 22, text: txt, life: 1000, vy: -1.4, color: '#ffd23a', isCrit: true });
             AudioSystem.playPickup();
             chests.splice(i, 1);
+            // v2.20：留下 4 秒「×2」机会（不打断、可选）
+            if (chestAdUsed < CHEST_AD_MAX) {
+                chestDouble = { x: c.x, y: c.y, until: now + 4000, kind: kind };
+            }
         }
     }
 }
 
 function drawChests() {
     const now = Date.now();
+    // v2.20：宝箱「看广告 ×2」提示（4s 内可点）
+    if (chestDouble) {
+        if (now >= chestDouble.until) {
+            chestDouble = null;
+        } else {
+            const b = chestDouble;
+            const bw = 88, bh = 22;
+            const bx = Math.max(6, Math.min(screenWidth - bw - 6, b.x - bw / 2));
+            const by = Math.max(6, b.y - 44);
+            const pulse = 0.5 + 0.5 * Math.sin(now / 180);
+            ctx.save();
+            ctx.globalAlpha = Math.min(1, (b.until - now) / 600);
+            ctx.fillStyle = 'rgba(8, 14, 24, 0.9)';
+            roundRect(ctx, bx, by, bw, bh, 11); ctx.fill();
+            ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.7 + 0.3 * pulse) + ')';
+            ctx.lineWidth = 1.5;
+            roundRect(ctx, bx, by, bw, bh, 11); ctx.stroke();
+            ctx.fillStyle = '#ffe9a8';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('看广告 ×2', bx + bw / 2, by + bh / 2 + 1);
+            ctx.restore();
+        }
+    }
     for (const c of chests) {
         const pulse = 0.5 + 0.5 * Math.sin(now / 200);
         ctx.save();
@@ -7643,6 +7694,7 @@ function startGame() {
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
     reviveUsed = false; reviveOfferUntil = 0; shieldWall = null;
     doubleGoldUsed = false;
+    rerollAdUsed = 0; chestAdUsed = 0; chestDouble = null;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -15315,6 +15367,23 @@ wx.onTouchStart((e) => {
             }
         } else {
             // 五行坞点击（P2：选中元素 = 立即切换炮台发射属性；相生连携在此激活）
+            // v2.20：宝箱「看广告 ×2」——点在提示上即可
+            if (chestDouble && Date.now() < chestDouble.until) {
+                const bw = 88, bh = 22;
+                const bx = Math.max(6, Math.min(screenWidth - bw - 6, chestDouble.x - bw / 2));
+                const by = Math.max(6, chestDouble.y - 44);
+                if (x >= bx - 6 && x <= bx + bw + 6 && y >= by - 6 && y <= by + bh + 6) {
+                    const _kind = chestDouble.kind;
+                    chestDouble = null;
+                    showRewardedAd(() => {
+                        chestAdUsed++;
+                        const txt = applyChestReward(_kind);
+                        damageNumbers.push({ x: player.x, y: player.y - 110, text: txt + ' ×2', life: 1100, vy: -1.4, color: '#ffd23a', isCrit: true });
+                    });
+                    return;
+                }
+            }
+
             // v2.14：先判定「盾兵援军」（场上单位，优先于五行坞）
             if (shieldSoldier && Date.now() < shieldSoldier.until &&
                 Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 54) {
@@ -15411,6 +15480,20 @@ wx.onTouchStart((e) => {
         // 卡片起始Y = panelY + titleH + bombReminderH + padding + 5
         const startY = panelY + titleH + bombReminderH + padding + 5;
         const startX = (screenWidth - totalWidth) / 2;
+
+        // v2.20：刷新按钮（优先于卡片判定）
+        if (rerollAdUsed < REROLL_AD_MAX) {
+            const rw = 74, rh = 24;
+            const rx = panelX + panelW - rw - 8, ry = panelY + 8;
+            if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
+                showRewardedAd(() => {
+                    rerollAdUsed++;
+                    showUpgradePanel();
+                    selectedUpgrade = -1;
+                });
+                return;
+            }
+        }
         
         for (let i = 0; i < upgradeOptions.length; i++) {
             const cx = startX + i * (cardW + cardGap);

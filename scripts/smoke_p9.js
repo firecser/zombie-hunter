@@ -68,6 +68,7 @@ const sandbox = {
         const pause = src.indexOf('if (gamePaused) {', branch);
         return branch > 0 && revive > branch && pause > revive;
     })(),
+    __hasReroll: /const REROLL_AD_MAX = 2;/.test(src) && /rerollAdUsed\+\+/.test(src) && /showUpgradePanel\(\);/.test(src),
     __hasDoubleGold: /doubleGoldUsed = false;/.test(src) && /player\.gold \+= stageGoldEarned;/.test(src) && /stageGoldEarned \*= 2;/.test(src),
     __hasAdFreeze: /!adOpen && reviveOfferUntil > 0/.test(src) && /reviveOfferUntil \+= Math\.max\(0, Date\.now\(\) - adStartAt\)/.test(src),
     __hasRevive: /function grantRevive/.test(src) && /function drawReviveOffer/.test(src) && /grantRevive\(\)/.test(src),
@@ -457,6 +458,32 @@ const driver = `
     if (!__hasDoubleGold) throw new Error('结算双倍金币未接入（绘制/触摸/重置）');
     ok('结算双倍金币：按钮 + 加一份金币 + 每局重置');
   } catch(e){ fail('结算双倍金币', e); }
+
+  // ---------- 6s) v2.20：三选一刷新 / 宝箱 ×2 ----------
+  try {
+    resetAll();
+    // 奖励函数
+    player.gold = 0;
+    if (applyChestReward('gold') !== '+120 金币' || player.gold !== 120) throw new Error('金币奖励异常');
+    elementCharge['火'] = 0; activeElement = '火';
+    applyChestReward('charge');
+    if (elementCharge['火'] !== 8) throw new Error('元素印奖励异常');
+    autoDpsBonus = 0;
+    applyChestReward('power');
+    if (autoDpsBonus !== 12) throw new Error('炮台奖励异常');
+
+    // 拾取宝箱 → 生成 ×2 提示
+    chests = [{ x: player.x, y: player.y, r: 18, born: Date.now() }];
+    chestDouble = null; chestAdUsed = 0;
+    updateChests(Date.now());
+    if (!chestDouble) throw new Error('拾取宝箱后应出现 ×2 提示');
+    if (!(chestDouble.until > Date.now())) throw new Error('×2 提示时长异常');
+    if (['gold', 'charge', 'power'].indexOf(chestDouble.kind) < 0) throw new Error('奖励 kind 异常');
+
+    // 刷新按钮接线
+    if (!__hasReroll) throw new Error('三选一刷新未接入（绘制/触摸/上限）');
+    ok('宝箱 ×2：奖励函数 + 拾取生成提示 + 刷新接线');
+  } catch(e){ fail('宝箱×2', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
