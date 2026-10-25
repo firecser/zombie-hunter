@@ -2537,7 +2537,7 @@ const AD_BRANCH = {
     revive:      'BCBgAAoXHx5d00p_2JkR_7',
     reroll:      'BCBgAAoXHx5d00p_2JkR_8',
     chest:       'BCBgAAoXHx5d00p_2JkR_9',
-    double_gold: 'BCBgAAoXHx5d00p_2JkR_-'   // 注意：以 "-" 结尾，若不是请替换
+    double_gold: 'BCBgAAoXHx5d00p_2JkR_-'   // 已核对：base64url 合法结尾
 };
 
 // eventType: 1=曝光，2=点击
