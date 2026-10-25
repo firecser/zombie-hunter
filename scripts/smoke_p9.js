@@ -68,6 +68,7 @@ const sandbox = {
         const pause = src.indexOf('if (gamePaused) {', branch);
         return branch > 0 && revive > branch && pause > revive;
     })(),
+    __hasDoubleGold: /doubleGoldUsed = false;/.test(src) && /player\.gold \+= stageGoldEarned;/.test(src) && /stageGoldEarned \*= 2;/.test(src),
     __hasAdFreeze: /!adOpen && reviveOfferUntil > 0/.test(src) && /reviveOfferUntil \+= Math\.max\(0, Date\.now\(\) - adStartAt\)/.test(src),
     __hasRevive: /function grantRevive/.test(src) && /function drawReviveOffer/.test(src) && /grantRevive\(\)/.test(src),
     __hasShield: /const SHIELD_AD_MAX = 2;/.test(src) && /function grantShieldReinforcement/.test(src) && /function drawShieldSoldier/.test(src) && /grantShieldReinforcement\(_sol\)/.test(src),
@@ -450,6 +451,12 @@ const driver = `
     if (!__hasAdFreeze) throw new Error('广告播放中未冻结复活判定（会被 watchdog 提前判负）');
     ok('广告期间：冻结复活倒计时 + 结束后补回时长');
   } catch(e){ fail('广告冻结', e); }
+
+  // ---------- 6r) v2.19：结算双倍金币 ----------
+  try {
+    if (!__hasDoubleGold) throw new Error('结算双倍金币未接入（绘制/触摸/重置）');
+    ok('结算双倍金币：按钮 + 加一份金币 + 每局重置');
+  } catch(e){ fail('结算双倍金币', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

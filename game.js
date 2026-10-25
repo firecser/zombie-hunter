@@ -2525,6 +2525,7 @@ let bombFull = false; // 炸弹已满标志
 let rewardedAd = null;
 let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
 let adStartAt = 0;    // 广告开始时间
+let doubleGoldUsed = false;   // v2.19：结算双倍金币是否已用
 function ensureRewardedAd() {
     if (rewardedAd) return rewardedAd;
     if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null;
@@ -5096,8 +5097,34 @@ function drawGameOver() {
     const seconds = Math.floor((gameTime % 60000) / 1000);
     ctx.fillText(`存活时间: ${minutes}:${seconds.toString().padStart(2, '0')}`, screenWidth / 2, modalY + 106);
     
-    // 突出显示：本次获得金币
-    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32, 50, stageGoldEarned);
+    // 突出显示：本次获得金币（右侧留出「×2」广告位）
+    const _dblW = 92, _dblH = 50;
+    const _dblX = modalX + modalW - 16 - _dblW, _dblY = modalY + 118;
+    drawGoldBanner(modalX + 16, modalY + 118, modalW - 32 - _dblW - 8, 50, stageGoldEarned);
+
+    // v2.19：看广告 · 金币 ×2（每局 1 次）
+    if (!doubleGoldUsed) {
+        const _pulse = 0.5 + 0.5 * Math.sin(Date.now() / 260);
+        ctx.fillStyle = 'rgba(255, 210, 74, ' + (0.14 + 0.10 * _pulse) + ')';
+        roundRect(ctx, _dblX, _dblY, _dblW, _dblH, 8); ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 210, 74, ' + (0.7 + 0.3 * _pulse) + ')';
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, _dblX, _dblY, _dblW, _dblH, 8); ctx.stroke();
+        ctx.fillStyle = '#ffe9a8';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('看广告', _dblX + _dblW / 2, _dblY + 17);
+        ctx.fillStyle = '#ffd23a';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText('金币 ×2', _dblX + _dblW / 2, _dblY + 35);
+    } else {
+        ctx.fillStyle = 'rgba(120, 130, 145, 0.35)';
+        roundRect(ctx, _dblX, _dblY, _dblW, _dblH, 8); ctx.fill();
+        ctx.fillStyle = '#9fb0c4';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('已翻倍', _dblX + _dblW / 2, _dblY + _dblH / 2);
+    }
     
     // 按钮（皇室战争风立体按钮）：重玩 / 变强 / 返回
     const btnSize = 42;
@@ -7615,6 +7642,7 @@ function startGame() {
     leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false;
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
     reviveUsed = false; reviveOfferUntil = 0; shieldWall = null;
+    doubleGoldUsed = false;
     comboCount = 0; comboLastAt = 0;
     chainCount = 0; chainLastAt = 0;
     hitStopUntil = 0; shakeUntil = 0; shakeMag = 0; slowUntil = 0;
@@ -15441,6 +15469,23 @@ wx.onTouchStart((e) => {
         const modalH = 268;
         const modalX = (screenWidth - modalW) / 2;
         const modalY = screenHeight - 130 - modalH;
+
+        // v2.19：结算双倍金币（优先于底部按钮）
+        {
+            const _dblW = 92, _dblH = 50;
+            const _dblX = modalX + modalW - 16 - _dblW, _dblY = modalY + 118;
+            if (!doubleGoldUsed && x >= _dblX && x <= _dblX + _dblW && y >= _dblY && y <= _dblY + _dblH) {
+                showRewardedAd(() => {
+                    if (doubleGoldUsed) return;
+                    player.gold += stageGoldEarned;   // 再补一份 = 翻倍
+                    stageGoldEarned *= 2;
+                    doubleGoldUsed = true;
+                    saveProgress();
+                    AudioSystem.playVictory();
+                });
+                return;
+            }
+        }
 
         const btnSize = 48;
         const gap = 15;
