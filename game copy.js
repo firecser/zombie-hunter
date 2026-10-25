@@ -90,7 +90,20 @@ let wallLives = WALL_LIVES_BASE;       // 当前格数
 let wallLivesMax = WALL_LIVES_BASE;    // 本局上限
 let leaksThisLevel = 0;
 let tutorialArmorBlocks = 0;   // v3.0：第 1 关护甲抵挡次数
-let failStreak = 0;            // v3.0：当前关卡连续失败次数（通关清零，用于分享文案与后续连败降档）                // 本局漏怪数（0 漏 = 无伤）
+let failStreak = 0;
+// v3.1 P0-3：连败自动降档（"守军支援"）——全部自动生效，玩家无需操作
+let mercyHpMult = 1;
+let mercySpeedMult = 1;
+let mercyExtraLives = 0;
+let mercyBombs = 0;
+
+// 纯函数：连败次数 → 降档参数（便于单测与调参）
+function mercyFor(streak) {
+    if (streak >= 5) return { hp: 0.75, speed: 0.90, lives: 1, bombs: 2 };
+    if (streak >= 3) return { hp: 0.88, speed: 1.00, lives: 1, bombs: 2 };
+    if (streak >= 2) return { hp: 0.88, speed: 1.00, lives: 1, bombs: 0 };
+    return { hp: 1, speed: 1, lives: 0, bombs: 0 };
+}            // v3.0：当前关卡连续失败次数（通关清零，用于分享文案与后续连败降档）                // 本局漏怪数（0 漏 = 无伤）
 let wallCrackUntil = 0;                // 破损红闪
 let flawlessClear = false;             // 本局是否无伤通关
 
@@ -7605,7 +7618,7 @@ function updatePendingSpawns() {
         const damageMult = stage.damageMult * tier.dmgT;
         // v2.12：BOSS 血量 = max(波次预算份额, 当前克制 DPS × 16s)
         // 同一关里越往后的 BOSS，玩家发育越强 → 动态血量也越高，不会「越打越脆」。
-        let _spawnHP = template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1));
+        let _spawnHP = template.health * healthMult * ((p.type === 'boss') ? (p.bossScale || 1) : (p.hpScale || 1)) * mercyHpMult;   // v3.1：连败降档
         if (p.type === 'boss') {
             const _dyn = currentCounterDPS() * BOSS_TTK_SECONDS;
             _spawnHP = Math.max(_spawnHP, _dyn);
@@ -7618,7 +7631,7 @@ function updatePendingSpawns() {
             elements: p.zElements || null,
             creature: p.creature || 'seal',
             radius: template.radius,
-            speed: p._adTemp ? p._adTemp.speed : (template.speed * stage.speedMult),
+            speed: (p._adTemp ? p._adTemp.speed : (template.speed * stage.speedMult)) * mercySpeedMult,   // v3.1：连败降档
             health: _spawnHP,
             maxHealth: _spawnHP,
             damage: template.damage * damageMult,
@@ -8002,7 +8015,11 @@ function startGame() {
     enemyShots = []; nextThrowerAt = 0; playerStunUntil = 0;
     bossWarnUntil = 0; bossKillUntil = 0;
     chests = [];
-    wallLivesMax = WALL_LIVES_BASE;
+
+    // v3.1 P0-3：连败降档（2 / 3 / 5 次）——叙事包装为「守军支援已就绪」
+    const _m = mercyFor(failStreak);
+    mercyHpMult = _m.hp; mercySpeedMult = _m.speed; mercyExtraLives = _m.lives; mercyBombs = _m.bombs;
+    wallLivesMax = WALL_LIVES_BASE + mercyExtraLives;
     wallLives = wallLivesMax;
     leaksThisLevel = 0; wallCrackUntil = 0; flawlessClear = false; tutorialArmorBlocks = 0;
     shieldAdUsed = 0; shieldSoldier = null; shieldPushUntil = 0;
@@ -8037,6 +8054,9 @@ function startGame() {
 
     // 重置炸弹
     bombCount = 0;
+    // v3.1：连败降档送炸弹 + 中性叙事提示
+    if (mercyBombs > 0) bombCount += mercyBombs;
+    if (mercyHpMult < 1 || mercyExtraLives > 0) showAdToast('守军支援已就绪', 2200);
     bombCooldown = 0;
     justGotBomb = false;
     bombFull = false;

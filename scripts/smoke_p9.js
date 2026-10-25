@@ -74,6 +74,7 @@ const sandbox = {
         && /y = SAFE_TOP_OFFSET \+ 88/.test(src)
         && /const btnR = 20;/.test(src)
         && /墙体塌一段/.test(src),
+    __hasMercy: /\* mercyHpMult/.test(src) && /mercySpeedMult/.test(src) && /function mercyFor/.test(src),
     __hasFailAttrib: /☠/.test(src) && /💡/.test(src) && /第 \$\{_waveNo\} 波阵亡/.test(src),
     __hasShare: /wx\.shareAppMessage/.test(src) && /doShare\('fail'\)/.test(src),
     __hasShakeFix: (() => {
@@ -670,6 +671,17 @@ const driver = `
     if (failStreak !== 0) throw new Error('通关未清零连败');
     ok('失败归因三行 + 连败计数 + 分享文案（' + t + '）');
   } catch(e){ fail('失败体验与分享', e); }
+
+  // ---------- 6ae) v3.1：连败降档（守军支援） ----------
+  try {
+    const m0 = mercyFor(0), m2 = mercyFor(2), m3 = mercyFor(3), m5 = mercyFor(5);
+    if (m0.hp !== 1 || m0.lives !== 0 || m0.bombs !== 0) throw new Error('0 连败不应降档');
+    if (m2.hp !== 0.88 || m2.lives !== 1) throw new Error('2 连败应 hp0.88 + 1 格');
+    if (m3.bombs !== 2) throw new Error('3 连败应送 2 炸弹');
+    if (m5.hp !== 0.75 || m5.speed !== 0.90) throw new Error('5 连败应 hp0.75 + 速度0.9');
+    if (!__hasMercy) throw new Error('降档未作用到出怪（血量/速度）');
+    ok('连败降档：0/2/3/5 四档正确（hp ' + m2.hp + '→' + m5.hp + '，炸弹 ' + m3.bombs + '）');
+  } catch(e){ fail('连败降档', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
