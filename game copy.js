@@ -2524,6 +2524,30 @@ let bombFull = false; // 炸弹已满标志
 // 仅在微信小游戏运行环境下初始化；无头测试/wx 缺失时静默跳过，不影响逻辑测试
 let rewardedAd = null;
 
+// v2.23.1：广告流程里**不要**用 wx.showToast —— 广告播放时原生 textView 会被广告层移除，
+// 再调用 hideToast 就会刷 `removeTextView:fail xxx not found`。改画布内提示。
+function showAdToast(text, ms) { adToast = { text: text, until: Date.now() + (ms || 1600) }; }
+function drawAdToast() {
+    if (!adToast) return;
+    const now = Date.now();
+    if (now >= adToast.until) { adToast = null; return; }
+    const alpha = Math.min(1, (adToast.until - now) / 300);
+    const w = Math.min(screenWidth - 40, 60 + adToast.text.length * 14);
+    const h = 34, x = (screenWidth - w) / 2, y = screenHeight * 0.42;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(8, 14, 24, 0.92)';
+    roundRect(ctx, x, y, w, h, 17); ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 210, 74, 0.85)';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x, y, w, h, 17); ctx.stroke();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(adToast.text, screenWidth / 2, y + h / 2 + 1);
+    ctx.restore();
+}
+
 // ===== v2.21 埋点 =====
 // 统一出口：wx.reportAnalytics（需在微信后台「自定义分析」注册同名事件）
 // 本地保留最近 60 条，方便真机调试（wx.getStorageSync('zhTrack') 可查）
@@ -2539,6 +2563,9 @@ const AD_BRANCH = {
     chest:       'BCBgAAoXHx5d00p_2JkR_9',
     double_gold: 'BCBgAAoXHx5d00p_2JkR_-'   // 已核对：base64url 合法结尾
 };
+
+// v2.22.5：部分基础库 show 传参会导致播放/发奖异常 → 默认关闭，功能优先
+const USE_SCENE_SHOW_ARGS = false;
 
 // eventType: 1=曝光，2=点击
 function reportBranch(slot, eventType) {
@@ -2568,6 +2595,7 @@ function track(event, data) {
 
 let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
 let adStartAt = 0;    // 广告开始时间
+let adToast = null;   // v2.23.1：画布内提示，避免原生 showToast 与广告层冲突
 let doubleGoldUsed = false;   // v2.19：结算双倍金币是否已用
 
 // ===== v2.20 IAA：三选一刷新 / 宝箱奖励 ×2 =====
@@ -2588,6 +2616,10 @@ function ensureRewardedAd() {
             adOpen = false;
             if (typeof gameState !== 'undefined' && gameState === 'playing') gamePaused = false;
         });
+        // v2.23.1：onClose 只在创建时注册一次。
+        // 之前每次 show 都 onClose+offClose，会触发 SDK 内部 textView 反复增删，
+        // 刷出 `removeTextView:fail xxx not found`（社区确认无害，但很吵）。
+        rewardedAd.onClose((res) => finishAd(res));
     } catch (e) {
         rewardedAd = null;
     }
@@ -2595,82 +2627,75 @@ function ensureRewardedAd() {
 }
 
 // 展示激励视频广告；onReward 仅当看完激励时长（达标）后回调
+// v2.23.1：广告结果统一处理（onClose 只注册一次）
+let adCtx = null;          // { slot, onReward }
+
+function resumeAfterAd() {
+    adOpen = false;
+    // 把广告耗时补回复活窗口，避免「广告还没看完，倒计时先超时」
+    if (reviveOfferUntil > 0 && adStartAt > 0) {
+        reviveOfferUntil += Math.max(0, Date.now() - adStartAt);
+    }
+    adStartAt = 0;
+    const keepPausedForRevive = (reviveOfferUntil > 0 && Date.now() < reviveOfferUntil);
+    gamePaused = keepPausedForRevive;
+    if (typeof AudioSystem !== 'undefined') {
+        AudioSystem.resume();
+        if (gameRunning && musicEnabled && AudioSystem.ctx && AudioSystem.ctx.state === 'running') {
+            AudioSystem.startBGM();
+        }
+    }
+}
+
+function finishAd(res) {
+    const ctx = adCtx;
+    adCtx = null;
+    if (!ctx) { resumeAfterAd(); return; }
+    // 只有「明确 isEnded === false」才算中途关闭；undefined / {} 都视为看完
+    const _ok = (res === undefined || res === null || res.isEnded !== false) ? 1 : 0;
+    track('ad_result', { slot: ctx.slot, level: currentStage, ok: _ok, ms: Date.now() - adStartAt });
+    try { console.log('[ad-close]', ctx.slot, 'res=', JSON.stringify(res), 'ok=', _ok, 'ms=', Date.now() - adStartAt); } catch (e) {}
+    if (_ok) {
+        try { if (ctx.onReward) ctx.onReward(); } catch (e) { console.error('ad reward error', e); }
+        addDailyTaskProgress('ad');
+    } else {
+        showAdToast('需要看完广告才能领取');
+    }
+    resumeAfterAd();
+}
+
 function showRewardedAd(onReward, slot) {
     const ad = ensureRewardedAd();
-    // 播放广告期间暂停游戏（仅当当前正在游玩且未被手动暂停）
-    let pausedByAd = false;
+    const _slot = slot || 'unknown';
+
+    // 播放期间暂停（仅当前正在游玩且未手动暂停）
     if (gameRunning && gameState === 'playing' && !gamePaused) {
         gamePaused = true;
-        pausedByAd = true;
     }
-    const resume = () => {
-        adOpen = false;
-        // v2.18：把广告耗时补回复活窗口，避免「广告还没看完，倒计时先超时」
-        if (reviveOfferUntil > 0 && adStartAt > 0) {
-            reviveOfferUntil += Math.max(0, Date.now() - adStartAt);
-        }
-        adStartAt = 0;
-        // v2.18：有有效复活窗口时保持暂停（守将还在等玩家决定）；否则一律解除暂停并关闭暂停弹窗
-        const keepPausedForRevive = (reviveOfferUntil > 0 && Date.now() < reviveOfferUntil);
-        if (keepPausedForRevive) {
-            gamePaused = true;
-        } else {
-            gamePaused = false;
-        }
-        // 微信播放激励视频会挂起 AudioContext，广告结束后需恢复，否则背景音乐消失
-        if (typeof AudioSystem !== 'undefined') {
-            AudioSystem.resume();
-            if (gameRunning && musicEnabled && AudioSystem.ctx && AudioSystem.ctx.state === 'running') {
-                AudioSystem.startBGM();
-            }
-        }
-    };
+
     adOpen = true;
     adStartAt = Date.now();
-    const _slot = slot || 'unknown';
-    reportBranch(_slot, 2);   // 场景分析：点击
+    adCtx = { slot: _slot, onReward: onReward };
+
+    reportBranch(_slot, 2);
     track('ad_show', {
         slot: _slot,
         level: currentStage,
         wall: wallLives,
         revive: reviveUsed ? 1 : 0
     });
+
     if (!ad) {
-        track('ad_result', { slot: _slot, level: currentStage, ok: 1, ms: 0 });
-        try { if (onReward) onReward(); } catch (e) { console.error('ad reward error', e); }
-        addDailyTaskProgress('ad');
-        resume();
+        // 非微信环境：直接发奖，便于联调
+        finishAd({ isEnded: true });
         return;
     }
-    const handler = (res) => {
-        // 新接口：res.isEnded === true 表示看完激励；旧接口：res 为 undefined 也表示发放
-        // v2.22.5：只有「明确 isEnded === false」才算中途关闭；
-        // 旧接口 res 为 undefined、部分基础库返回 {}（无 isEnded 字段）都应发奖。
-        const _ok = (res === undefined || res === null || res.isEnded !== false) ? 1 : 0;
-        track('ad_result', { slot: _slot, level: currentStage, ok: _ok, ms: Date.now() - adStartAt });
-        // 诊断用：真机若仍有问题，把这行日志发出来即可定位
-        try { console.log('[ad-close]', _slot, 'res=', JSON.stringify(res), 'ok=', _ok, 'ms=', Date.now() - adStartAt); } catch (e) {}
-        if (!_ok) {
-            try { if (wx.showToast) wx.showToast({ title: '需要看完广告才能领取', icon: 'none' }); } catch (e) {}
-        }
-        if (_ok) {
-            try { if (onReward) onReward(); } catch (e) { console.error('ad reward error', e); }
-            addDailyTaskProgress('ad');
-        }
-        ad.offClose(handler);
-        resume(); // 广告结束（无论是否看完）都恢复游戏
-    };
-    ad.onClose(handler);
-    // v2.22.1：官方要求——广告组件的 show 带上 branchId/branchDim，
-    // 平台才能把「广告曝光 → 广告点击 → 收入/ECPM/ARPPU」关联到该场景。
+
     const _bid = AD_BRANCH[_slot];
     const _dim = String(Math.max(1, Math.min(100, currentStage || 1)));
-    // v2.22.5：先关掉「show 传参」——部分基础库传参会导致广告播完不发奖/无法拉起。
-// 功能优先；等真机验证传参无副作用后，把开关改成 true 即可恢复广告收入归因。
-const USE_SCENE_SHOW_ARGS = false;
+    // v2.22.5：部分基础库 show 传参会导致播放/发奖异常，默认关闭，功能优先
     const _showArg = (USE_SCENE_SHOW_ARGS && _bid) ? { branchId: _bid, branchDim: _dim } : undefined;
 
-    // v2.22.4：部分基础库的 show 不接受参数（会同步抛错），必须兜住并回退
     const _invokeShow = () => {
         try {
             const ret = ad.show(_showArg);
@@ -2686,17 +2711,16 @@ const USE_SCENE_SHOW_ARGS = false;
     };
 
     _invokeShow().catch(() => {
-        // 失败重试一次
         ad.load()
             .then(() => _invokeShow())
             .catch(err => {
                 console.error('激励视频 广告显示失败', err);
-                try { if (wx.showToast) wx.showToast({ title: '广告暂时不可用，请稍后重试', icon: 'none' }); } catch (e) {}
-                resume();
+                adCtx = null;
+                showAdToast('广告暂时不可用，请稍后重试');
+                resumeAfterAd();
             });
     });
 }
-
 // 看广告达标后：补发一颗炸弹并立即释放（无论当前是否在冷却/无弹）
 function grantAdBombAndRelease() {
     if (!gameRunning) return;
@@ -15261,6 +15285,7 @@ function gameLoop() {
         drawVictory();
     }
     
+    drawAdToast();   // v2.23.1：画布内提示，盖在所有界面之上
     lastTime = now;
     requestAnimationFrame(gameLoop);
 }

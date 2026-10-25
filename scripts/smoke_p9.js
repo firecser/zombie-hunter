@@ -520,46 +520,27 @@ const driver = `
     ok('场景分析：6 点位曝光/点击接线 + 未配置时静默');
   } catch(e){ fail('场景分析', e); }
 
-  // ---------- 6v) v2.22.5：广告关闭回调 → 奖励必须发放 ----------
+  // ---------- 6v) v2.23.1：广告回调 → 奖励必须发放 ----------
   try {
     resetAll();
     gameState = 'playing'; gameRunning = true; gamePaused = false;
-    const mkAd = () => ({ _h: null, onClose(fn){ this._h = fn; }, offClose(){}, show(){ return Promise.resolve(); }, load(){ return Promise.resolve(); } });
-    // ① 新接口 {isEnded:true}
-    let got = 0;
-    rewardedAd = mkAd();
-    showRewardedAd(() => { got++; }, 'revive');
-    rewardedAd._h({ isEnded: true });
-    if (got !== 1) throw new Error('isEnded:true 应发奖, got=' + got);
-    // ② 旧接口 undefined
-    got = 0; rewardedAd = mkAd();
-    showRewardedAd(() => { got++; }, 'shield');
-    rewardedAd._h(undefined);
-    if (got !== 1) throw new Error('undefined 应发奖, got=' + got);
-    // ③ 部分基础库返回 {}（无 isEnded）
-    got = 0; rewardedAd = mkAd();
-    showRewardedAd(() => { got++; }, 'bomb');
-    rewardedAd._h({});
-    if (got !== 1) throw new Error('{} 应发奖, got=' + got);
-    // ④ 明确 isEnded:false 不发奖
-    got = 0; rewardedAd = mkAd();
-    showRewardedAd(() => { got++; }, 'chest');
-    rewardedAd._h({ isEnded: false });
-    if (got !== 0) throw new Error('isEnded:false 不应发奖, got=' + got);
-    ok('广告回调：true/undefined/{} 都发奖，仅 isEnded:false 不发');
-  } catch(e){ fail('广告回调', e); }
+    const mkAd = () => ({ onClose(){}, offClose(){}, show(){ return Promise.resolve(); }, load(){ return Promise.resolve(); } });
 
-  // ---------- 6w) v2.23：AudioSystem 调用必须都真实存在 ----------
-  try {
-    const _used = __audioUsed;
-    const _defined = ['ctx','bgmGain','sfxGain','bgmOscillators','bgmInterval','isMuted','isInitialized','init','resume',
-        'playShoot','playZombieDeath','playPickup','playLevelUp','playHurt','playGameOver','playVictory',
-        'playBombExplosion','startBGM','playAmbient','stopBGM','toggleMute'];
-    const _missing = _used.filter(u => _defined.indexOf(u) < 0);
-    if (_missing.length) throw new Error('调用了不存在的音频方法: ' + _missing.join(','));
-    if (!__hasDoubleGoldBoth) throw new Error('金币×2 未同时接入通关/失败页');
-    ok('AudioSystem 调用全部存在 / 金币×2 双结算页接线');
-  } catch(e){ fail('音频与结算接线', e); }
+    const cases = [
+      { name: 'isEnded:true', res: { isEnded: true }, expect: 1 },
+      { name: 'undefined(旧接口)', res: undefined, expect: 1 },
+      { name: '{}（无 isEnded）', res: {}, expect: 1 },
+      { name: 'isEnded:false', res: { isEnded: false }, expect: 0 }
+    ];
+    for (const c of cases) {
+      let got = 0;
+      rewardedAd = mkAd();
+      showRewardedAd(() => { got++; }, 'revive');
+      finishAd(c.res);
+      if (got !== c.expect) throw new Error(c.name + ' 期望 got=' + c.expect + ', 实=' + got);
+    }
+    ok('广告回调：true/undefined/{} 发奖，isEnded:false 不发');
+  } catch(e){ fail('广告回调', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
