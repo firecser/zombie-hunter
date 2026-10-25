@@ -2523,6 +2523,25 @@ let bombFull = false; // 炸弹已满标志
 // ==================== 流量主：激励视频广告（看广告补发炸弹并立即释放） ====================
 // 仅在微信小游戏运行环境下初始化；无头测试/wx 缺失时静默跳过，不影响逻辑测试
 let rewardedAd = null;
+
+// ===== v2.21 埋点 =====
+// 统一出口：wx.reportAnalytics（需在微信后台「自定义分析」注册同名事件）
+// 本地保留最近 60 条，方便真机调试（wx.getStorageSync('zhTrack') 可查）
+const TRACK_MAX = 60;
+let trackBuffer = [];
+function track(event, data) {
+    try {
+        const payload = data || {};
+        if (typeof wx !== 'undefined' && wx.reportAnalytics) {
+            wx.reportAnalytics(event, payload);
+        }
+        if (typeof trackBuffer !== 'undefined') {
+            trackBuffer.push({ e: event, d: payload, t: Date.now() });
+            if (trackBuffer.length > TRACK_MAX) trackBuffer.shift();
+        }
+    } catch (e) { /* 埋点绝不能影响玩法 */ }
+}
+
 let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
 let adStartAt = 0;    // 广告开始时间
 let doubleGoldUsed = false;   // v2.19：结算双倍金币是否已用
@@ -2548,7 +2567,7 @@ function ensureRewardedAd() {
 }
 
 // 展示激励视频广告；onReward 仅当看完激励时长（达标）后回调
-function showRewardedAd(onReward) {
+function showRewardedAd(onReward, slot) {
     const ad = ensureRewardedAd();
     // 播放广告期间暂停游戏（仅当当前正在游玩且未被手动暂停）
     let pausedByAd = false;
@@ -2580,8 +2599,16 @@ function showRewardedAd(onReward) {
     };
     adOpen = true;
     adStartAt = Date.now();
+    const _slot = slot || 'unknown';
+    track('ad_show', {
+        slot: _slot,
+        level: currentStage,
+        wall: wallLives,
+        revive: reviveUsed ? 1 : 0
+    });
     if (!ad) {
         // 非微信环境（如本地预览/测试）：直接视为已发放奖励，便于联调
+        track('ad_result', { slot: _slot, level: currentStage, ok: 1, ms: 0 });
         if (onReward) onReward();
         addDailyTaskProgress('ad');
         resume();
@@ -2589,7 +2616,9 @@ function showRewardedAd(onReward) {
     }
     const handler = (res) => {
         // 新接口：res.isEnded === true 表示看完激励；旧接口：res 为 undefined 也表示发放
-        if (res === undefined || (res && res.isEnded)) {
+        const _ok = (res === undefined || (res && res.isEnded)) ? 1 : 0;
+        track('ad_result', { slot: _slot, level: currentStage, ok: _ok, ms: Date.now() - adStartAt });
+        if (_ok) {
             if (onReward) onReward();
             addDailyTaskProgress('ad');
         }
@@ -7542,6 +7571,7 @@ function useBomb() {
 
 // 游戏结束
 function gameOver() {
+    track('level_end', { level: currentStage, win: 0, dur: Math.round(gameTime / 1000), leaks: leaksThisLevel, lives: wallLives });
     gameState = 'gameOver';
     gameRunning = false;
     
@@ -7557,6 +7587,7 @@ function gameOver() {
 
 // 胜利
 function victory() {
+    track('level_end', { level: currentStage, win: 1, dur: Math.round(gameTime / 1000), leaks: leaksThisLevel, lives: wallLives });
     gameState = 'victory';
     gameRunning = false;
     
@@ -15299,7 +15330,7 @@ wx.onTouchStart((e) => {
             const _inBtn = (x > _cx - 106 && x < _cx + 106 && y > _cy + 60 && y < _cy + 116);
             const _onKeeper = Math.hypot(x - _cx, y - _cy) <= 62;
             if (_inBtn || _onKeeper) {
-                showRewardedAd(() => grantRevive());
+                showRewardedAd(() => grantRevive(), 'revive');
             } else if (y > _cy + 120 && y < _cy + 146) {
                 reviveOfferUntil = 0;
                 gamePaused = false;
@@ -15379,7 +15410,7 @@ wx.onTouchStart((e) => {
                         chestAdUsed++;
                         const txt = applyChestReward(_kind);
                         damageNumbers.push({ x: player.x, y: player.y - 110, text: txt + ' ×2', life: 1100, vy: -1.4, color: '#ffd23a', isCrit: true });
-                    });
+                    }, 'chest');
                     return;
                 }
             }
@@ -15388,7 +15419,7 @@ wx.onTouchStart((e) => {
             if (shieldSoldier && Date.now() < shieldSoldier.until &&
                 Math.hypot(x - shieldSoldier.x, y - shieldSoldier.y) <= 54) {
                 const _sol = shieldSoldier;
-                showRewardedAd(() => grantShieldReinforcement(_sol));
+                showRewardedAd(() => grantShieldReinforcement(_sol), 'shield');
                 return;
             }
 
@@ -15437,7 +15468,7 @@ wx.onTouchStart((e) => {
                             wx.showToast({ title: '本关观看次数已用完', icon: 'none' });
                         }
                     } else {
-                        showRewardedAd(() => grantAdBombAndRelease());
+                        showRewardedAd(() => grantAdBombAndRelease(), 'bomb');
                     }
                 }
             }
@@ -15490,7 +15521,7 @@ wx.onTouchStart((e) => {
                     rerollAdUsed++;
                     showUpgradePanel();
                     selectedUpgrade = -1;
-                });
+                }, 'reroll');
                 return;
             }
         }
@@ -15565,7 +15596,7 @@ wx.onTouchStart((e) => {
                     doubleGoldUsed = true;
                     saveProgress();
                     AudioSystem.playVictory();
-                });
+                }, 'double_gold');
                 return;
             }
         }

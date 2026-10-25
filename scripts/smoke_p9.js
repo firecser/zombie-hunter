@@ -68,6 +68,9 @@ const sandbox = {
         const pause = src.indexOf('if (gamePaused) {', branch);
         return branch > 0 && revive > branch && pause > revive;
     })(),
+    __hasTrack: /wx\.reportAnalytics/.test(src)
+        && ['bomb','shield','revive','reroll','chest','double_gold'].every(k => src.indexOf("'" + k + "')") > 0)
+        && /track\('level_end'/.test(src),
     __hasReroll: /const REROLL_AD_MAX = 2;/.test(src) && /rerollAdUsed\+\+/.test(src) && /showUpgradePanel\(\);/.test(src),
     __hasDoubleGold: /doubleGoldUsed = false;/.test(src) && /player\.gold \+= stageGoldEarned;/.test(src) && /stageGoldEarned \*= 2;/.test(src),
     __hasAdFreeze: /!adOpen && reviveOfferUntil > 0/.test(src) && /reviveOfferUntil \+= Math\.max\(0, Date\.now\(\) - adStartAt\)/.test(src),
@@ -484,6 +487,18 @@ const driver = `
     if (!__hasReroll) throw new Error('三选一刷新未接入（绘制/触摸/上限）');
     ok('宝箱 ×2：奖励函数 + 拾取生成提示 + 刷新接线');
   } catch(e){ fail('宝箱×2', e); }
+
+  // ---------- 6t) v2.21：埋点 ----------
+  try {
+    resetAll();
+    trackBuffer = [];
+    track('ad_show', { slot: 'test', level: 1, wall: 3 });
+    if (trackBuffer.length !== 1) throw new Error('埋点未进本地缓冲');
+    if (trackBuffer[0].e !== 'ad_show' || trackBuffer[0].d.slot !== 'test') throw new Error('埋点内容异常');
+    track('x', null);   // 空数据不应抛错
+    if (!__hasTrack) throw new Error('埋点未覆盖六点位/结算');
+    ok('埋点：本地缓冲 + 空数据容错 + 六点位/结算接线');
+  } catch(e){ fail('埋点', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
