@@ -5514,7 +5514,7 @@ function drawUpgradePanel() {
     const panelH = titleH + bombReminderH + cardH + padding * 2 + 10;
 
     const panelX = Math.max(10, (screenWidth - totalWidth) / 2 - 25);
-    const panelY = screenHeight - 130 - panelH;
+    const panelY = upgradePanelY(panelH);
     const panelW = Math.min(screenWidth - 20, totalWidth + 50);
     
     // 外框（皇室战争风深蓝面板 + 金色描边）
@@ -7643,8 +7643,17 @@ function levelUp() {
 
 // 显示升级面板（v2.2 P3：4 类卡）
 // ① 元素精通 ② 相生连携 ③ 克制增幅 ④ 通用属性
+// v2.29：三选一面板的位置与输入锁
+//  - 位置：从"贴底 130px"改为屏幕 40% 处（避开拇指滑坦克区）
+//  - 输入锁：弹出后 260ms 内不接受选择，避免拖动手指被当成点卡
+let upgradeInputLock = 0;
+function upgradePanelY(panelH) {
+    return Math.max(SAFE_TOP_OFFSET + 16, Math.round((screenHeight - panelH) * 0.40));
+}
+
 function showUpgradePanel() {
     gameState = 'upgrade';
+    upgradeInputLock = Date.now() + 260;
     const cards = [];
     const _unlocked = getStageUnlockedElements(currentStage);
     const _el = (_unlocked.indexOf(activeElement) >= 0) ? activeElement : (_unlocked[0] || '火');
@@ -15735,6 +15744,8 @@ wx.onTouchStart((e) => {
             }
         }
     } else if (gameState === 'upgrade') {
+        // v2.29：弹出瞬间的触摸一律忽略（防止滑坦克的手指被当成点卡）
+        if (Date.now() < upgradeInputLock) return;
         if (isSkillLab) {
             // 技能实验室：网格点击检测（与getUpgradeListLayout一致）
             const L = getUpgradeListLayout();
@@ -15766,7 +15777,7 @@ wx.onTouchStart((e) => {
         const panelH = titleH + bombReminderH + cardH + padding * 2 + 10;
 
         const panelX = Math.max(10, (screenWidth - totalWidth) / 2 - 25);
-        const panelY = screenHeight - 130 - panelH;
+        const panelY = upgradePanelY(panelH);
         const panelW = Math.min(screenWidth - 20, totalWidth + 50);
 
         // 卡片起始Y = panelY + titleH + bombReminderH + padding + 5

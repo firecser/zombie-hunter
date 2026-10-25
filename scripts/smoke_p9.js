@@ -597,6 +597,19 @@ const driver = `
     ok('宝箱可达性：生成间距 ' + gap.toFixed(0) + 'px ≤ 磁吸 ' + chestMagnetR() + 'px；667–1024 屏高全部可达');
   } catch(e){ fail('宝箱可达性', e); }
 
+  // ---------- 6ab) v2.29：三选一面板位置上移 + 输入锁 ----------
+  try {
+    resetAll();
+    const py = upgradePanelY(300);
+    if (py + 300 > screenHeight * 0.80) throw new Error('面板仍然太靠下: bottom=' + (py + 300) + ' / h=' + screenHeight);
+    if (py < SAFE_TOP_OFFSET) throw new Error('面板顶到状态栏');
+
+    showUpgradePanel();
+    if (gameState !== 'upgrade') throw new Error('未进入升级态');
+    if (!(upgradeInputLock > Date.now())) throw new Error('未设置输入锁（拖动手指会误选）');
+    ok('三选一：面板上移到 ' + Math.round(py) + 'px（底部不超 80% 屏高）+ 260ms 输入锁');
+  } catch(e){ fail('三选一面板', e); }
+
   // ---------- 7) M1 走位接线 ----------
   try {
     if (!__hasMove) throw new Error('onTouchMove 缺少战斗内拖动走位');
