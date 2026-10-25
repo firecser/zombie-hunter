@@ -68,6 +68,10 @@ const sandbox = {
         const pause = src.indexOf('if (gamePaused) {', branch);
         return branch > 0 && revive > branch && pause > revive;
     })(),
+    __hasScene: /const AD_BRANCH = \{/.test(src)
+        && /wx\.reportUserBehaviorBranchAnalytics/.test(src)
+        && (src.match(/reportBranch\('/g) || []).length >= 6
+        && /branchDim: String\(dim\)/.test(src),
     __hasTrack: /wx\.reportAnalytics/.test(src)
         && ['bomb','shield','revive','reroll','chest','double_gold'].every(k => src.indexOf("'" + k + "')") > 0)
         && /track\('level_end'/.test(src),
@@ -499,6 +503,15 @@ const driver = `
     if (!__hasTrack) throw new Error('埋点未覆盖六点位/结算');
     ok('埋点：本地缓冲 + 空数据容错 + 六点位/结算接线');
   } catch(e){ fail('埋点', e); }
+
+  // ---------- 6u) v2.22：场景分析上报 ----------
+  try {
+    if (!__hasScene) throw new Error('场景分析未接入（branchId 配置/上报/曝光点击）');
+    // 未配置 branchId 时必须静默返回，不抛错
+    reportBranch('bomb', 1);
+    reportBranch('not_exist', 2);
+    ok('场景分析：6 点位曝光/点击接线 + 未配置时静默');
+  } catch(e){ fail('场景分析', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

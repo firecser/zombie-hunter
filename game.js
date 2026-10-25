@@ -2527,6 +2527,25 @@ let rewardedAd = null;
 // ===== v2.21 埋点 =====
 // 统一出口：wx.reportAnalytics（需在微信后台「自定义分析」注册同名事件）
 // 本地保留最近 60 条，方便真机调试（wx.getStorageSync('zhTrack') 可查）
+// ===== v2.22 场景分析（统计 → 场景分析）=====
+// 后台「新建场景」→「获取代码」拿到每个行为分支的 branchId，填进下表。
+// branchDim 平台限制只能是 1–100 的整数，这里用「关卡号」当拆分维度。
+// 未填 branchId 的点位不会上报，也不会报错。
+const AD_BRANCH = {
+    bomb: '', shield: '', revive: '', reroll: '', chest: '', double_gold: ''
+};
+
+// eventType: 1=曝光，2=点击
+function reportBranch(slot, eventType) {
+    try {
+        const bid = AD_BRANCH[slot];
+        if (!bid) return;
+        if (typeof wx === 'undefined' || !wx.reportUserBehaviorBranchAnalytics) return;
+        var dim = Math.max(1, Math.min(100, currentStage || 1));
+        wx.reportUserBehaviorBranchAnalytics({ branchId: bid, branchDim: String(dim), eventType: eventType });
+    } catch (e) {}
+}
+
 const TRACK_MAX = 60;
 let trackBuffer = [];
 function track(event, data) {
@@ -2551,7 +2570,8 @@ const REROLL_AD_MAX = 2;      // 每局最多刷新次数
 let rerollAdUsed = 0;
 const CHEST_AD_MAX = 3;       // 每局最多宝箱翻倍次数
 let chestAdUsed = 0;
-let chestDouble = null;       // { x, y, until, kind } 宝箱翻倍提示
+let chestDouble = null;
+let bombAdExposed = false;    // v2.22：炸弹补弹曝光是否已上报       // { x, y, until, kind } 宝箱翻倍提示
 function ensureRewardedAd() {
     if (rewardedAd) return rewardedAd;
     if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null;
@@ -2600,6 +2620,7 @@ function showRewardedAd(onReward, slot) {
     adOpen = true;
     adStartAt = Date.now();
     const _slot = slot || 'unknown';
+    reportBranch(_slot, 2);   // 场景分析：点击
     track('ad_show', {
         slot: _slot,
         level: currentStage,
@@ -6756,6 +6777,7 @@ function updateZombies(dt) {
                 if (wallLives <= 0 && !reviveUsed) {
                     reviveOfferUntil = now + REVIVE_OFFER_MS;
                     gamePaused = true;
+                    reportBranch('revive', 1);
                 }
                 // v2.14：破格后，在破口位置出现「盾兵援军」（仅当还有广告次数）
                 if (shieldAdUsed < SHIELD_AD_MAX && wallLives > 0) {
@@ -6765,6 +6787,7 @@ function updateZombies(dt) {
                     shieldSoldier = { x: Math.max(40, Math.min(screenWidth - 40, _sx)), y: WALL_Y - 64, until: now + 10000 };
                     AudioSystem.playPickup();
                     vibrate('light');
+                    reportBranch('shield', 1);
                 }
                 if (wallLives <= 0 && (reviveUsed || Date.now() >= reviveOfferUntil)) { gameOver(); }
             }
@@ -7138,6 +7161,7 @@ function updateChests(now) {
             // v2.20：留下 4 秒「×2」机会（不打断、可选）
             if (chestAdUsed < CHEST_AD_MAX) {
                 chestDouble = { x: c.x, y: c.y, until: now + 4000, kind: kind };
+                reportBranch('chest', 1);
             }
         }
     }
@@ -7452,6 +7476,7 @@ function showUpgradePanel() {
 
     upgradeOptions = isSkillLab ? cards : weightedPick3(cards);
     selectedUpgrade = -1;
+    if (!isSkillLab && rerollAdUsed < REROLL_AD_MAX) reportBranch('reroll', 1);
 }
 // 三选一权重：元素精通 1.4（成长主线）/ 克制增幅 1.2 / 相生连携 0.9 / 通用属性 0.7
 function upgradeCardWeight(card) {
@@ -7595,7 +7620,9 @@ function victory() {
     player.gold = goldAtStageStart + player.gold + getStageGoldReward(currentStage);
     stageGoldEarned = player.gold - goldAtStageStart;   // 本次获得（击杀金币 + 通关奖励）
     
-    // v2.13：0 漏通关奖励
+    if (!doubleGoldUsed) reportBranch('double_gold', 1);
+
+    // v2.19：0 漏通关奖励
     flawlessClear = (leaksThisLevel === 0);
     if (flawlessClear) {
         player.gold += 200;
@@ -7628,6 +7655,7 @@ function startGame() {
     gameTime = 0;
     lastTime = Date.now();
     adWatchCount = 0; // 每关重置看广告次数
+    bombAdExposed = false;
 
     // 预加载激励视频广告（流量主），提前初始化以便随时展示
     ensureRewardedAd();
@@ -7785,6 +7813,7 @@ function startGame() {
         adZombieCount = 0;
 
         // 不再初始给炸弹（v1.1.60）：炸弹仅通过看广告获得；买量演示引导改为提示看广告补弹
+        if (!bombAdExposed && bombCount <= 0) { bombAdExposed = true; reportBranch('bomb', 1); }
         // 不再生成初始僵尸（v1.1.63）：去掉买量演示开局初始怪批次，玩家正常从首波起手
     }
 }

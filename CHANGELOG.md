@@ -10,6 +10,10 @@
 
 ---
 
+## [2.22.0] - 2026-10-25
+### Added
+- 接入微信「场景分析」：6 个广告点位的曝光/点击上报（`reportUserBehaviorBranchAnalytics`）
+
 ## [2.21.0] - 2026-10-25
 ### Added
 - 广告埋点：`ad_show` / `ad_result`（六点位统一上报）
