@@ -5338,14 +5338,42 @@ function doShare(kind) {
     } catch (e) { /* 分享失败不影响玩法 */ }
 }
 
+// v3.0.1：结算弹窗几何抽成唯一来源——绘制与触摸共用。
+// 同一类错误已犯过三次（金币×2 / 三选一面板 / 失败弹窗），统一走这里，禁止再各写一遍。
+function gameOverModalRect() {
+    const w = Math.min(300, screenWidth * 0.85);
+    const h = 312;
+    return { w: w, h: h, x: (screenWidth - w) / 2, y: screenHeight - 104 - h };
+}
+function victoryModalRect() {
+    const w = Math.min(300, screenWidth * 0.85);
+    const h = 268;
+    return { w: w, h: h, x: (screenWidth - w) / 2, y: screenHeight - 130 - h };
+}
+
+// v3.0.1：失败弹窗命中判定（纯函数，无副作用）——便于单测锁死几何。
+// 返回：'retry' | 'share' | 'talent' | 'level' | null（双倍金币仍走 tryDoubleGoldTap）
+function gameOverHitTest(px, py) {
+    const r = gameOverModalRect();
+    const mainW = 200, mainH = 44;
+    const mainX = (screenWidth - mainW) / 2, mainY = r.y + 176;
+    if (px >= mainX && px <= mainX + mainW && py >= mainY && py <= mainY + mainH) return 'retry';
+
+    const subY = r.y + 240;
+    if (py >= subY - 18 && py <= subY + 18) {
+        if (px > screenWidth / 2 - 30 && px < screenWidth / 2 + 30) return 'share';
+        if (px >= screenWidth / 2 - 130 && px <= screenWidth / 2 - 56) return 'talent';
+        if (px > screenWidth / 2 + 56 && px <= screenWidth / 2 + 130) return 'level';
+    }
+    return null;
+}
+
 function drawGameOver() {
     ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
 
-    const modalW = Math.min(300, screenWidth * 0.85);
-    const modalH = 312;
-    const modalX = (screenWidth - modalW) / 2;
-    const modalY = screenHeight - 104 - modalH;
+    const _gr = gameOverModalRect();
+    const modalW = _gr.w, modalH = _gr.h, modalX = _gr.x, modalY = _gr.y;
 
     drawRoyalePanel(modalX, modalY, modalW, modalH, 14);
     ctx.strokeStyle = ROYALE.red;
@@ -5411,11 +5439,9 @@ function drawVictory() {
     ctx.fillStyle = 'rgba(8, 18, 33, 0.82)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
     
-    // 弹窗
-    const modalW = Math.min(300, screenWidth * 0.85);
-    const modalH = 268;
-    const modalX = (screenWidth - modalW) / 2;
-    const modalY = screenHeight - 130 - modalH;
+    // 弹窗（v3.0.1：几何唯一来源）
+    const _vr = victoryModalRect();
+    const modalW = _vr.w, modalH = _vr.h, modalX = _vr.x, modalY = _vr.y;
     
     drawRoyalePanel(modalX, modalY, modalW, modalH, 14);
     ctx.strokeStyle = ROYALE.gold;
@@ -6833,9 +6859,9 @@ function createSinkholeEffect(x, y, radius) {
 
 // 土系·震地视觉：强化的地震表现——屏幕抖动 + 双层棕色冲击波环 + 大量尘土（相比普通 dust 更明显）
 function createQuakeEffect(x, y, radius) {
-    if (typeof g !== 'undefined' && g && 'shake' in g) {
-        g.shake = Math.max(g.shake || 0, 0.5);   // 触发屏幕抖动，强化“地震”感受
-    }
+    // v3.0.1：原实现引用内嵌小游戏的局部变量 g（主作用域里不存在，永远不生效）。
+    // 改用本作的震屏系统：只抖战场层、上限 10px。
+    addShake(6, 200);
     // 内层快环
     bombExplosionEffects.push({ x: x, y: y, radius: 0, life: 480, maxRadius: radius, color: [210, 160, 100] });
     // 外层大环（扩得更大、更醒目）
@@ -11950,7 +11976,7 @@ function sqDamageEnemy(e, dmg, crit) {
 }
 
 function sqExplode(e, dmg) {
-  const g = gSq;
+  const g = gSq, L = sqLayout();   // v3.0.1 修复：原来漏声明 L，爆炸时会抛 `L is not defined`
   const R = (120/L.DH)*screenHeight;
   for (const o of g.enemies.slice()) {
     if (o === e || o.dead) continue;
@@ -15318,43 +15344,24 @@ function gameLoop() {
         drawFields();
         drawUpgradePanel();
     } else if (gameState === 'gameOver') {
-        // 与 drawGameOver 一致的几何（v3.0：主按钮「再来一局」免费）
-        const modalW = Math.min(300, screenWidth * 0.85);
-        const modalH = 312;
-        const modalX = (screenWidth - modalW) / 2;
-        const modalY = screenHeight - 104 - modalH;
-
-        if (tryDoubleGoldTap(x, y, modalX, modalY, modalW)) return;
-
-        const mainW = 200, mainH = 44;
-        const mainX = (screenWidth - mainW) / 2, mainY = modalY + 176;
-        if (x >= mainX && x <= mainX + mainW && y >= mainY && y <= mainY + mainH) {
-            startGame();           // 免费重开，不再扣金币
-            return;
+        // v3.0.1 修复：这里必须是**渲染**分支。
+        // v3.0 打补丁时锚点命中了 gameLoop 的 gameOver 分支（不是 onTouchStart 的），
+        // 结果：drawGameOver() 从未被调用 + 每帧抛 `x is not defined`，
+        // 报错发生在 requestAnimationFrame 之前 → 主循环直接死掉，死后画面卡死。
+        drawBackground();
+        drawFieldBorders();       // 结算界面仍显示战场边界
+        drawEarthSpikes();        // 结算界面仍把地刺压在怪下层
+        drawEarthSinkholes();     // 结算界面仍把陷坑压在怪下层
+        const drawNow3 = Date.now();
+        for (const zombie of zombies) {
+            drawZombie(zombie, drawNow3);
         }
-        const subY = modalY + 240;
-        if (y >= subY - 18 && y <= subY + 18) {
-            // 分享（中间）
-            if (x > screenWidth / 2 - 30 && x < screenWidth / 2 + 30) {
-                doShare('fail');
-                return;
-            }
-            if (x >= screenWidth / 2 - 130 && x <= screenWidth / 2 - 56) {
-                levelReturnHandled = true;
-                gameState = 'mainMenu';
-                mainMenuTab = 'talent';
-                talentPage = 'jin';
-                talentScrollX = 0;
-                isSkillLab = false;
-                return;
-            } else if (x > screenWidth / 2 + 56 && x <= screenWidth / 2 + 130) {
-                levelReturnHandled = true;
-                gameState = 'mainMenu';
-                mainMenuTab = 'level';
-                isSkillLab = false;
-                return;
-            }
-        }
+        drawLogs();               // 结算界面仍把滚木压在怪上层
+        drawEarthShields();       // 结算界面仍把岩盾压在怪上层
+        drawWall();
+        drawWallHealthBar();
+        drawPlayer();
+        drawGameOver();
     } else if (gameState === 'victory') {
         drawBackground();
         drawPlayer();
@@ -15729,56 +15736,40 @@ wx.onTouchStart((e) => {
         }
         }
     } else if (gameState === 'gameOver') {
-        // 与drawGameOver一致的弹窗位置（正方形按钮：重玩 / 变强 / 返回）
-        const modalW = Math.min(300, screenWidth * 0.85);
-        const modalH = 248;
-        const modalX = (screenWidth - modalW) / 2;
-        const modalY = screenHeight - 130 - modalH;
+        // v3.0.1：命中区与 drawGameOver 共用 gameOverModalRect()，永不再错位
+        const _gr = gameOverModalRect();
+        const modalW = _gr.w, modalH = _gr.h, modalX = _gr.x, modalY = _gr.y;
 
-        // v2.23：先判「金币×2」（失败结算页也有）
+        // 双倍金币优先
         if (tryDoubleGoldTap(x, y, modalX, modalY, modalW)) return;
 
-        const btnSize = 42;
-        const gap = 12;
-        const totalW = btnSize * 3 + gap * 2;
-        const startX = screenWidth / 2 - totalW / 2;
-        const btnY = modalY + 184;
-
-        if (y >= btnY && y <= btnY + btnSize) {
-            if (x >= startX && x <= startX + btnSize) {
-                // 金币重试：消耗金币直接重开当前关（不额外扣体力）
-                if (player.gold >= GOLD_RETRY_COST) {
-                    player.gold -= GOLD_RETRY_COST;
-                    saveProgress();
-                    startGame();
-                } else if (wx.showToast) {
-                    wx.showToast({ title: `金币不足，需${GOLD_RETRY_COST}`, icon: 'none' });
-                }
+        // 主按钮 / 次级按钮：全部走 gameOverHitTest（与绘制同源）
+        switch (gameOverHitTest(x, y)) {
+            case 'retry':
+                startGame();           // 免费重开，不扣金币
                 return;
-            } else if (x >= startX + (btnSize + gap) && x <= startX + (btnSize + gap) + btnSize) {
-                // 变强：进入天赋页
-                levelReturnHandled = true;  // 标记已处理
+            case 'share':
+                doShare('fail');
+                return;
+            case 'talent':
+                levelReturnHandled = true;
                 gameState = 'mainMenu';
                 mainMenuTab = 'talent';
                 talentPage = 'jin';
                 talentScrollX = 0;
                 isSkillLab = false;
                 return;
-            } else if (x >= startX + (btnSize + gap) * 2 && x <= startX + totalW) {
-                // 返回：回到关卡选择
-                levelReturnHandled = true;  // 标记已处理
+            case 'level':
+                levelReturnHandled = true;
                 gameState = 'mainMenu';
-                mainMenuTab = 'level';  // 确保回到关卡Tab
+                mainMenuTab = 'level';
                 isSkillLab = false;
                 return;
-            }
         }
     } else if (gameState === 'victory') {
         // 与drawVictory一致的弹窗位置（正方形按钮：下一关 / 重玩 / 关卡）
-        const modalW = Math.min(300, screenWidth * 0.85);
-        const modalH = 268;
-        const modalX = (screenWidth - modalW) / 2;
-        const modalY = screenHeight - 130 - modalH;
+        const _vr = victoryModalRect();
+        const modalW = _vr.w, modalH = _vr.h, modalX = _vr.x, modalY = _vr.y;
 
         // v3.1：分享（左上角胶囊）
         {

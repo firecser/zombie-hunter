@@ -32,6 +32,17 @@
 - **连败降档（守军支援）**：2 连败 hp×0.88 + 城墙 +1 格；3 连败再送 2 炸弹；5 连败 hp×0.75 + 速度×0.90
 - 全部自动生效，开局以「守军支援已就绪」提示，不写"降低难度"
 
+## [3.0.1] - 2026-10-30
+### Fixed
+- **失败结算界面报 `x is not defined` 并卡死**：v3.0 的补丁锚点命中了 `gameLoop()` 的 `gameOver` **渲染**分支（而非 `onTouchStart` 的触摸分支），导致 `drawGameOver()` 从未被调用、且每帧抛错打断 `requestAnimationFrame` → 死后画面冻结
+- 失败弹窗命中区与绘制相差 106px（旧几何 248 高 / 金币重试，新弹窗 312 高 / 免费重开）
+- `sqExplode()` 漏声明 `L`，内嵌小游戏爆炸时会抛 `L is not defined`
+- 土系震地 `createQuakeEffect()` 引用不存在的全局 `g`（死代码），改用本作 `addShake(6, 200)`
+
+### Changed
+- 结算弹窗几何抽成唯一来源 `gameOverModalRect()` / `victoryModalRect()`，绘制与命中不再各写一遍
+- 失败弹窗命中抽成纯函数 `gameOverHitTest(x, y)`，可单测
+
 ## [3.0.0] - 2026-10-25
 ### Added
 - **1-1 九十秒守军护甲**：第 1 关前 90 秒漏怪不扣格、不计漏怪（新玩家零挫败开局）

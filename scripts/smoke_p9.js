@@ -96,6 +96,20 @@ const sandbox = {
     __odcSub: __odcSub,
     __odcMain: __odcMain,
     __hasMercy: /\* mercyHpMult/.test(src) && /mercySpeedMult/.test(src) && /function mercyFor/.test(src),
+    __hasGameOverRender: (() => {
+        const i = src.indexOf("} else if (gameState === 'gameOver') {");
+        if (i < 0) return false;
+        const j = src.indexOf("} else if (gameState === 'victory') {", i);
+        if (j < 0) return false;
+        const seg = src.slice(i, j);
+        return seg.indexOf('drawGameOver();') >= 0
+            && seg.indexOf('tryDoubleGoldTap') < 0
+            && seg.indexOf('startGame()') < 0;
+    })(),
+    __geomShared: (src.match(/gameOverModalRect\(\)/g) || []).length >= 3
+        && (src.match(/victoryModalRect\(\)/g) || []).length >= 3
+        && src.indexOf('const modalH = 312') < 0
+        && src.indexOf('const modalH = 268') < 0,
     __hasFailAttrib: /☠/.test(src) && /💡/.test(src) && /第 \$\{_waveNo\} 波阵亡/.test(src),
     __hasShare: /wx\.shareAppMessage/.test(src) && /doShare\('fail'\)/.test(src),
     __hasShakeFix: (() => {
@@ -730,6 +744,33 @@ const driver = `
     if (!__odcMain) throw new Error('主域未上传成绩/未渲染好友榜/未绘制 sharedCanvas');
     ok('好友榜：game.json + 子域拉取/渲染 + 主域上传/绘制 全部就位');
   } catch(e){ fail('开放数据域', e); }
+
+  // ---------- 6ai) v3.0.1：结算弹窗渲染 + 命中同源 ----------
+  try {
+    resetAll();
+    const r = gameOverModalRect();
+    if (r.y < 0 || r.y + r.h > screenHeight) throw new Error('失败弹窗越界: y=' + r.y);
+
+    const cx = screenWidth / 2;
+    const cases = [
+      ['retry',  cx,        r.y + 176 + 22],
+      ['share',  cx,        r.y + 240],
+      ['talent', cx - 92,   r.y + 240],
+      ['level',  cx + 92,   r.y + 240],
+      [null,     cx,        r.y + 8]
+    ];
+    for (const [want, px, py] of cases) {
+      const got = gameOverHitTest(px, py);
+      if (got !== want) throw new Error('命中异常 (' + px + ',' + py + ') 期望 ' + want + ' 实得 ' + got);
+    }
+
+    // 两个弹窗必须真的能画出来（曾因 gameLoop 的渲染分支被换成触摸逻辑而完全失效）
+    gameState = 'gameOver'; drawGameOver();
+    gameState = 'victory';  drawVictory();
+    if (!__hasGameOverRender) throw new Error('gameLoop 的 gameOver 分支未调用 drawGameOver()');
+    if (!__geomShared) throw new Error('结算几何未共用（绘制/触摸会漂移）');
+    ok('结算弹窗：能正常绘制 + 命中与绘制同源（retry/share/talent/level）');
+  } catch(e){ fail('结算弹窗', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {
