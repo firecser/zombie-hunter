@@ -96,6 +96,10 @@ const sandbox = {
     __odcSub: __odcSub,
     __odcMain: __odcMain,
     __hasMercy: /\* mercyHpMult/.test(src) && /mercySpeedMult/.test(src) && /function mercyFor/.test(src),
+    __hasAdWatchdog: /const AD_WATCHDOG_MS = 90000;/.test(src)
+        && /function checkAdWatchdog/.test(src)
+        && /checkAdWatchdog\(\);/.test(src),
+    __hasTrackLog: /\[track\]/.test(src) && /\[branch\]/.test(src) && /\[ad-watchdog\]/.test(src),
     __hasGameOverRender: (() => {
         const i = src.indexOf("} else if (gameState === 'gameOver') {");
         if (i < 0) return false;
@@ -771,6 +775,25 @@ const driver = `
     if (!__geomShared) throw new Error('结算几何未共用（绘制/触摸会漂移）');
     ok('结算弹窗：能正常绘制 + 命中与绘制同源（retry/share/talent/level）');
   } catch(e){ fail('结算弹窗', e); }
+
+  // ---------- 6aj) v3.0.2：广告看门狗 ----------
+  try {
+    resetAll();
+    gameState = 'playing'; gameRunning = true; gamePaused = true;
+    reviveOfferUntil = 0;
+    adOpen = true; adStartAt = Date.now() - 5000; adCtx = { slot: 'reroll', onReward: null };
+
+    if (checkAdWatchdog() !== false) throw new Error('5s 不应触发看门狗');
+    if (!adOpen) throw new Error('未超时不应复位');
+
+    adStartAt = Date.now() - (AD_WATCHDOG_MS + 1000);
+    if (checkAdWatchdog() !== true) throw new Error('超时未触发看门狗');
+    if (adOpen) throw new Error('看门狗未复位 adOpen（战斗会永久暂停）');
+    if (gamePaused) throw new Error('看门狗未解除暂停');
+    if (adCtx) throw new Error('看门狗未清空 adCtx');
+    if (!__hasTrackLog) throw new Error('埋点失败未暴露到控制台（后台没数据时无法定位）');
+    ok('广告看门狗：5s 不触发 / 90s 超时强制恢复，不发奖');
+  } catch(e){ fail('广告看门狗', e); }
 
   // ---------- 7) M1 走位接线 ----------
   try {

@@ -32,6 +32,14 @@
 - **连败降档（守军支援）**：2 连败 hp×0.88 + 城墙 +1 格；3 连败再送 2 炸弹；5 连败 hp×0.75 + 速度×0.90
 - 全部自动生效，开局以「守军支援已就绪」提示，不写"降低难度"
 
+## [3.0.2] - 2026-10-30
+### Fixed
+- **广告层挂掉会把游戏拖死**：`operateVideoPlayer:fail:internal error` 时 SDK 可能不回调 `onClose/onError`，`adOpen` 永久为 true（战斗中=永久暂停、升级面板=点了没反应）；新增 **90s 看门狗**强制恢复，不发奖
+- 埋点失败不再静默：`track()` / `reportBranch()` 输出 `[track]` / `[branch]` 日志与失败原因（后台没数据时可在本地自证）
+
+### Docs
+- `docs/运营/埋点事件表.md` 增补：自定义分析 vs 场景分析、「打点测试」看不到数据的原因、控制台自证方法
+
 ## [3.0.1] - 2026-10-30
 ### Fixed
 - **失败结算界面报 `x is not defined` 并卡死**：v3.0 的补丁锚点命中了 `gameLoop()` 的 `gameOver` **渲染**分支（而非 `onTouchStart` 的触摸分支），导致 `drawGameOver()` 从未被调用、且每帧抛错打断 `requestAnimationFrame` → 死后画面冻结

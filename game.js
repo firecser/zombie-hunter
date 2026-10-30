@@ -2614,26 +2614,59 @@ function reportBranch(slot, eventType) {
         if (!bid || bid.length < 10) return;   // 未配置 / ID 明显不完整 → 不上报
         if (typeof wx === 'undefined' || !wx.reportUserBehaviorBranchAnalytics) return;
         var dim = Math.max(1, Math.min(100, currentStage || 1));
+        console.log('[branch]', slot, 'type=' + eventType, 'dim=' + dim);
         wx.reportUserBehaviorBranchAnalytics({ branchId: bid, branchDim: String(dim), eventType: eventType });
-    } catch (e) {}
+    } catch (e) {
+        console.warn('[branch] fail', slot, e);
+    }
 }
 
 const TRACK_MAX = 60;
 let trackBuffer = [];
 function track(event, data) {
+    const payload = data || {};
+    // v3.0.2：埋点必须"可诊断"。原来全程静默 try/catch，
+    // 后台没数据时本地一片空白，无法判断是没发、还是被后台丢了。
     try {
-        const payload = data || {};
         if (typeof wx !== 'undefined' && wx.reportAnalytics) {
-            wx.reportAnalytics(event, payload);
+            try {
+                const ret = wx.reportAnalytics(event, payload);
+                if (ret && typeof ret.then === 'function') {
+                    ret.then(() => console.log('[track] ok', event, payload))
+                       .catch(err => console.warn('[track] fail', event, err));
+                } else {
+                    console.log('[track]', event, payload);
+                }
+            } catch (e) {
+                // 常见原因：后台「自定义分析 → 事件管理」没注册同名事件/参数
+                console.warn('[track] throw', event, e);
+            }
+        } else {
+            console.log('[track] (当前环境无 reportAnalytics)', event, payload);
         }
-        if (typeof trackBuffer !== 'undefined') {
-            trackBuffer.push({ e: event, d: payload, t: Date.now() });
-            if (trackBuffer.length > TRACK_MAX) trackBuffer.shift();
-        }
-    } catch (e) { /* 埋点绝不能影响玩法 */ }
+        trackBuffer.push({ e: event, d: payload, t: Date.now() });
+        if (trackBuffer.length > TRACK_MAX) trackBuffer.shift();
+    } catch (e) { console.warn('[track] error', e); }
 }
 
 let adOpen = false;   // v2.18：广告播放中（用于冻结复活倒计时/暂停判定）
+// v3.0.2：广告看门狗。SDK 播放器异常（如 `operateVideoPlayer:fail:internal error`）时，
+// 可能既不回调 onClose 也不回调 onError，adOpen 会永久为 true：
+// 战斗中就是永久暂停、升级面板里就是"点了没反应"。超时强制恢复，不发奖。
+const AD_WATCHDOG_MS = 90000;   // 90s：激励视频一般 ≤60s，留足余量不误杀
+
+function checkAdWatchdog() {
+    if (!adOpen || adStartAt <= 0) return false;
+    const ms = Date.now() - adStartAt;
+    if (ms <= AD_WATCHDOG_MS) return false;
+    const _slot = (adCtx && adCtx.slot) || 'unknown';
+    try { console.warn('[ad-watchdog] 强制恢复 slot=' + _slot + ' ms=' + ms); } catch (e) {}
+    track('ad_result', { slot: _slot, level: currentStage, ok: 0, ms: ms });
+    adCtx = null;
+    showAdToast('广告加载失败，请重试');
+    resumeAfterAd();
+    return true;
+}
 let adStartAt = 0;    // 广告开始时间
 let adToast = null;   // v2.23.1：画布内提示，避免原生 showToast 与广告层冲突
 let lastAdEndAt = 0;  // v2.24：广告结束时间（用于抑制紧随其后的原生 toast）
@@ -15203,6 +15236,7 @@ function handleMainMenuTouch(x, y) {
 function gameLoop() {
     // v2.25.1：每帧先重置画布变换，任何 draw 漏 restore 都不会累积到下一帧
     try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; } catch (e) {}
+    checkAdWatchdog();   // v3.0.2：广告层挂掉时不要把游戏一起拖死
     const now = Date.now();
     let dt = Math.min(now - lastTime, 50);
     if (Date.now() < slowUntil) dt *= 0.3;          // v2.4：轮转慢动作
